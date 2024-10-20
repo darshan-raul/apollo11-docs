@@ -2,7 +2,7 @@
 
 Here's the architecture of what you will build at the end of this journey
 
-![apolloflavor2](images/apollo11-flavor2.png)
+![apolloflavor2](images/apollo11-flavor2-project.drawio.png)
 
 | Category | Tools |
 |---|---|
