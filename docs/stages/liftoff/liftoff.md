@@ -1,7 +1,7 @@
 
 This is where it all begins!
 
-- Although the main agenda of this tutorial is to understand how to levarage all the useful tools in the cloud native ecosystem, we will be needing a good enough test application to work on to really understand their workings and advantages.
+- Although the main agenda of this tutorial is to understand how to levarage all the useful tools in the cloud native ecosystem, we will be needing practical components to work on to really understand how to actually benifit from them in our day to day activities.
 - It could not be any hello world app as there was no scope to create microservices around it nor could it be a very sofisticated multi usecase app. Henced I turned my hobby of boxoffice tracking and created a simple movie ticket booking app. I have purposely kept the workflow dead simple and used shortcuts compared to the realworld application flow to avoid complexity. 
 - The flow has been designed in such a way that we can easily leverage service mesh, logging, tracing, metrics and many more features we will be visiting along the way.
 
