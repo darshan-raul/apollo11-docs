@@ -21,7 +21,7 @@ Here's the architecture of what you will build at the end of this journey
 | Patching | Kustomize |
 | Logging | Fluentd (agent), Loki (backend) |
 | Service Mesh | Istio |
-| Monitoring | Prometheus, Grafana |
+| Monitoring | Prometheus, Grafana |    
 | Compliance Monitoring | kubebench |
 | Policy Engine | OPA/Kyverno |
 | Policy Checker | Kubescape |
@@ -33,6 +33,7 @@ Here's the architecture of what you will build at the end of this journey
 
 Extra:
 
+- https://github.com/groundcover-com/caretta
 - Dapr
 - Dagger
 
