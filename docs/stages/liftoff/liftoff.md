@@ -23,7 +23,7 @@ The architecture consists of following:
     - has a windows to show the next events scheduled grabbed from the mission-timeline service described below.
         - also has button to add new events there
       
-- mission-timeline service **golang,fiber** wth its own **postgres** db:
+- mission-timeline service **golang,fiber** wth its own **mongodb** db:
     - has some arbitary events to be launched on lunar module
     - responds with event data when called on /data
     - inserts new event in the db when called on /input
@@ -47,7 +47,27 @@ We will be skipping any local setup and directly setup everything in docker. You
 
 ## Run the stack
 
-- `docker compose up --watch`
+- Clone the repo: `git clone https://github.com/darshan-raul/Apollo11.git`
+- Go inside the repo folder `cd Apollo11`
+- In stages folder, go to liftoff subfolder: `cd stages/liftoff`
+- Run the docker compose up command `docker compose up --watch`
 - This command will ensure that all the components are up and if you change anything in the codebase of the microservices, their images are rebuild automatically
 
-    
+## Check the application
+
+- You can check `docker ps` and confirm that 8 containers are running
+
+```
+CONTAINER ID   IMAGE                        COMMAND                  CREATED              STATUS              PORTS                                             NAMES
+c571c2d75cf3   liftoff-dashboard-app        "./dashboard"            About a minute ago   Up About a minute   0.0.0.0:3000->8080/tcp, [::]:3000->8080/tcp       liftoff-dashboard-app-1
+326f73981ade   liftoff-command-dispatcher   "uvicorn main:app --…"   About a minute ago   Up About a minute   0.0.0.0:9000->8000/tcp, [::]:9000->8000/tcp       liftoff-command-dispatcher-1
+7f5128409e60   liftoff-timeline-app         "./timeline"             About a minute ago   Up About a minute   0.0.0.0:8081->8080/tcp, [::]:8081->8080/tcp       liftoff-timeline-app-1
+39eea79a30ed   liftoff-lunar-app            "./lunar-module"         About a minute ago   Up About a minute   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp       liftoff-lunar-app-1
+27452f4c3ca2   liftoff-telemetry-app        "uvicorn main:app --…"   About a minute ago   Up About a minute   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp       liftoff-telemetry-app-1
+c901f589e718   mongo:7.0                    "docker-entrypoint.s…"   About a minute ago   Up About a minute   0.0.0.0:27017->27017/tcp, [::]:27017->27017/tcp   liftoff-timeline-mongodb-1
+77f8d47659b2   postgres:15-alpine           "docker-entrypoint.s…"   About a minute ago   Up About a minute   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp       liftoff-lunar-postgres-1
+ab00f101892b   postgres:15-alpine           "docker-entrypoint.s…"   About a minute ago   Up About a minute   0.0.0.0:5433->5432/tcp, [::]:5433->5432/tcp       liftoff-telemetry-postgres-1
+
+```
+
+- Post that you can go to the browser and enter: `http://localhost:3000` and you should be able to view the dashboard!
