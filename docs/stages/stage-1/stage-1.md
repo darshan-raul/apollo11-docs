@@ -13,71 +13,171 @@ Now that we have all our code working with Docker Compose, it’s time to run it
 
 I have decided to use kind for this course but it can be followed with absolutely any of these local distributions. Each of them have their tradeoffs and ultimately its our preference.
 
-## Creating kind cluster
+## Prerequisites
 
-### Install kind binary
+This guide provides instructions to install `kind` (Kubernetes IN Docker) and `kubectl` (Kubernetes command-line tool) on Linux using binary downloads and adding them to your system's PATH. This ensures you always have the latest versions directly from the source. Assuming `oocker` is already installed.
 
-Follow this link to know more: https://kind.sigs.k8s.io/docs/user/quick-start#installing-from-release-binaries
+-----
 
-- For linux, follow these steps:
+### Installing `kind` (Kubernetes IN Docker) on Linux
+
+1.  Get the latest `kind` release version:
+  
+    ```bash
+    KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    echo "Latest kind version: $KIND_VERSION"
+    ```
+
+2.  Download the `kind` binary:
+    
+    *Note: Replace `amd64` with `arm64` if you are on an ARM-based system.*
 
     ```bash
     # For AMD64 / x86_64
-    [ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
-    # For ARM64 [use this if not using amd computes, mac,gravtion servers etc]
-    # [ $(uname -m) = aarch64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-arm64
+    [ $(uname -m) = x86_64 ] && curl -Lo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+
+    ```
+
+3.  Make the binary executable:
+
+    ```bash
     chmod +x ./kind
+    ```
+
+4.  Move the binary to a directory in your PATH:
+
+    ```bash
     sudo mv ./kind /usr/local/bin/kind
     ```
 
+5.  Verify the installation:
+
+    ```bash
+    kind version
+    ```
+
+-----
+
+### Installing `kubectl` on Linux
+
+1.  Get the latest `kubectl` release version:
+
+    ```bash
+    KUBECTL_VERSION=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
+    echo "Latest kubectl version: $KUBECTL_VERSION"
+    ```
+
+2.  Download the `kubectl` binary:
+
+    ```bash
+    curl -LO "https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    ```
+
+    *Note: Replace `amd64` with `arm64` if you are on an ARM-based system.*
+
+3.  Make the binary executable:
+
+    ```bash
+    chmod +x ./kubectl
+    ```
+
+4.  Move the binary to a directory in your PATH:
+
+    ```bash
+    sudo mv ./kubectl /usr/local/bin/kubectl
+    ```
+
+5.  Verify the installation:
+
+    ```bash
+    kubectl version --client
+    ```
+
+
+-----
+
+### For Windows/Mac
+
+### For Windows:
+
+  * Using Chocolatey (Recommended for ease):
+
+    ```powershell
+    choco install kubernetes-cli # Installs kubectl
+    choco install kind # Installs kind
+    ```
+
+    Ensure Chocolatey is installed first: [https://chocolatey.org/install](https://chocolatey.org/install)
+
+  * Using Scoop:
+
+    ```powershell
+    scoop install kubectl
+    scoop install kind
+    ```
+
+    Ensure Scoop is installed first: [https://scoop.sh/](https://scoop.sh/)
+
+### For macOS:
+
+  * Using Homebrew (Recommended):
+
+    ```bash
+    brew install kubectl
+    brew install kind
+    ```
+
+    Ensure Homebrew is installed first: [https://brew.sh/](https://brew.sh/)
+
+
+## Creating kind cluster
+
 - Change directory to kind directory in the stage 1 folder
-    - `cd stages/stage-1/kind-config`
+    
+    ```bash
+    cd stages/stage-1/kind-config
+    ```
+
 - Look at the content of the kind config file. It is being used to create a kind cluster with custom settings (more that one node in this case) 
-    - `cat kind-config.yaml`
+    
+    ```bash
+    cat kind-config.yaml
+    ```
+
 - You can read more about customizing kind configuration here: https://kind.sigs.k8s.io/docs/user/configuration/
 
-
-```
-# to insert new in timeline service
-curl -X POST http://localhost:8081/input \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "New Mission Event",
-    "time": "2024-01-15T10:30:00Z"
-  }'
-```
-
-### Create kind cluster with name and 3 workers
-
-> Optional: The reason I have gone with 3 workers is to get a feel of a real cluster 
-
 - Lets create the kind cluster
+
     ```bash
     cd stages/stage-1/kind-config
     kind create cluster --name apollo --config kind-config.yaml
     ```
 
-    ![alt text](image-1.png)
+    ![kind cluster creation](./images/cluster-create.png)
 
 - Next run this command to cehck if cluster is running correctly:  
+
     ```bash
     kubectl cluster-info --context kind-apollo`
     ```
 
-    ![alt text](image-2.png)
+    ![kind info](./images/kind-info.png)
 
-- Confirm the nodes are correct `kubectl get nodes`
-    ![alt text](image-3.png)
+- Confirm the nodes are correct 
+    
+    ```bash
+    kubectl get nodes
+    ```
+
+    ![kubenodes](./images/kube-nodes.png)
 
 - Can look at `cat ~/.kube/config` to confirm that cluster config is set correctly
 
-### Creating a test pod
-
 - Lets try the default hello world of any k8s cluster, running the nginx image
-   ```bash 
-   kubectl run nginx --image=nginx
-   ```
-
+   
+    ```bash 
+    kubectl run nginx --image=nginx
+    ```
 - You should be seeing a `pod/nginx created` output
 
 - Confirm our pod has been created:
@@ -85,17 +185,19 @@ curl -X POST http://localhost:8081/input \
     ```bash
     kubectl get pods
     ```
+    > Note: it could be in `ContaineCreating` state for  a while until the image is retrieved locally
 
-    ![alt text](image-4.png)
+    ![kind nginx](./images/kind-nginx.png)
 
 - Lets port forward that pod and check if its accessible from the terminal 
+
     ```bash
     kubectl port-forward pod/nginx 8000:80
     ```
 
     This will make sure that the port 80 in the nginx pod will be exposed as port 8000 on your localhost
 
-    ![alt text](image-5.png)
+    ![nginx portforward](./images/nginx-portforward.png)
 
 - Open a different terminal and try accessing the site:
 
@@ -103,171 +205,95 @@ curl -X POST http://localhost:8081/input \
     curl http://localhost:8000
     ```
 
-    ![alt text](image-6.png)
+    ![nginx output](./images/nginx-output.png)
 
 - Lets cleanup the pod once we have tested
-- Delete the pod using `kubectl delete pod/nginx`
+
+- Delete the pod using 
+    
+    ```bash
+    kubectl delete pod/nginx
+    ```
 
 ## Creating namespace
 
-> To get more info on namespaces refer: [namespaces](https://darshan-raul.gitbook.io/cloudnativeguide/kubernetes/concepts/namespaces)
+- Lets create a namespace named `apollo11`. All our resources will go here.
+- Kubernetes namespaces provide a mechanism to logically divide cluster resources among multiple users or teams. They help organize objects and prevent naming collisions in large environments, acting as virtual clusters within a physical cluster.
+> To get more info on namespaces refer: [namespaces](https://notes.darshanraul.cloud/kubernetes/concepts/namespaces)
 
-
-- Now lets start creating our actual architecture on this cluster
-- Lets create a namespace named `apollo11`
-- All of our resources will be created in that namespace [except any non namespaced resources]
+- All of our resources will be created in that namespace [except any non namespaced resources, run `kubectl api-resources` to check ]
 
     ```bash
-    cd /stages/stage-1/manifests/namespace
+    cd stages/stage-1/manifests/namespace
     kubectl apply -f namespace.yaml
     ```
 
-    ![alt text](image-7.png)
+    ![namespace created](./images/namespace-created.png)
 
 - Now lets have a look if our namespace has been created. Run below command and ensure that the apollo11 namespace has been created
 
     ```bash
     kubectl get namespaces
     ```
-    ![alt text](image-8.png)
+    ![namespace confirm](./images/namespace-confirm.png)
 
 
 ## Load all the images inside kind cluster
 
 - To run our pods inside kind, we will need to load our docker images inside kind cluster.
+- This is a temporary provision until we setup a CICD in the next sections
+
 > Note: There will be similar provisions in other local distributions as well. Also in the next stages we will be moving to private registries where these steps will be obsolete. But to start with simple setup, these are needed
-- Check if you have docker images for all the 5 services: payment,booking,theatre,movie and dashboard
+
+- Check if you have docker images for all the 5 services and 2 databases: lunar,dashboard,timeline,commmnd,telemetry
+
     ```bash
     docker images
     ```
-    ![alt text](image-9.png)
+
+    ![docker images](./images/docker-images.png)
+
 - Once confirmed, lets load all the images into kind cluster. Kind will automatically load them to all the nodes in the cluster
+
     ```bash
-    kind load docker-image apollo11-payment:latest --name apollo
-    kind load docker-image apollo11-movie:latest --name apollo
-    kind load docker-image apollo11-booking:latest --name apollo
-    kind load docker-image apollo11-theatre:latest --name apollo
-    kind load docker-image apollo11-dashboard:latest --name apollo
+    kind load docker-image liftoff-dashboard-app:latest --name apollo
+    kind load docker-image liftoff-timeline-app:latest --name apollo
+    kind load docker-image liftoff-command-dispatcher:latest --name apollo
+    kind load docker-image liftoff-lunar-app:latest --name apollo
+    kind load docker-image liftoff-telemetry-app:latest --name apollo
     ```
+
 - We can confirm these are loaded by running this command on one of the node containers
+
     ```bash
-    docker exec -it apollo-worker2 crictl images
+    docker exec -it apollo-worker crictl images
     ```
+    ![kind images loaded](./images/kind-images-loaded.png)
 
-!!! note
+> !!! note
+>
+>   because this will be local images, **we need to ensure that we keep imagePullPolicy=never** when running in the local cluster to avoid any image pull business
 
-    because this will be local images, **we need to ensure that we keep imagePullPolicy=never** when running in the local cluster to avoid any image pull business
 
 ## Creating Architecture
-
-- Although best practices have been followed that make sure that if you create all the infra at once, they will be created and will work seamlessly, for our learning we will deploy one service at a time. 
-- The sequence we will maintain is `payment->theatre->movie->booking->dashboard`
 
 - If you are not a newbie and want to get done with this stage at once:
     ```bash
     cd /stages/stage-1/manifests
     kubectl apply -R -f .
     ```
-!!! note
-    You will have to wait till all the probes and initcontainers finish for everything to be up
-
-### Creating payment service
-
-
-
-### Base64 encode
-
-`echo -n "7000" | base64`
-
-### Adding movies
-
-```bash
-http POST localhost:7000/theatre name=inox location=mumbai seats:=50
-http POST localhost:7000/theatre name=pvr location=mumbai seats:=50
-http POST localhost:7000/theatre name=cinepolis location=mumbai seats:=50
-
-http POST localhost:9000/movies name=chichore genre=comedy stars=4
-http POST localhost:9000/movies name=rhtdm genre=romance stars=4
-http POST localhost:9000/movies name=tumbad genre=horror stars=4
-http POST localhost:9000/movies name=dilse genre=thriller stars=4
-http POST localhost:9000/movies name=cki genre=sports stars=4
-```
-
-### Cleanup
-
-Lets cleanup all the resources
-
-```bash
-kubectl delete all --all
-kubectl delete secrets --all
-kubectl delete cm --all
-kubectl delete pvc --all
-```
-
-## Just enough RBAC
-
-
-## Best practices when creating a deployment
-
-### Using specific image tags instead of latest
-
-### Adding resource limits
-
-
-```
-resources:  # Limit the container's resource usage
-    requests:
-        memory: "64Mi"
-        cpu: "250m"
-    limits:
-        memory: "128Mi"
-        cpu: "500m"
-```
-
-
-### Putting resource quotas
-
-
-### Putting Liveness,startup and readiness probe
-
-```
-readinessProbe:  # Add readinessProbe to detect when the container is ready to receive traffic
-    httpGet:
-        path: /healthz  # Adjust the path to your app's health check
-        port: 8080
-    initialDelaySeconds: 5
-    periodSeconds: 10
-    livenessProbe:  # Add livenessProbe to ensure the container is healthy
-    httpGet:
-        path: /healthz
-        port: 8080
-    initialDelaySeconds: 15
-    periodSeconds: 20
-```
-
-
 
 ## Tools
 
-### K9s
-### Kubens
-### Kubectx
-### jsonpath parsing
-
-## Extra
-
-### Kompose
+- K9s
+- Kubens
+- Kubectx
+- jsonpathparsing
+- Kompose
 
 - There is a tool called Kompose which can be used to convert your docker compose files into k8s manifests
 - Infact I used it to initially convert the docker compose file to the initial set of manifests
 - Refer the docs at https://kompose.io to know more
-
 > Note: in my observations, you will have to tweak quite a bit to make the manifests work if you have some complex usecases but for simpler applications this will work like a charm
-
 - Just install kompose by following their guide and run `kompose convert` and you get your k8s manifests! Give it a try
 
-## Useful kubectl commands
-
-- `kubectl explain <resourcename>`
-- `kubectl explain <resourcename> --recursive`
-- `kubectl <syntax> --dry-run=client -o yaml`
