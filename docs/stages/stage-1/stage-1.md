@@ -129,6 +129,12 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
 
     Ensure Homebrew is installed first: [https://brew.sh/](https://brew.sh/)
 
+### Install required plugins in Vscode/Cursor:
+    - install the following plugins in your IDE of choice for better experience
+        - docker
+        - kubernetes
+        - python
+        - golang
 
 ## Creating kind cluster
 
