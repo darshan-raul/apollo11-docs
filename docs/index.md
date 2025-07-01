@@ -12,21 +12,23 @@ Here's the architecture of what you will build at the end of this journey
 
 > *"Ignition begins with understanding containers."*
 
-* Intro to containers & Docker
-* Docker CLI, Dockerfiles, Images, Volumes
-* Build & Run multi-service apps via Docker Compose
-* Local workflows with `tilt` or `skaffold` for developer productivity
+- ✅ Intro to containers & Docker
+- ✅ Docker CLI, Dockerfiles, Images, Volumes
+- ✅ Build & Run multi-service apps via Docker Compose
+- Local workflows with `tilt` or `skaffold` for developer productivity
 
 ---
 
-### 🧱 **Stage 1: Launch Pad** — Kubernetes Barebones
+### 🧱 **Stage 1: It Begins** — Kubernetes Barebones
 
 > *"Get it off the ground using the simplest cluster."*
 
-* Intro to Kubernetes concepts: Pods, Nodes, Cluster
-* Setup Kind / Minikube cluster
-* Deploy simple apps via `kubectl`
-* Create basic `Deployment`, `Service`, and use Namespaces
+- ✅ Setup Kind Cluster
+- ✅ Deploy simple apps via `kubectl`
+- ✅ Create basic `Deployment`, `Service`, and use `Namespaces`
+- View underlying ReplicaSets, simulate pod failure, do one roll out and rollback
+- RollOut Vs Recreate
+- kubectl walkthrough + jsonpath parsing
 
 ---
 
@@ -36,8 +38,11 @@ Here's the architecture of what you will build at the end of this journey
 
 * ConfigMaps, Secrets
 * Labels, Annotations
+* Selectors
 * Init containers, sidecars
 * Probes: Readiness, Liveness, Startup
+* MaxUnavailable and MaxSurge
+* minReadySeconds,,terminationGracePeriodSeconds
 * Resource requests/limits, Quotas
 * Restart policies
 * Scheduling: Taints/Tolerations, Node Affinity, Pod Affinity/Anti-Affinity
@@ -49,6 +54,7 @@ Here's the architecture of what you will build at the end of this journey
 
 > *"Save state and survive reboots."*
 
+* Downward API
 * Persistent Volumes & Claims
 * Storage Classes
 * StatefulSets
@@ -89,9 +95,10 @@ Here's the architecture of what you will build at the end of this journey
 > *"Keep eyes on every subsystem."*
 
 * `kubectl debug`, `ephemeral containers`
+* CrashLoopBackOff
 * Headlamp or Lens UI
 * Metrics Server, API metrics
-* Prometheus + Grafana
+* Prometheus + Grafana + P99 + SRE monitoring
 * Loki for logs
 * Tempo/Jaeger for traces
 * OpenTelemetry overview
@@ -117,6 +124,7 @@ Here's the architecture of what you will build at the end of this journey
 * TLS/SSL & Cert Manager
 * Sealed Secrets / External Secrets
 * RBAC (basic to advanced)
+* Service Accounts
 * Vault for secrets management
 * OPA / Kyverno for policies
 * Keycloak for SSO / OIDC
@@ -145,6 +153,8 @@ Here's the architecture of what you will build at the end of this journey
 * Backup & Restore using Velero/Rook
 * Blue/Green and Canary upgrade patterns
 * Minor/Major cluster version upgrades
+* topologySpreadConstraints
+* Pod Distrubtion Budgets
 * Chaos Engineering with LitmusChaos / ChaosMesh
 
 ---
@@ -165,7 +175,10 @@ Here's the architecture of what you will build at the end of this journey
 
 > *"Progressive delivery and self-reliance."*
 
+* CRDS
+* Operators
 * Argo Rollouts for Canary/Blue-Green
+* Feature Flags
 * Progressive Delivery strategies
 * Harbor – self-hosted registry with security scanning
 * Cluster cost analysis (Kubecost)

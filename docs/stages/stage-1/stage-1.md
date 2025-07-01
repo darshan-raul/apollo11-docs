@@ -1,7 +1,6 @@
-
 # Running the apps in local k8s
 
-Now that we have all our code working with Docker Compose, it’s time to run it on our local Kubernetes (k8s) cluster. There are multiple options for this:
+Now that we have all our code working with Docker Compose, it's time to run it on our local Kubernetes (k8s) cluster. There are multiple options for this:
 
 - **[Minikube](https://minikube.sigs.k8s.io/docs/start)**
 - **[Kind](https://kind.sigs.k8s.io/docs/user/quick-start#creating-a-cluster)** (Kubernetes in Docker)
@@ -15,7 +14,7 @@ I have decided to use kind for this course but it can be followed with absolutel
 
 ## Prerequisites
 
-This guide provides instructions to install `kind` (Kubernetes IN Docker) and `kubectl` (Kubernetes command-line tool) on Linux using binary downloads and adding them to your system's PATH. This ensures you always have the latest versions directly from the source. Assuming `oocker` is already installed.
+This guide provides instructions to install `kind` (Kubernetes IN Docker) and `kubectl` (Kubernetes command-line tool) on Linux using binary downloads and adding them to your system's PATH. This ensures you always have the latest versions directly from the source. Assuming `docker` is already installed.
 
 -----
 
@@ -96,9 +95,11 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
 
 -----
 
-### For Windows/Mac
+> **ALTERNATIVES**
 
-### For Windows:
+-  **For Windows/Mac**
+
+-  **For Windows:**
 
   * Using Chocolatey (Recommended for ease):
 
@@ -118,7 +119,7 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
 
     Ensure Scoop is installed first: [https://scoop.sh/](https://scoop.sh/)
 
-### For macOS:
+-  **For macOS:**
 
   * Using Homebrew (Recommended):
 
@@ -129,7 +130,7 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
 
     Ensure Homebrew is installed first: [https://brew.sh/](https://brew.sh/)
 
-### Install required plugins in Vscode/Cursor:
+-  **Install required plugins in Vscode/Cursor:**
     - install the following plugins in your IDE of choice for better experience
         - docker
         - kubernetes
@@ -179,6 +180,9 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
 
 - Can look at `cat ~/.kube/config` to confirm that cluster config is set correctly
 
+> !!! note 
+We will go in depth of the content of the config file when we visit RBAC section
+
 - Lets try the default hello world of any k8s cluster, running the nginx image
    
     ```bash 
@@ -221,7 +225,52 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
     kubectl delete pod/nginx
     ```
 
+## Folder Structure 
+
+- In this module we will be creating all the components in the most simplest way possible, with deployments and expose them with clusterip services. 
+- The folder/file structure is as follows:
+
+    ```
+    .
+    ├── namespace
+    │   └── namespace.yaml
+    └── workload
+        ├── command-dispatcher
+        │   └── app
+        │       ├── deployment.yaml
+        │       ├── incorrect-deployment.yaml
+        │       └── service.yaml
+        ├── dashboard
+        │   └── app
+        │       ├── deployment.yaml
+        │       └── service.yaml
+        ├── lunar
+        │   ├── app
+        │   │   ├── deployment.yaml
+        │   │   └── service.yaml
+        │   └── db
+        │       ├── deployment.yaml
+        │       └── service.yaml
+        ├── telemetry
+        │   ├── app
+        │   │   ├── deployment.yaml
+        │   │   └── service.yaml
+        │   └── db
+        │       ├── deployment.yaml
+        │       └── service.yaml
+        └── timeline
+            ├── app
+            │   ├── deployment.yaml
+            │   └── service.yaml
+            └── db
+                ├── deployment.yaml
+                └── service.yaml
+
+
+    ```
+
 ## Creating namespace
+
 
 - Lets create a namespace named `apollo11`. All our resources will go here.
 - Kubernetes namespaces provide a mechanism to logically divide cluster resources among multiple users or teams. They help organize objects and prevent naming collisions in large environments, acting as virtual clusters within a physical cluster.
@@ -251,7 +300,7 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
 
 > Note: There will be similar provisions in other local distributions as well. Also in the next stages we will be moving to private registries where these steps will be obsolete. But to start with simple setup, these are needed
 
-- Check if you have docker images for all the 5 services and 2 databases: lunar,dashboard,timeline,commmnd,telemetry
+- Check if you have docker images for all the 5 services: lunar,dashboard,timeline,commmnd,telemetry. The database images are public so they will be pulled instead.
 
     ```bash
     docker images
@@ -259,7 +308,7 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
 
     ![docker images](./images/docker-images.png)
 
-- Once confirmed, lets load all the images into kind cluster. Kind will automatically load them to all the nodes in the cluster
+- Once confirmed, lets load all the app images into kind cluster. Kind will automatically load them to all the nodes in the cluster
 
     ```bash
     kind load docker-image liftoff-dashboard-app:latest --name apollo
@@ -278,10 +327,13 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
 
 > !!! note
 >
->   because this will be local images, **we need to ensure that we keep imagePullPolicy=never** when running in the local cluster to avoid any image pull business
+>   because this will be local images, **we need to ensure that we keep imagePullPolicy=never** when running in the local cluster to avoid any image pull business. **only for app images,db images will be pulled**
 
 
 ## Creating Architecture
+
+
+
 
 - If you are not a newbie and want to get done with this stage at once:
     ```bash
@@ -289,17 +341,41 @@ This guide provides instructions to install `kind` (Kubernetes IN Docker) and `k
     kubectl apply -R -f .
     ```
 
+
+
 ## Tools
 
-- K9s
-- Kubens
-- Kubectx
-- jsonpathparsing
-- Kompose
+These tools are designed to make working with Kubernetes clusters easier and more efficient from the command line:
 
-- There is a tool called Kompose which can be used to convert your docker compose files into k8s manifests
-- Infact I used it to initially convert the docker compose file to the initial set of manifests
-- Refer the docs at https://kompose.io to know more
-> Note: in my observations, you will have to tweak quite a bit to make the manifests work if you have some complex usecases but for simpler applications this will work like a charm
-- Just install kompose by following their guide and run `kompose convert` and you get your k8s manifests! Give it a try
+### K9s
+- **What it is:**
+    - K9s is a terminal-based UI to interact with your Kubernetes clusters. It provides a real-time, interactive view of your cluster resources, making it easy to monitor and manage pods, deployments, services, and more.
+
+- **How to use:**
+    - Launch K9s by running `k9s` in your terminal.
+    - Navigate resources using arrow keys, and use `:` to enter commands (e.g., `:pod` to view pods).
+    - Press `?` inside K9s for a list of keyboard shortcuts.
+- [**Video**](https://www.youtube.com/watch?v=AMUQzyPvO04&pp=ygUDazlz)
+
+### Kubens
+- **What it is:**
+    - Kubens is a simple CLI tool to switch between Kubernetes namespaces quickly.
+- **How to use:**
+    - Run `kubens` to list all available namespaces.
+    - Run `kubens <namespace>` to switch your current context to the specified namespace.
+    - Your `kubectl` commands will now default to the selected namespace.
+
+### Kubectx
+- **What it is:**
+    - Kubectx is a CLI tool to switch between multiple Kubernetes contexts (clusters) easily.
+- **How to use:**
+    - Run `kubectx` to list all available contexts.
+    - Run `kubectx <context-name>` to switch your current context to the specified cluster.
+    - This is useful if you work with multiple clusters (e.g., dev, staging, prod).
+
+**Tip:** You can combine these tools for a smooth workflow: use `kubectx` to select your cluster, `kubens` to select your namespace, and `k9s` to interactively manage resources.
+
+---
+
+
 
