@@ -292,6 +292,82 @@ We will go in depth of the content of the config file when we visit RBAC section
     ```
     ![namespace confirm](./images/namespace-confirm.png)
 
+## Understanding : Pods, Deployments, ReplicaSets, and Services
+
+
+### The Smallest Unit: The Pod 
+> and why you don't run it directly
+
+In Kubernetes, the **Pod** is the smallest deployable unit. Think of a Pod as a logical host **for one or more containers**. These containers are tightly coupled and share the same network namespace, storage volumes, and usually the same lifecycle. For example, if you have a web server and a sidecar container that pushes logs, they'd typically reside within the same Pod.
+
+**So, why do we never run Pods directly?**
+
+While you *can* create a standalone Pod, it's highly discouraged for production environments. Here's why:
+
+* **No Self-Healing:** If a directly created Pod crashes, is evicted, or the node it's on fails, Kubernetes won't automatically bring it back. Your application will be down until you manually intervene.
+* **No Scaling:** You can't easily scale a standalone Pod. If you need more instances of your application to handle increased load, you'd have to manually create more Pods.
+* **No Rolling Updates:** Updating a directly created Pod to a new version means deleting the old one and creating a new one, leading to downtime for your application.
+* **Manual Management Overhead:** Managing individual Pods quickly becomes a nightmare as your application grows.
+
+This is where higher-level abstractions like ReplicaSets and Deployments come into play.
+
+### Ensuring Stability: The ReplicaSet
+
+A **ReplicaSet** is a Kubernetes controller that ensures a specified number of identical Pod replicas are running at all times. If a Pod fails, the ReplicaSet will automatically create a new one to maintain the desired count. It's the "self-healing" mechanism for your Pods.
+
+A ReplicaSet typically includes:
+
+* **`replicas`**: The desired number of Pod instances.
+* **`selector`**: A set of labels (we will look at them in stage2) that the ReplicaSet uses to identify the Pods it manages.
+* **`template`**: The Pod definition (container image, ports, resources, etc.) that the ReplicaSet uses to create new Pods.
+
+**⚠️⚠️Why we should not use ReplicaSet directly:⚠️⚠️**
+
+While ReplicaSets provide crucial self-healing and basic scaling, they lack capabilities for managing application updates. If you want to deploy a new version of your application, directly manipulating a ReplicaSet would mean manually deleting old Pods and hoping the ReplicaSet creates new ones with the updated template, which is not a controlled or graceful process. You wouldn't get features like rolling updates or easy rollbacks.
+
+### The Orchestrator: The Deployment
+
+This is where the **Deployment** shines! A Deployment is a higher-level API object that manages ReplicaSets, and by extension, your Pods. It provides declarative updates for Pods and ReplicaSets.
+
+Think of a Deployment as the orchestrator of your application's lifecycle. When you define a Deployment, you specify the desired state of your application, including the container image, the number of replicas, and update strategies.
+
+Key benefits of using Deployments:
+
+* **Declarative Updates:** You simply declare the desired state (e.g., "I want 3 replicas of my Nginx app with version 1.25"). The Deployment controller then works to achieve that state.
+* **Rolling Updates:** Deployments enable zero-downtime rolling updates. When you update the image version in your Deployment, it gradually creates new Pods with the new version and scales down the old ones, ensuring your application remains available throughout the process.
+* **Rollbacks:** Made a mistake in your new version? Deployments allow you to easily roll back to a previous stable revision with a single command.
+* **Self-Healing and Scaling (through ReplicaSets):** Deployments leverage ReplicaSets under the hood. When you create a Deployment, it automatically creates a ReplicaSet to manage your Pods, inheriting its self-healing and scaling capabilities.
+
+**In essence, you define your application's desired state in a Deployment, and the Deployment takes care of managing the underlying ReplicaSets and Pods to achieve and maintain that state.**
+
+### Connecting the Dots: Services
+
+Even with Pods running reliably thanks to Deployments, there's still a challenge: how do other parts of your application (or external users) find and communicate with these Pods? Pods are ephemeral; their IP addresses can change when they are recreated or moved. This is where **Services** come in.
+
+A **Service** is an abstract way to expose a set of Pods as a network service. It provides a stable IP address and DNS name for your application, regardless of which individual Pods are running behind it. Services also handle load balancing across the Pods they expose.
+
+Key aspects of Services:
+
+* **Stable Network Endpoint:** A Service gets a permanent IP address and DNS name, allowing other components to reliably connect to your application without needing to know the individual Pod IP addresses of the Pods.
+* **Load Balancing:** Services automatically distribute incoming traffic across the healthy Pods that match its selector.
+* **Decoupling:** Services decouple your application's front-end from its back-end. The front-end only needs to know the Service's stable address, not the constantly changing Pod IPs.
+
+### The Inner Workings: ClusterIP Service
+
+The **ClusterIP** is the default and most common type of Kubernetes Service.
+
+* **⚠️Internal Access Only:⚠️** A ClusterIP Service assigns a virtual IP address that is only reachable from *within* the Kubernetes cluster. This makes it ideal for communication between different microservices within your application. **We will cover advanced services in stage 4**
+* **How it Works:** When you create a ClusterIP Service, Kubernetes assigns it a stable IP address from a pool of internal cluster IPs. It then continuously monitors for Pods that match its `selector` labels. All traffic directed to the Service's ClusterIP is then load-balanced across these matching Pods.
+
+**Example Scenario:**
+
+    Imagine you have a frontend web application (exposed via a Deployment) that needs to communicate with a backend 
+    API (also exposed via a Deployment). You would create a `ClusterIP` Service for your backend API. 
+    Your frontend Pods can then simply use the backend Service's stable DNS name or IP address to make requests, 
+    without ever needing to know the specific IP addresses of the backend Pods.
+
+
+By understanding these fundamental building blocks – Pods as the smallest units, ReplicaSets ensuring their stability, Deployments orchestrating their lifecycle and updates, and Services providing stable network access – you're well on your way to mastering Kubernetes deployments.
 
 ## Load all the images inside kind cluster
 
@@ -333,15 +409,29 @@ We will go in depth of the content of the config file when we visit RBAC section
 ## Creating Architecture
 
 
+- Lets see that there are no resources in our new namespace: `kubectl get all -n apollo11`
+    ![no pods](./images/apollo11-no-pods.png)
+
+>
+>    - 📌📌**If you are not a newbie and want to see everything this stage creates**📌📌:
+        ```bash
+        cd /stages/stage-1/manifests/workload
+        kubectl apply -R -f .
+        ```
+        ![kubectlapplyall](./images/kubectlapplyrecursive.png)
+
+> ‼️‼️ **I still urge you to go through all the manifest files to just get a hang of the premise. You can then move to Stage2** ‼️‼️
+
+### Steps
 
 
-- If you are not a newbie and want to get done with this stage at once:
-    ```bash
-    cd /stages/stage-1/manifests
-    kubectl apply -R -f .
-    ```
 
 
+
+
+- Quickest way to delete everything? [only in test env, dont try anywhere else!]: `kubectl delete -R -f .` or if you are more of an adventurer`kubectl delete ns apollo11` and poof all the resources inside the namespace will be gone along with the namespace.
+
+> 🤔 In docker compose we had a dependson condition which ensures that certain service is only launched after certain service, how do we achieve it in k8s? We will cover that in Stage2
 
 ## Tools
 

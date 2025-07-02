@@ -24,7 +24,7 @@ Here's the architecture of what you will build at the end of this journey
 > *"Get it off the ground using the simplest cluster."*
 
 - ✅ Setup Kind Cluster
-- ✅ Deploy simple apps via `kubectl`
+- ✅ Deploy simple nginx via `kubectl`
 - ✅ Create basic `Deployment`, `Service`, and use `Namespaces`
 - View underlying ReplicaSets, simulate pod failure, do one roll out and rollback
 - RollOut Vs Recreate
@@ -109,6 +109,7 @@ Here's the architecture of what you will build at the end of this journey
 
 > *"Smooth deployment across galaxies."*
 
+* Jobs and CronJobs
 * GitOps vs traditional CI/CD
 * Argo Workflows / Tekton Pipelines
 * ArgoCD for GitOps deployment
