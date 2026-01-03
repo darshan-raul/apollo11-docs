@@ -4,6 +4,48 @@ Here's the architecture of what you will build at the end of this journey
 
 ![apolloflavor2](images/apollo11-flavor2-project.drawio.png)
 
+And this will be the components we will use:
+
+```mermaid
+graph TD
+    User[👤 User]
+    MainPortal[Main Portal<br/>React]
+    CoreAPI[Core API<br/>Python]
+    Database[(Database<br/>PostgreSQL)]
+    AdminDashboard[Admin Dashboard<br/>Streamlit]
+    IdentityProvider[Identity Provider<br/>Keycloak]
+    QuizAPI[Quiz API<br/>Go]
+
+    User --> MainPortal
+    MainPortal --> CoreAPI
+    CoreAPI --> Database
+    CoreAPI --> IdentityProvider
+    CoreAPI --> QuizAPI
+    QuizAPI --> Database
+    AdminDashboard --> CoreAPI
+    AdminDashboard --> Database
+
+    classDef frontend fill:#61dafb,stroke:#333,stroke-width:2px,color:#000
+    classDef backend fill:#ffd43b,stroke:#333,stroke-width:2px,color:#000
+    classDef database fill:#336791,stroke:#333,stroke-width:2px,color:#fff
+    classDef admin fill:#ff4b4b,stroke:#333,stroke-width:2px,color:#fff
+    classDef auth fill:#ff4b4b,stroke:#333,stroke-width:2px,color:#fff
+    classDef service fill:#00add8,stroke:#333,stroke-width:2px,color:#fff
+
+    class MainPortal frontend
+    class CoreAPI backend
+    class Database database
+    class AdminDashboard admin
+    class IdentityProvider auth
+    class QuizAPI service
+```
+
+Note: to understand more on the services above, look at the liftoff segment
+
+Heres the video demo of how it will look when running end to end:
+
+TODO
+
 
 ## Stages
 
