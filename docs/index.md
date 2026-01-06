@@ -42,9 +42,7 @@ graph TD
 
 Note: to understand more on the services above, look at the liftoff segment
 
-Heres the video demo of how it will look when running end to end:
-
-TODO
+TODO: Heres the video demo of how it will look when running end to end:
 
 
 ## Stages
