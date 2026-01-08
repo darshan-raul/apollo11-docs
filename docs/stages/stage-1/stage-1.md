@@ -2,181 +2,50 @@
 
 Now that we have all our code working with Docker Compose, it's time to run it on our local Kubernetes (k8s) cluster. There are multiple options for this:
 
-- **[Minikube](https://minikube.sigs.k8s.io/docs/start)**
-- **[Kind](https://kind.sigs.k8s.io/docs/user/quick-start#creating-a-cluster)** (Kubernetes in Docker)
-- **[MicroK8s](https://microk8s.io)**
-- **[k3s](https://k3s.io)**
-- **[Rancher Desktop](https://k0sproject.io)**
-- **[k0s](https://k0sproject.io)**
-- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**
+| Distribution | Website |
+| :--- | :--- |
+| **Minikube** | [minikube.sigs.k8s.io](https://minikube.sigs.k8s.io/docs/start) |
+| **Kind** | [kind.sigs.k8s.io](https://kind.sigs.k8s.io/docs/user/quick-start#creating-a-cluster) |
+| **MicroK8s** | [microk8s.io](https://microk8s.io) |
+| **k3s** | [k3s.io](https://k3s.io) |
+| **k3d** | [k3d.io](https://k3d.io) |
+| **Rancher Desktop** | [rancherdesktop.io](https://rancherdesktop.io) |
+| **k0s** | [k0sproject.io](https://k0sproject.io) |
+| **Docker Desktop** | [docker.com](https://www.docker.com/products/docker-desktop/) |
 
-I have decided to use kind for this course but it can be followed with absolutely any of these local distributions. Each of them have their tradeoffs and ultimately its our preference.
+I have decided to use `k3d` for this course but it can be followed with absolutely any of these local distributions. Each of them have their tradeoffs and ultimately its our preference.
 
 ## Prerequisites
 
-This guide provides instructions to install `kind` (Kubernetes IN Docker) and `kubectl` (Kubernetes command-line tool) on Linux using binary downloads and adding them to your system's PATH. This ensures you always have the latest versions directly from the source. Assuming `docker` is already installed.
+ `k3d`, `kubectl` and `docker` are needed to move ahead. Please ensure you have run the `prep.sh` script from the [Liftoff](../liftoff/liftoff.md) section to install these tools natively.
 
 -----
-
-### Installing `kind` (Kubernetes IN Docker) on Linux
-
-1.  Get the latest `kind` release version:
-  
-    ```bash
-    KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    echo "Latest kind version: $KIND_VERSION"
-    ```
-
-2.  Download the `kind` binary:
-    
-    *Note: Replace `amd64` with `arm64` if you are on an ARM-based system.*
-
-    ```bash
-    # For AMD64 / x86_64
-    [ $(uname -m) = x86_64 ] && curl -Lo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
-
-    ```
-
-3.  Make the binary executable:
-
-    ```bash
-    chmod +x ./kind
-    ```
-
-4.  Move the binary to a directory in your PATH:
-
-    ```bash
-    sudo mv ./kind /usr/local/bin/kind
-    ```
-
-5.  Verify the installation:
-
-    ```bash
-    kind version
-    ```
-
------
-
-### Installing `kubectl` on Linux
-
-1.  Get the latest `kubectl` release version:
-
-    ```bash
-    KUBECTL_VERSION=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
-    echo "Latest kubectl version: $KUBECTL_VERSION"
-    ```
-
-2.  Download the `kubectl` binary:
-
-    ```bash
-    curl -LO "https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-    ```
-
-    *Note: Replace `amd64` with `arm64` if you are on an ARM-based system.*
-
-3.  Make the binary executable:
-
-    ```bash
-    chmod +x ./kubectl
-    ```
-
-4.  Move the binary to a directory in your PATH:
-
-    ```bash
-    sudo mv ./kubectl /usr/local/bin/kubectl
-    ```
-
-5.  Verify the installation:
-
-    ```bash
-    kubectl version --client
-    ```
 
 
 -----
 
-> **ALTERNATIVES**
+## Creating k3d cluster
 
--  **For Windows/Mac**
-
--  **For Windows:**
-
-  * Using Chocolatey (Recommended for ease):
-
-    ```powershell
-    choco install kubernetes-cli # Installs kubectl
-    choco install kind # Installs kind
-    ```
-
-    Ensure Chocolatey is installed first: [https://chocolatey.org/install](https://chocolatey.org/install)
-
-  * Using Scoop:
-
-    ```powershell
-    scoop install kubectl
-    scoop install kind
-    ```
-
-    Ensure Scoop is installed first: [https://scoop.sh/](https://scoop.sh/)
-
--  **For macOS:**
-
-  * Using Homebrew (Recommended):
-
-    ```bash
-    brew install kubectl
-    brew install kind
-    ```
-
-    Ensure Homebrew is installed first: [https://brew.sh/](https://brew.sh/)
-
--  **Install required plugins in Vscode/Cursor:**
-    - install the following plugins in your IDE of choice for better experience
-        - docker
-        - kubernetes
-        - python
-        - golang
-
-## Creating kind cluster
-
-- Change directory to kind directory in the stage 1 folder
+- Create the cluster using our config:
     
     ```bash
-    cd stages/stage-1/kind-config
+    k3d cluster create --config stages/stage1/k3d-config.yaml
     ```
 
-- Look at the content of the kind config file. It is being used to create a kind cluster with custom settings (more that one node in this case) 
-    
-    ```bash
-    cat kind-config.yaml
-    ```
-
-- You can read more about customizing kind configuration here: https://kind.sigs.k8s.io/docs/user/configuration/
-
-- Lets create the kind cluster
-
-    ```bash
-    cd stages/stage-1/kind-config
-    kind create cluster --name apollo --config kind-config.yaml
-    ```
-
-    ![kind cluster creation](./images/cluster-create.png)
 
 - Next run this command to cehck if cluster is running correctly:  
 
     ```bash
-    kubectl cluster-info --context kind-apollo`
+        kubectl cluster-info --context k3d-apollo11
     ```
 
-    ![kind info](./images/kind-info.png)
+    
 
 - Confirm the nodes are correct 
     
     ```bash
     kubectl get nodes
     ```
-
-    ![kubenodes](./images/kube-nodes.png)
 
 - Can look at `cat ~/.kube/config` to confirm that cluster config is set correctly
 
@@ -197,7 +66,7 @@ We will go in depth of the content of the config file when we visit RBAC section
     ```
     > Note: it could be in `ContaineCreating` state for  a while until the image is retrieved locally
 
-    ![kind nginx](./images/kind-nginx.png)
+    ![k3d nginx](./images/k3d-nginx.png)
 
 - Lets port forward that pod and check if its accessible from the terminal 
 
@@ -369,14 +238,14 @@ The **ClusterIP** is the default and most common type of Kubernetes Service.
 
 By understanding these fundamental building blocks – Pods as the smallest units, ReplicaSets ensuring their stability, Deployments orchestrating their lifecycle and updates, and Services providing stable network access – you're well on your way to mastering Kubernetes deployments.
 
-## Load all the images inside kind cluster
+## Load all the images inside k3d cluster
 
-- To run our pods inside kind, we will need to load our docker images inside kind cluster.
-- This is a temporary provision until we setup a CICD in the next sections
+- To run our pods inside k3d, we will need to load our docker images into the k3d cluster.
+- This is a temporary provision until we setup a CICD in the next sections.
 
-> Note: There will be similar provisions in other local distributions as well. Also in the next stages we will be moving to private registries where these steps will be obsolete. But to start with simple setup, these are needed
+> Note: Similar provisions exist in other local distributions. In the next stages, we will move to private registries where these steps will be obsolete.
 
-- Check if you have docker images for all the 5 services: lunar,dashboard,timeline,commmnd,telemetry. The database images are public so they will be pulled instead.
+- Check if you have docker images for all the services:
 
     ```bash
     docker images
@@ -384,34 +253,32 @@ By understanding these fundamental building blocks – Pods as the smallest unit
 
     ![docker images](./images/docker-images.png)
 
-- Once confirmed, lets load all the app images into kind cluster. Kind will automatically load them to all the nodes in the cluster
+- Once confirmed, let's load all the app images into our k3d cluster (`apollo11`):
 
     ```bash
-    kind load docker-image liftoff-dashboard-app:latest --name apollo
-    kind load docker-image liftoff-timeline-app:latest --name apollo
-    kind load docker-image liftoff-command-dispatcher:latest --name apollo
-    kind load docker-image liftoff-lunar-app:latest --name apollo
-    kind load docker-image liftoff-telemetry-app:latest --name apollo
+    k3d image import liftoff-dashboard-app:latest -c apollo11
+    k3d image import liftoff-timeline-app:latest -c apollo11
+    k3d image import liftoff-command-dispatcher:latest -c apollo11
+    k3d image import liftoff-lunar-app:latest -c apollo11
+    k3d image import liftoff-telemetry-app:latest -c apollo11
     ```
 
-- We can confirm these are loaded by running this command on one of the node containers
+- We can confirm these are loaded by running `crictl images` inside one of the nodes:
 
     ```bash
-    docker exec -it apollo-worker crictl images
+    docker exec -it k3d-apollo11-server-0 crictl images
     ```
-    ![kind images loaded](./images/kind-images-loaded.png)
+    ![k3d images loaded](./images/kind-images-loaded.png)
 
 > !!! note
 >
->   because this will be local images, **we need to ensure that we keep imagePullPolicy=never** when running in the local cluster to avoid any image pull business. **only for app images,db images will be pulled**
+>   Because these are local images, **we need to ensure that we keep imagePullPolicy=Never** in our manifests to avoid trying to pull from a registry. This only applies to our app images; database images will still be pulled from public registries.
 
 
 ## Creating Architecture
 
 
 - Lets see that there are no resources in our new namespace: `kubectl get all -n apollo11`
-    ![no pods](./images/apollo11-no-pods.png)
-
 >
 >    - 📌📌**If you are not a newbie and want to see everything this stage creates**📌📌:
         ```bash

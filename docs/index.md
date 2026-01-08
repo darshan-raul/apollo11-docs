@@ -55,7 +55,7 @@ TODO: Heres the video demo of how it will look when running end to end:
 - ✅ Intro to containers & Docker
 - ✅ Docker CLI, Dockerfiles, Images, Volumes
 - ✅ Build & Run multi-service apps via Docker Compose
-- Local workflows with `tilt` or `skaffold` for developer productivity
+
 
 ---
 
