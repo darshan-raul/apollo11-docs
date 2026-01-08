@@ -38,8 +38,7 @@ I have decided to use `k3d` for this course but it can be followed with absolute
     ```bash
         kubectl cluster-info --context k3d-apollo11
     ```
-
-    
+ 
 
 - Confirm the nodes are correct 
     
@@ -64,9 +63,9 @@ We will go in depth of the content of the config file when we visit RBAC section
     ```bash
     kubectl get pods
     ```
-    > Note: it could be in `ContaineCreating` state for  a while until the image is retrieved locally
+    > Note: it could be in `ContainerCreating` state for  a while until the image is retrieved locally
 
-    ![k3d nginx](./images/k3d-nginx.png)
+
 
 - Lets port forward that pod and check if its accessible from the terminal 
 
@@ -76,7 +75,6 @@ We will go in depth of the content of the config file when we visit RBAC section
 
     This will make sure that the port 80 in the nginx pod will be exposed as port 8000 on your localhost
 
-    ![nginx portforward](./images/nginx-portforward.png)
 
 - Open a different terminal and try accessing the site:
 
@@ -84,7 +82,6 @@ We will go in depth of the content of the config file when we visit RBAC section
     curl http://localhost:8000
     ```
 
-    ![nginx output](./images/nginx-output.png)
 
 - Lets cleanup the pod once we have tested
 
@@ -94,72 +91,8 @@ We will go in depth of the content of the config file when we visit RBAC section
     kubectl delete pod/nginx
     ```
 
-## Folder Structure 
-
-- In this module we will be creating all the components in the most simplest way possible, with deployments and expose them with clusterip services. 
-- The folder/file structure is as follows:
-
-    ```
-    .
-    ├── namespace
-    │   └── namespace.yaml
-    └── workload
-        ├── command-dispatcher
-        │   └── app
-        │       ├── deployment.yaml
-        │       ├── incorrect-deployment.yaml
-        │       └── service.yaml
-        ├── dashboard
-        │   └── app
-        │       ├── deployment.yaml
-        │       └── service.yaml
-        ├── lunar
-        │   ├── app
-        │   │   ├── deployment.yaml
-        │   │   └── service.yaml
-        │   └── db
-        │       ├── deployment.yaml
-        │       └── service.yaml
-        ├── telemetry
-        │   ├── app
-        │   │   ├── deployment.yaml
-        │   │   └── service.yaml
-        │   └── db
-        │       ├── deployment.yaml
-        │       └── service.yaml
-        └── timeline
-            ├── app
-            │   ├── deployment.yaml
-            │   └── service.yaml
-            └── db
-                ├── deployment.yaml
-                └── service.yaml
 
 
-    ```
-
-## Creating namespace
-
-
-- Lets create a namespace named `apollo11`. All our resources will go here.
-- Kubernetes namespaces provide a mechanism to logically divide cluster resources among multiple users or teams. They help organize objects and prevent naming collisions in large environments, acting as virtual clusters within a physical cluster.
-> To get more info on namespaces refer: [namespaces](https://notes.darshanraul.cloud/kubernetes/concepts/namespaces)
-
-- All of our resources will be created in that namespace [except any non namespaced resources, run `kubectl api-resources` to check ]
-
-    ```bash
-    cd stages/stage-1/manifests/namespace
-    kubectl apply -f namespace.yaml
-    ```
-
-    ![namespace created](./images/namespace-created.png)
-
-- Now lets have a look if our namespace has been created. Run below command and ensure that the apollo11 namespace has been created
-
-    ```bash
-    kubectl get namespaces
-    ```
-    ![namespace confirm](./images/namespace-confirm.png)
 
 ## Understanding : Pods, Deployments, ReplicaSets, and Services
 
@@ -238,43 +171,30 @@ The **ClusterIP** is the default and most common type of Kubernetes Service.
 
 By understanding these fundamental building blocks – Pods as the smallest units, ReplicaSets ensuring their stability, Deployments orchestrating their lifecycle and updates, and Services providing stable network access – you're well on your way to mastering Kubernetes deployments.
 
-## Load all the images inside k3d cluster
+## Creating namespace
 
-- To run our pods inside k3d, we will need to load our docker images into the k3d cluster.
-- This is a temporary provision until we setup a CICD in the next sections.
 
-> Note: Similar provisions exist in other local distributions. In the next stages, we will move to private registries where these steps will be obsolete.
+- Lets create a namespace named `apollo11`. All our resources will go here.
+- Kubernetes namespaces provide a mechanism to logically divide cluster resources among multiple users or teams. They help organize objects and prevent naming collisions in large environments, acting as virtual clusters within a physical cluster.
+> To get more info on namespaces refer: [namespaces](https://notes.darshanraul.cloud/kubernetes/concepts/namespaces)
 
-- Check if you have docker images for all the services:
-
-    ```bash
-    docker images
-    ```
-
-    ![docker images](./images/docker-images.png)
-
-- Once confirmed, let's load all the app images into our k3d cluster (`apollo11`):
+- All of our resources will be created in that namespace [except any non namespaced resources, run `kubectl api-resources` to check ]
 
     ```bash
-    k3d image import liftoff-dashboard-app:latest -c apollo11
-    k3d image import liftoff-timeline-app:latest -c apollo11
-    k3d image import liftoff-command-dispatcher:latest -c apollo11
-    k3d image import liftoff-lunar-app:latest -c apollo11
-    k3d image import liftoff-telemetry-app:latest -c apollo11
+    cd stages/stage-1/manifests/namespace
+    kubectl apply -f namespace.yaml
     ```
 
-- We can confirm these are loaded by running `crictl images` inside one of the nodes:
+    ![namespace created](./images/namespace-created.png)
+
+- Now lets have a look if our namespace has been created. Run below command and ensure that the apollo11 namespace has been created
 
     ```bash
-    docker exec -it k3d-apollo11-server-0 crictl images
+    kubectl get namespaces
     ```
-    ![k3d images loaded](./images/kind-images-loaded.png)
+    ![namespace confirm](./images/namespace-confirm.png)
 
-> !!! note
->
->   Because these are local images, **we need to ensure that we keep imagePullPolicy=Never** in our manifests to avoid trying to pull from a registry. This only applies to our app images; database images will still be pulled from public registries.
-
-
+#
 ## Creating Architecture
 
 
@@ -293,44 +213,80 @@ By understanding these fundamental building blocks – Pods as the smallest unit
 
 
 
-
-
-
 - Quickest way to delete everything? [only in test env, dont try anywhere else!]: `kubectl delete -R -f .` or if you are more of an adventurer`kubectl delete ns apollo11` and poof all the resources inside the namespace will be gone along with the namespace.
 
-> 🤔 In docker compose we had a dependson condition which ensures that certain service is only launched after certain service, how do we achieve it in k8s? We will cover that in Stage2
 
-## Tools
+## Tools for Efficiency
 
-These tools are designed to make working with Kubernetes clusters easier and more efficient from the command line:
+Working with Kubernetes using only `kubectl` can sometimes be verbose and slow, especially when managing multiple contexts or namespaces. Here are three essential tools that significantly improve your workflow:
 
-### K9s
-- **What it is:**
-    - K9s is a terminal-based UI to interact with your Kubernetes clusters. It provides a real-time, interactive view of your cluster resources, making it easy to monitor and manage pods, deployments, services, and more.
+### 1. K9s - The Terminal UI
 
-- **How to use:**
-    - Launch K9s by running `k9s` in your terminal.
-    - Navigate resources using arrow keys, and use `:` to enter commands (e.g., `:pod` to view pods).
-    - Press `?` inside K9s for a list of keyboard shortcuts.
-- [**Video**](https://www.youtube.com/watch?v=AMUQzyPvO04&pp=ygUDazlz)
+**What it is:**  
 
-### Kubens
-- **What it is:**
-    - Kubens is a simple CLI tool to switch between Kubernetes namespaces quickly.
-- **How to use:**
-    - Run `kubens` to list all available namespaces.
-    - Run `kubens <namespace>` to switch your current context to the specified namespace.
-    - Your `kubectl` commands will now default to the selected namespace.
+K9s is a powerful terminal-based user interface (TUI) for interacting with your Kubernetes clusters. Instead of typing long `kubectl` commands to get status or view logs, K9s gives you a dashboard directly in your terminal. It monitors your cluster in real-time, allowing you to debug, view logs, and manage resources effortlessly.
 
-### Kubectx
-- **What it is:**
-    - Kubectx is a CLI tool to switch between multiple Kubernetes contexts (clusters) easily.
-- **How to use:**
-    - Run `kubectx` to list all available contexts.
-    - Run `kubectx <context-name>` to switch your current context to the specified cluster.
-    - This is useful if you work with multiple clusters (e.g., dev, staging, prod).
+**Key Features:**
 
-**Tip:** You can combine these tools for a smooth workflow: use `kubectx` to select your cluster, `kubens` to select your namespace, and `k9s` to interactively manage resources.
+- **Real-time Monitoring:** Watch pods change status live without repeated `watch` commands.
+- **Log Viewing:** Instantly stream logs for any pod.
+- **Shell Access:** "Exec" into containers with a single keystroke.
+- **Resource Management:** Delete, scale, or edit resources using simple hotkeys.
+
+**How to use:**
+
+- **Launch:** Simply type `k9s` in your terminal.
+- **Navigation:**
+    - Use `Arrow Keys` to move up/down.
+    - Type `:` followed by a resource name to switch views (e.g., `:deployments`, `:services`, `:logs`).
+    - Press `Enter` on a resource to "drill down" (e.g., from a Deployment to its Pods, from a Pod to its Containers/Logs).
+    - Press `?` to see a cheatsheet of all available commands.
+- **Video Tutorial:** [Watch K9s in Action](https://www.youtube.com/watch?v=AMUQzyPvO04&pp=ygUDazlz)
+
+---
+
+### 2. Kubens (Namespace Switcher)
+
+**What it is:**  
+`kubens` helps you switch between Kubernetes namespaces quickly. By default, `kubectl` commands run in the `default` namespace unless you specify `-n <namespace>`. Kubens sets your "active" namespace so you don't have to type `-n apollo11` with every command.
+
+**Why use it:**
+
+- **Simplicity:** Saves you from typing `-n <namespace>` hundreds of times.
+- **Context:** Highlights your current namespace so you're always aware of where you are applying changes.
+
+**How to use:**
+
+- **List Namespaces:** Run `kubens` to see all available namespaces.
+- **Switch:** Run `kubens apollo11` to switch to the `apollo11` namespace.
+- **Interactive Mode:** Run `kubens` (without arguments) and perform a fuzzy search to select a namespace interactively.
+- **Reset:** Run `kubens -` to switch back to the previous namespace.
+
+---
+
+### 3. Kubectx (Context Switcher)
+
+**What it is:**  
+
+`kubectx` is a utility to manage and switch between Kubernetes contexts (clusters). If you work with multiple clusters (e.g., local k3d, a staging cluster on AWS, and a production cluster), this tool makes switching between them instantaneous.
+
+**How to use:**
+
+- **List Contexts:** Run `kubectx` to see all known clusters.
+- **Switch:** Run `kubectx <context-name>` (e.g., `kubectx k3d-apollo11`) to switch your `kubectl` commands to target that cluster.
+- **Interactive:** Like kubens, running `kubectx` alone allows you to select a cluster interactively.
+- **Rename:** You can even rename long context names to something shorter: `kubectx my-local=k3d-apollo11`.
+
+---
+
+### 💡 Pro Workflow
+
+Combine these tools for maximum speed:
+1. Use **`kubectx`** to select your target cluster (e.g., `k3d-apollo11`).
+2. Use **`kubens`** to lock into your working namespace (e.g., `apollo11`).
+3. Fire up **`k9s`** to interactively manage and debug your application.
+
+This setup removes 90% of the friction associated with long `kubectl` commands!
 
 ---
 

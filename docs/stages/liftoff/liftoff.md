@@ -42,6 +42,7 @@ To get started with the Cloud Native ecosystem, we need a few core tools: `docke
     ```
 
     This script will install:
+
     - **kubectl**: The Kubernetes command-line tool.
     - **k3d**: To run local Kubernetes clusters in Docker.
     - **docker**: The container engine (if not already present).
@@ -70,17 +71,14 @@ To get started with the Cloud Native ecosystem, we need a few core tools: `docke
 ## Check the services
 
 - The time needed for all the services to be up and running will depend on your system specs and network speed.
-- Your indication that everything is up and running is when you see the following output: 
-
-![alt text](dockercomposeready.png)
-
-- You can check `docker ps` and confirm that 6 containers are running
+- You can check `docker ps` and confirm that 7 containers are running
 
 ```
 ❯ docker ps
 CONTAINER ID   IMAGE                              COMMAND                  CREATED              STATUS              PORTS                                                   NAMES
 4da88db2d256   apollo11-portal                    "/docker-entrypoint.…"   About a minute ago   Up About a minute   0.0.0.0:3000->80/tcp, [::]:3000->80/tcp                 apollo11-portal-1
 b86c6bca5e91   apollo11-admin-dashboard           "streamlit run app.p…"   About a minute ago   Up About a minute   0.0.0.0:8501->8501/tcp, [::]:8501->8501/tcp             apollo11-admin-dashboard-1
+b493ebd7c7c0   amir20/dozzle:latest               "/dozzle"                About a minute ago   About a minute ago   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp             apollo11-dozzle-1
 e200792e8222   apollo11-core-api                  "uvicorn app.main:ap…"   About a minute ago   Up About a minute   0.0.0.0:8087->8000/tcp, [::]:8087->8000/tcp             apollo11-core-api-1
 fc157ee7a7d8   apollo11-quiz-service              "/quiz-service"          About a minute ago   Up About a minute   0.0.0.0:8082->8080/tcp, [::]:8082->8080/tcp             apollo11-quiz-service-1
 86d88a172dd9   quay.io/keycloak/keycloak:23.0.6   "/opt/keycloak/bin/k…"   About a minute ago   Up About a minute   8443/tcp, 0.0.0.0:8081->8080/tcp, [::]:8081->8080/tcp   apollo11-keycloak-1
@@ -88,6 +86,8 @@ fc157ee7a7d8   apollo11-quiz-service              "/quiz-service"          About
 
 
 ```
+
+- You can go to `http://localhost:8080` to the dozzle ui and confirm if all your containers are healthy. The keycloak service will take the longest to become stable.
 
 - Post that you can go to the browser and enter: `http://localhost:3000` and you should be able to view the dashboard!
 
@@ -102,7 +102,7 @@ fc157ee7a7d8   apollo11-quiz-service              "/quiz-service"          About
 - You will be directed to the dashboard!
 ![dashboard](dashboard.png)
 
-
+- Want to view the logs? We have a seperate dozzle service just
 --- 
 
 # Dockerfile Basics
