@@ -21,6 +21,25 @@ I have decided to use `k3d` for this course but it can be followed with absolute
 
 -----
 
+## Enter the devbox shell
+
+    
+```
+
+# Creating minikube cluster
+
+Launching a minikube cluster with the minimum requirements
+
+```
+minikube start \
+  --driver=docker \
+  --container-runtime=containerd \
+  --nodes=1 \
+  --cpus=1 \
+  --memory=1024
+```
+
+>> TODO: need to show all the components
 
 -----
 
