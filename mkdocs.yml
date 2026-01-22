@@ -35,6 +35,9 @@ nav:
   - Liftoff: stages/liftoff/liftoff.md
   - Stage-1: stages/stage-1/stage-1.md
   - Stage-2: stages/stage-2/stage-2.md
+  - Stage-11: 
+    - stage-11: stages/stage-11/index.md
+    - k3s homelab: stages/stage-11/k3s-homelab.md
 
 markdown_extensions:
   - admonition
