@@ -253,7 +253,100 @@ sudo chown $USER:$USER ~/.kube/config
 | Can’t access NodePort           | Firewall still enabled         |
 | Pods stuck in ContainerCreating | br_netfilter not enabled       |
 
-## 8. Creating our resources in it
+## 8. Monitoring the servers
+
+
+## 1️⃣ Install Node Exporter (Both Machines)
+
+### Create a user
+
+```bash
+sudo useradd -rs /bin/false node_exporter
+```
+
+### Download & install
+
+```bash
+curl -LO https://github.com/prometheus/node_exporter/releases/latest/download/node_exporter-*.linux-amd64.tar.gz
+tar xvf node_exporter-*.tar.gz
+sudo mv node_exporter-*/node_exporter /usr/local/bin/
+```
+
+### Systemd service
+
+```bash
+sudo tee /etc/systemd/system/node_exporter.service <<EOF
+[Unit]
+Description=Node Exporter
+After=network.target
+
+[Service]
+User=node_exporter
+ExecStart=/usr/local/bin/node_exporter
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now node_exporter
+```
+
+### Verify
+
+```bash
+curl http://localhost:9100/metrics
+```
+
+✔️ Repeat on **both Fedora & Manjaro**
+
+---
+
+- Create a docker compose
+
+```yaml
+
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge
+
+```
 
 
 # Metallb setup
