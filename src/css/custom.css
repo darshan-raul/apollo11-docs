@@ -1,0 +1,310 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* You can override the default Infima variables here. */
+:root {
+  --ifm-color-primary: #9b59b6;
+  --ifm-color-primary-dark: #8e44c9;
+  --ifm-color-primary-darker: #8f3fc4;
+  --ifm-color-primary-darkest: #7d2db3;
+  --ifm-color-primary-light: #a86cc1;
+  --ifm-color-primary-lighter: #ad77c6;
+  --ifm-color-primary-lightest: #bf93d5;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(155, 89, 182, 0.1);
+  --ifm-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-heading-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-navbar-background-color: #0d0115;
+  --ifm-navbar-shadow: 0 4px 30px rgba(155, 89, 182, 0.15);
+  --ifm-footer-background-color: #0d0115;
+  --ifm-footer-color: #c9b8db;
+  --ifm-footer-link-color: #d4a5e8;
+  --ifm-code-background: #1a0a2e;
+  --ifm-code-color: #e8d5f2;
+  --ifm-blockquote-border-left-color: #9b59b6;
+  --ifm-hr-border-color: rgba(155, 89, 182, 0.3);
+  --ifm-table-border-color: rgba(155, 89, 182, 0.3);
+  --ifm-table-stripe-background: rgba(155, 89, 182, 0.05);
+  --ifm-heading-color: #e8d5f2;
+  --ifm-color-content: #d4bfe3;
+  --ifm-color-content-secondary: #a89bb5;
+  --ifm-link-color: #c77ddb;
+  --ifm-link-hover-color: #e0b5f0;
+  --ifm-breadcrumb-color: #a89bb5;
+  --ifm-breadcrumb-active-color: #c77ddb;
+  --ifm-breadcrumb-item-background-active: rgba(155, 89, 182, 0.1);
+  --ifm-sidebar-width: 300px;
+  --ifm-toc-border-color: rgba(155, 89, 182, 0.2);
+  --ifm-menu-color: #d4bfe3;
+  --ifm-menu-color-active: #9b59b6;
+  --ifm-menu-color-background-active: rgba(155, 89, 182, 0.15);
+  --ifm-menu-color-background-hover: rgba(155, 89, 182, 0.1);
+  --ifm-tabs-color: #d4bfe3;
+  --ifm-tabs-color-active: #9b59b6;
+  --ifm-tabs-color-background-active: rgba(155, 89, 182, 0.1);
+  --gradient-primary: linear-gradient(135deg, #1a0a2e 0%, #16082a 50%, #0d0115 100%);
+  --gradient-glow: radial-gradient(ellipse at center, rgba(155, 89, 182, 0.3) 0%, transparent 70%);
+  --glow-purple: 0 0 40px rgba(155, 89, 182, 0.4);
+  --glow-purple-intense: 0 0 60px rgba(155, 89, 182, 0.6), 0 0 100px rgba(155, 89, 182, 0.3);
+  --border-radius-lg: 16px;
+  --border-radius-sm: 8px;
+  --transition-fast: 0.2s ease;
+  --transition-normal: 0.3s ease;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #bb8fce;
+  --ifm-color-primary-dark: #a87bc4;
+  --ifm-color-primary-darker: #a073be;
+  --ifm-color-primary-darkest: #8a55ab;
+  --ifm-color-primary-light: #c9a1d7;
+  --ifm-color-primary-lighter: #d0aede;
+  --ifm-color-primary-lightest: #dfcbe9;
+  --docusaurus-highlighted-code-line-bg: rgba(187, 143, 206, 0.15);
+  --ifm-background-color: #0d0115;
+  --ifm-background-surface-color: #150a24;
+  --ifm-color-success: #7dcea0;
+  --ifm-color-warning: #f7dc6f;
+  --ifm-color-danger: #f1948a;
+  --ifm-color-info: #85c1e9;
+  --ifm-navbar-background-color: #0d0115;
+  --ifm-footer-background-color: #0d0115;
+  --ifm-footer-color: #c9b8db;
+  --ifm-footer-link-color: #d4a5e8;
+  --ifm-code-background: #1a0a2e;
+  --ifm-code-color: #e8d5f2;
+  --ifm-blockquote-border-left-color: #bb8fce;
+  --ifm-hr-border-color: rgba(187, 143, 206, 0.3);
+  --ifm-table-border-color: rgba(187, 143, 206, 0.3);
+  --ifm-table-stripe-background: rgba(187, 143, 206, 0.05);
+  --ifm-heading-color: #e8d5f2;
+  --ifm-color-content: #d4bfe3;
+  --ifm-color-content-secondary: #a89bb5;
+  --ifm-link-color: #c77ddb;
+  --ifm-link-hover-color: #e0b5f0;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--gradient-primary);
+  min-height: 100vh;
+}
+
+#__docusaurus {
+  background: var(--gradient-primary);
+}
+
+.navbar {
+  background: rgba(13, 1, 21, 0.85) !important;
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(155, 89, 182, 0.2);
+}
+
+.navbar__title {
+  background: linear-gradient(135deg, #bb8fce, #9b59b6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+  font-size: 1.5rem;
+}
+
+.navbar__link {
+  color: #d4bfe3 !important;
+  font-weight: 500;
+  transition: color var(--transition-fast);
+}
+
+.navbar__link:hover {
+  color: #bb8fce !important;
+}
+
+.navbar__link--active {
+  color: #bb8fce !important;
+}
+
+.footer {
+  background: rgba(13, 1, 21, 0.9) !important;
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(155, 89, 182, 0.2);
+  padding: 3rem 0;
+}
+
+.footer__title {
+  color: #e8d5f2;
+}
+
+.footer__link-item {
+  color: #d4a5e8 !important;
+  transition: color var(--transition-fast);
+}
+
+.footer__link-item:hover {
+  color: #bb8fce !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+}
+
+a {
+  transition: color var(--transition-fast);
+}
+
+code {
+  background: var(--ifm-code-background);
+  padding: 0.2em 0.4em;
+  border-radius: var(--border-radius-sm);
+  font-weight: 500;
+}
+
+pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.theme-code-block {
+  border-radius: var(--border-radius-lg) !important;
+  border: 1px solid rgba(155, 89, 182, 0.2);
+}
+
+.menu {
+  background: transparent !important;
+}
+
+.menu__link {
+  color: #d4bfe3 !important;
+  border-radius: var(--border-radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.menu__link:hover {
+  background: rgba(155, 89, 182, 0.1) !important;
+  color: #bb8fce !important;
+}
+
+.menu__link--active {
+  background: rgba(155, 89, 182, 0.15) !important;
+  color: #bb8fce !important;
+  font-weight: 600;
+}
+
+.tableOfContents {
+  background: rgba(13, 1, 21, 0.5);
+  border-radius: var(--border-radius-lg);
+  padding: 1rem;
+}
+
+.tableOfContents__link {
+  color: #a89bb5 !important;
+  transition: color var(--transition-fast);
+}
+
+.tableOfContents__link:hover,
+.tableOfContents__link--active {
+  color: #bb8fce !important;
+}
+
+.table {
+  border-radius: var(--border-radius-lg);
+  overflow: hidden;
+}
+
+table th {
+  background: rgba(155, 89, 182, 0.15) !important;
+  color: #e8d5f2 !important;
+  font-weight: 600;
+}
+
+table tr:nth-child(odd) {
+  background: rgba(155, 89, 182, 0.03);
+}
+
+table tr:nth-child(even) {
+  background: rgba(155, 89, 182, 0.08);
+}
+
+.admonition {
+  border-radius: var(--border-radius-lg);
+  border-width: 1px;
+}
+
+.breadcrumbs {
+  padding: 0.75rem 0;
+}
+
+.pagination-nav__link {
+  border-radius: var(--border-radius-lg);
+  border: 1px solid rgba(155, 89, 182, 0.2);
+  transition: all var(--transition-fast);
+}
+
+.pagination-nav__link:hover {
+  border-color: rgba(155, 89, 182, 0.5);
+  background: rgba(155, 89, 182, 0.1);
+}
+
+.badge {
+  border-radius: var(--border-radius-sm);
+  font-weight: 600;
+}
+
+.markdown h1 { font-size: 2.5rem; margin-bottom: 1.5rem; }
+.markdown h2 { font-size: 1.875rem; margin-top: 2rem; margin-bottom: 1rem; }
+.markdown h3 { font-size: 1.5rem; margin-top: 1.5rem; margin-bottom: 0.75rem; }
+
+.markdown hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(155, 89, 182, 0.4), transparent);
+  margin: 2rem 0;
+}
+
+article blockquote {
+  border-left: 4px solid;
+  border-image: linear-gradient(180deg, #9b59b6, #bb8fce) 1;
+  background: rgba(155, 89, 182, 0.08);
+  border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
+  padding: 1rem 1.5rem;
+  margin: 1.5rem 0;
+}
+
+[data-theme='dark'] article blockquote {
+  background: rgba(187, 143, 206, 0.08);
+}
+
+.tabs {
+  border-bottom: 2px solid rgba(155, 89, 182, 0.2);
+}
+
+.tabs__item {
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--border-radius-sm) var(--border-radius-sm) 0 0;
+  transition: all var(--transition-fast);
+}
+
+.tabs__item--active {
+  background: rgba(155, 89, 182, 0.15);
+  border-bottom: 2px solid #9b59b6;
+}
+
+.searchInput {
+  background: rgba(155, 89, 182, 0.1) !important;
+  border: 1px solid rgba(155, 89, 182, 0.3) !important;
+  border-radius: var(--border-radius-lg) !important;
+  color: #e8d5f2 !important;
+}
+
+.searchInput::placeholder {
+  color: #a89bb5 !important;
+}
