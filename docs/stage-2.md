@@ -9,12 +9,6 @@ Kubernetes was designed with a specific philosophy regarding how containers shou
 
 ![](../../images/4nwpillars.jpg)
 
-interactive:
-
-https://claude.ai/public/artifacts/d03fb795-13f5-4b0a-b045-5a0055be9d9d
-
-# The 4 Network Guarantees in Kubernetes
-
 Kubernetes requires every network implementation (via CNIs) to satisfy these fundamental requirements to ensure seamless communication across the cluster:
 
 ## 1. Pod-to-Pod Communication

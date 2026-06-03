@@ -136,7 +136,7 @@ function HomepageHero() {
       <GlowOrb color="rgba(155, 89, 182, 0.4)" size="600px" position={{top: '-200px', left: '-100px'}} />
       <GlowOrb color="rgba(187, 143, 206, 0.3)" size="400px" position={{bottom: '-100px', right: '-50px'}} />
       <div className={styles.heroContent}>
-        <div className={styles.badge}>13-Stage Journey</div>
+        <div className={styles.badge}>11-Stage Journey</div>
         <h1 className={styles.heroTitle}>
           <span className={styles.heroTitleMain}>Apollo 11</span>
           <span className={styles.heroTitleSub}>Kubernetes Learning Bootstrap</span>
@@ -158,12 +158,12 @@ function HomepageHero() {
         </div>
         <div className={styles.heroStats}>
           <div className={styles.stat}>
-            <span className={styles.statNumber}>13</span>
+            <span className={styles.statNumber}>11</span>
             <span className={styles.statLabel}>Stages</span>
           </div>
           <div className={styles.statDivider} />
           <div className={styles.stat}>
-            <span className={styles.statNumber}>40+</span>
+            <span className={styles.statNumber}>25+</span>
             <span className={styles.statLabel}>Technologies</span>
           </div>
           <div className={styles.statDivider} />

@@ -7,7 +7,13 @@ const sidebars: SidebarsConfig = {
       id: 'index',
       label: 'Home',
     },
-    'liftoff',
+    {
+      type: 'category',
+      label: 'Launchpad',
+      items: [
+        'liftoff',
+      ],
+    },
     'ignition',
     'stage-1',
     {
