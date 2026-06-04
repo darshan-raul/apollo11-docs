@@ -200,6 +200,35 @@
   50% { transform: translateX(-50%) translateY(10px); }
 }
 
+/* Rocket flying left-bottom to right-top, fast */
+.rocket {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  opacity: 0.35;
+  animation: rocketFlight 35s linear infinite;
+  pointer-events: none;
+  z-index: 5;
+  filter: drop-shadow(0 0 8px rgba(187, 143, 206, 0.5));
+}
+
+@keyframes rocketFlight {
+  0% {
+    transform: translate(-10vw, 105vh) rotate(0deg);
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.35;
+  }
+  95% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translate(110vw, -10vh) rotate(0deg);
+    opacity: 0;
+  }
+}
+
 .stagesSection {
   padding: 6rem 2rem;
   background: linear-gradient(180deg, #1a0a2e 0%, #0d0115 100%);

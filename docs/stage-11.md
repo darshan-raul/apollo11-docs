@@ -29,13 +29,14 @@ Kubernetes is extensible — you can define your own resource types and write co
 
 ```yaml
 apiVersion: apollo11.dev/v1
-kind: LibraryService
+kind: FlightStatus
 metadata:
-  name: catalog
+  name: aa101
 spec:
-  serviceName: catalog
-  replicas: 2
-  database: catalog-postgres
+  flightNumber: AA101
+  status: on-time
+  origin: BOM
+  destination: DEL
 ```
 
 ### Operator pattern
@@ -43,15 +44,15 @@ spec:
 An **operator** is a controller that watches your custom resources and manages the underlying k8s objects:
 
 ```
-User creates LibraryService → Controller → Deployment + Service + PVC
+User creates FlightStatus → Controller → Deployment + Service + Ingress
 ```
 
 ### controller-runtime (Go)
 
 ```go
-func (r *LibraryServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-    var libSvc apollo11v1.LibraryService
-    if err := r.Get(ctx, req.NamespacedName, &libSvc); err != nil {
+func (r *FlightStatusReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    var flight apollo11v1.FlightStatus
+    if err := r.Get(ctx, req.NamespacedName, &flight); err != nil {
         return ctrl.Result{}, client.IgnoreNotFound(err)
     }
 
@@ -101,10 +102,10 @@ KEDA scales workloads based on external signals (queue depth, Kafka lag, Prometh
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: catalog-scaler
+  name: search-scaler
 spec:
   scaleTargetRef:
-    name: catalog
+    name: search
   minReplicaCount: 2
   maxReplicaCount: 20
   triggers:
@@ -120,8 +121,8 @@ spec:
 ```yaml
     - type: rabbitmq
       metadata:
-        queueName: notification-queue
-        host: amqp://notification-redis:5672
+        queueName: booking-queue
+        host: amqp://rabbitmq:5672
         queueLength: "10"  # scale up when queue > 10
 ```
 
@@ -143,7 +144,7 @@ helm install backstage bitnami/backstage -n backstage -f values.yaml
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
-  name: auth
+  name: booking
   annotations:
     github.com/project-slug: darshan-raul/Apollo11
 spec:
@@ -151,7 +152,7 @@ spec:
   lifecycle: production
   owner: platform-team
   dependsOn:
-    - component:auth-postgres
+    - component:booking-db
 ```
 
 ---

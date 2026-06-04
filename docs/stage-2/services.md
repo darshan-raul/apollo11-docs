@@ -17,7 +17,7 @@ Internal only — traffic can't reach the cluster from outside.
 spec:
   type: ClusterIP
   selector:
-    app: auth
+    app: identity
   ports:
     - port: 8080
       targetPort: 8080
@@ -76,7 +76,7 @@ spec:
 ```
 
 ```bash
-nslookup auth-postgres-headless.apollo11-infra.svc.cluster.local
+nslookup identity-db-headless.apollo11-infra.svc.cluster.local
 # Address: 10.244.1.10  (pod IP, not ClusterIP)
 ```
 

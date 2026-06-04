@@ -12,7 +12,7 @@ Every Service gets an A record in CoreDNS. Pods use these names to discover serv
 ## How DNS Works
 
 ```
-Pod calls: catalog.apollo11-apps.svc.cluster.local:8081
+Pod calls: flight.apollo11-apps.svc.cluster.local:8081
     │
     ▼
 libc reads /etc/resolv.conf
@@ -46,15 +46,15 @@ search apollo11-ui.svc.cluster.local ...
 
 ```bash
 # Same namespace (short name works)
-nslookup auth
+nslookup identity
 # → Found (search path applies)
 
 # Cross-namespace (needs FQDN)
-nslookup auth.apollo11-apps.svc.cluster.local
+nslookup identity.apollo11-apps.svc.cluster.local
 # → Found (cross-namespace always works)
 
-# From apollo11-ui, "auth" fails (wrong search path)
-nslookup auth
+# From apollo11-ui, "identity" fails (wrong search path)
+nslookup identity
 # → NXDOMAIN
 ```
 
@@ -65,9 +65,10 @@ nslookup auth
 Kubernetes injects Service URLs as environment variables:
 
 ```bash
-env | grep -E "AUTH|CATALOG"
-# AUTH_SERVICE_URL=http://auth:8080
-# CATALOG_SERVICE_URL=http://catalog:8081
+env | grep -E "IDENTITY|FLIGHT|BOOKING"
+# IDENTITY_SERVICE_URL=http://identity:8080
+# FLIGHT_SERVICE_URL=http://flight:8081
+# BOOKING_SERVICE_URL=http://booking:8082
 ```
 
 > Note: Only Services existing **before** the Pod are injected. Restart Pods to pick up new Services.
@@ -83,16 +84,16 @@ spec:
 
 ```bash
 # Normal Service: returns ClusterIP
-nslookup auth.apollo11-apps.svc.cluster.local
+nslookup identity.apollo11-apps.svc.cluster.local
 # Address: 10.96.0.150
 
 # Headless: returns all pod IPs
-nslookup auth-postgres-headless.apollo11-infra.svc.cluster.local
+nslookup identity-db-headless.apollo11-infra.svc.cluster.local
 # Address: 10.244.1.10
 # Address: 10.244.1.11
 ```
 
-StatefulSets use Headless Services: `auth-postgres-0.headless-svc.ns.svc.cluster.local`
+StatefulSets use Headless Services: `identity-db-0.identity-db-headless.ns.svc.cluster.local`
 
 ---
 

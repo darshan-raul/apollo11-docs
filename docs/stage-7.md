@@ -27,12 +27,12 @@ description: "Automatically scale workloads with HPA and VPA, control pod placem
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: auth-hpa
+  name: search-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: auth
+    name: search
   minReplicas: 2
   maxReplicas: 10
   metrics:

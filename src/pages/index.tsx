@@ -129,12 +129,42 @@ function GlowOrb({color, size, position}: {color: string; size: string; position
   );
 }
 
+function Rocket() {
+  return (
+    <div className={styles.rocket}>
+      {/* CSS rocket using transforms — no external assets needed */}
+      <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="none">
+        {/* Rocket body — upright for left-to-right flight */}
+        <path d="M24 4 C24 4 38 16 38 28 C38 34 32 42 24 46 C16 42 10 34 10 28 C10 16 24 4 24 4Z"
+              fill="#bb8fce" opacity="0.9"/>
+        {/* Nose cone highlight */}
+        <path d="M24 4 C24 4 30 12 30 20 C30 20 24 18 24 4Z" fill="#e8d5f2" opacity="0.5"/>
+        {/* Left fin */}
+        <path d="M10 28 L4 38 L10 35Z" fill="#9b59b6"/>
+        {/* Right fin */}
+        <path d="M38 28 L44 38 L38 35Z" fill="#9b59b6"/>
+        {/* Center fin */}
+        <path d="M20 32 L18 44 L24 40 L30 44 L28 32Z" fill="#8e44c9"/>
+        {/* Window */}
+        <circle cx="24" cy="22" r="5" fill="#1a0a2e" stroke="#e8d5f2" strokeWidth="1.5" opacity="0.9"/>
+        <circle cx="22" cy="20" r="1.5" fill="#fff" opacity="0.6"/>
+        {/* Engine nozzle */}
+        <rect x="21" y="40" width="6" height="4" rx="1" fill="#7d3c98"/>
+        {/* Exhaust flame */}
+        <ellipse cx="24" cy="47" rx="4" ry="3" fill="#f39c12" opacity="0.8"/>
+        <ellipse cx="24" cy="47" rx="2" ry="5" fill="#e74c3c" opacity="0.6"/>
+      </svg>
+    </div>
+  );
+}
+
 function HomepageHero() {
   return (
     <header className={styles.hero}>
       <StarField />
       <GlowOrb color="rgba(155, 89, 182, 0.4)" size="600px" position={{top: '-200px', left: '-100px'}} />
       <GlowOrb color="rgba(187, 143, 206, 0.3)" size="400px" position={{bottom: '-100px', right: '-50px'}} />
+      <Rocket />
       <div className={styles.heroContent}>
         <div className={styles.badge}>11-Stage Journey</div>
         <h1 className={styles.heroTitle}>

@@ -27,7 +27,7 @@ description: "Implement RBAC, secure pods with SecurityContext, manage secrets w
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: auth-reader
+  name: identity-reader
   namespace: apollo11-apps
 rules:
   - apiGroups: [""]
@@ -44,7 +44,7 @@ spec:
   securityContext:
     runAsNonRoot: true
   containers:
-    - name: auth
+    - name: identity
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true

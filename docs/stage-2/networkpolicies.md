@@ -31,7 +31,7 @@ spec:
 spec:
   podSelector:
     matchLabels:
-      app: auth-postgres
+      app: identity-db
   policyTypes:
     - Ingress
   ingress:
@@ -41,7 +41,7 @@ spec:
               name: apollo11-apps   # Must match namespace label
           podSelector:
             matchLabels:
-              app: auth             # Must match pod label
+              app: identity             # Must match pod label
 ```
 
 ---
@@ -62,12 +62,14 @@ Both must match for the rule to allow traffic.
 ## Apollo11 NetworkPolicy Architecture
 
 ```
-apollo11-infra:  auth-postgres ← allow from [auth] in apollo11-apps
-                catalog-postgres ← allow from [catalog] in apollo11-apps
-                ...
+apollo11-infra:  identity-db ← allow from [identity] in apollo11-apps
+                 flight-db ← allow from [flight] in apollo11-apps
+                 booking-db ← allow from [booking] in apollo11-apps
+                 ...
 
-apollo11-apps:  auth ← allow from [frontend] in apollo11-ui
-                catalog ← allow from [frontend] in apollo11-ui
+apollo11-apps:  identity ← allow from [frontend] in apollo11-ui
+                flight ← allow from [frontend] in apollo11-ui
+                booking ← allow from [frontend] in apollo11-ui
                 ...
 
 apollo11-ui:    frontend — no ingress restrictions (public-facing)

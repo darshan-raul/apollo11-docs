@@ -56,7 +56,7 @@ Replaces the Deployment's rolling strategy with canary, blue-green, and experime
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
-  name: auth
+  name: booking
 spec:
   replicas: 10
   strategy:
@@ -72,7 +72,7 @@ spec:
               - templateName: success-rate
             args:
               - name: service-name
-                value: auth
+                value: booking
 ```
 
 ---
@@ -125,13 +125,13 @@ Test resilience by injecting failures:
 apiVersion: chaos-mesh.org/v1alpha1
 kind: PodChaos
 metadata:
-  name: kill-auth-pod
+  name: kill-booking-pod
 spec:
   action: pod-kill
   mode: one
   selector:
     labelSelectors:
-      app: auth
+      app: booking
 ```
 
 ---

@@ -68,7 +68,7 @@ patches:
   - path: patches/resources.yaml
 
 replicas:
-  - name: auth
+  - name: identity
     count: 1
 ```
 
@@ -80,7 +80,7 @@ replicas:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auth
+  name: identity
 spec:
   replicas: 1
 ```
@@ -93,12 +93,12 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auth
+  name: identity
 spec:
   template:
     spec:
       containers:
-        - name: auth
+        - name: identity
           resources:
             requests:
               cpu: 50m
@@ -129,7 +129,7 @@ commonAnnotations:
 configMapGenerator:
   - name: app-config
     literals:
-      - DATABASE_URL=postgres://auth-postgres:5432/auth
+      - DATABASE_URL=postgres://identity-db:5432/identity
       - LOG_LEVEL=debug
 ```
 

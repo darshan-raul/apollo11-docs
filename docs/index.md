@@ -75,6 +75,7 @@ TODO: Heres the video demo of how it will look when running end to end:
 * Understand **Quality of Service (QoS) classes** and how Kubernetes prioritizes Pods under pressure.
 * Control scheduling behavior using **Pod Priority** and **Preemption**.
 * Enforce fair usage and prevent resource exhaustion using **resource quotas**.
+* Protect critical workloads during disruptions using **PodDisruptionBudgets**.
 
 ---
 
@@ -83,7 +84,6 @@ TODO: Heres the video demo of how it will look when running end to end:
 * Package and template Kubernetes manifests using **Helm charts**.
 * Customize Kubernetes configurations using **Kustomize overlays and patches**.
 * Build **CI/CD** pipelines to test and deploy applications automatically using **GitHub Actions**.
-* Using **testContainers** to do integration testing.
 * Implement **GitOps** workflows using **Argo CD** to manage deployments declaratively.
 
 ---
@@ -92,7 +92,6 @@ TODO: Heres the video demo of how it will look when running end to end:
 
 * Revisit probes from an operational perspective to understand real-world failure signals.
 * Use **DaemonSets** to deploy monitoring and system agents on every node.
-* Debug running Pods using **ephemeral containers** without restarting workloads.
 * Explore the cluster visually using the **Headlamp** dashboard.
 * Collect and query metrics using **Prometheus**.
 * Visualize metrics and build dashboards using **Grafana**.
@@ -105,9 +104,11 @@ TODO: Heres the video demo of how it will look when running end to end:
 ### Stage 7 : 🛰️ **Orbital Maneuvering – Scaling**
 
 * Automatically scale workloads using **Horizontal Pod Autoscaler (HPA)**.
+* Vertically scale pod resource requests using **Vertical Pod Autoscaler (VPA)**.
 * Control where Pods run using **taints and tolerations**.
 * Influence scheduling decisions using **node affinity rules**.
 * Control Pod co-location and separation using **pod affinity and anti-affinity**.
+* Cache frequently queried data using **Redis** for database acceleration.
 
 ---
 
@@ -115,41 +116,34 @@ TODO: Heres the video demo of how it will look when running end to end:
 
 * Implement fine-grained access control using **Role-Based Access Control (RBAC)**.
 * Secure Pods using security contexts to restrict privileges.
-* Use **hardened container images** to minimize the attack surface using **docker hardened images**.
+* Use **hardened container images** to minimize the attack surface using **distroless images**.
 * Authenticate workloads using **Service Accounts**.
 * Store and manage secrets securely using **Vault** as an external key store.
 * Manage encrypted secrets using **Sealed Secrets** and **External Secrets Operator**.
-* Enforce baseline security standards using **Pod Security Admission**.
-* Manage **TLS** certificates automatically using **cert-manager**.
-* Integrate Kubernetes authentication with **OIDC** using **Keycloak**.
-* Control and mutate resources using **admission controllers**.
-* Enforce policy-as-code using **OPA** or **Kyverno**.
-* Scan source code and container images using **TruffleHog** and **Trivy**.
+* Enforce baseline security standards using **OPA Gatekeeper**.
+* Scan source code and container images using **Trivy** and **Gitleaks**.
 
 ---
 
 ### Stage 9 : 🌕 **Lunar Orbit Operations – Deploy to Cloud**
 
 * Deploy Kubernetes clusters on **EKS, GKE, and AKS using Terraform**.
-* Scale cluster nodes dynamically using **Cluster Autoscaler or Karpenter**.
+* Scale cluster nodes dynamically using **Cluster Autoscaler**.
 * Load test applications using **k6** to validate performance.
 * Distribute workloads evenly using **topology spread constraints**.
 * **Perform safe Kubernetes cluster upgrades**.
 * Protect availability during disruptions using **Pod Disruption Budgets**.
-* Maintain cluster health through routine operational tasks.
 * Design and operate a **truly highly available Kubernetes cluster**.
 
 ---
 
 ### Stage 10 : 🧪 **Mission Extensions**
 
-* Hook into Pod and container lifecycle events using **lifecycle hooks**.
 * Implement a **service mesh** using **Linkerd** for traffic management and security.
 * Perform **progressive deployments** using **Argo Rollouts**.
 * Build a full **DevSecOps pipeline** integrating security into delivery.
-* Implement backup and restore strategies using **Velero** and **Rook**.
+* Implement backup and restore strategies using **Velero**.
 * Introduce controlled failures using **Chaos Mesh** to test resilience.
-* Monitor systems using **eBPF-based tooling** such as **Coroot**.
 
 ---
 
@@ -157,54 +151,49 @@ TODO: Heres the video demo of how it will look when running end to end:
 
 * Design and implement custom **CRDs** and **Kubernetes operators**.
 * Extend the Kubernetes API server with custom functionality.
-* Build a **homelab using k3s** and expose services securely via **Cloudflare Tunnel or Tailscale**.
+* Build a **homelab using k3s** and expose services securely via **Cloudflare Tunnel**.
 * Implement event-driven autoscaling using **KEDA**.
 * Manage application behavior dynamically using **feature flags**.
 * Build internal developer platforms using **Backstage**.
-* Analyze and optimize cluster costs using **Goldilocks and Kubecost**.
+* Analyze and optimize cluster costs using **Goldilocks** and **Kubecost**.
 * Use Kubernetes as a control plane for external infrastructure with **Crossplane**.
-* Harden clusters using **CIS benchmarks and runtime security tools like Falco**.
+* Harden clusters using **CIS benchmarks** and runtime security tools like **Falco**.
 * Manage clusters declaratively using **Cluster API**.
 * Design and operate **multi-cloud Kubernetes architectures**.
-* Build serverless workloads using **Knative**.
-* Prevent misconfigurations using **Datree**.
-* Learn how to engage with the Kubernetes community through **SIGs and TAGs**.
 
 ---
 
 ## Prerequisites
 
-- This course assumes that you come with bare basic knowledge about linux. 
+- This course assumes that you come with bare basic knowledge about linux.
 
 
 ## Tools
 
 | Category | Tools |
 |---|---|
-| Backend API |  Golang,Python |
-| Sql Database| Postgres,Mysql |
-| Nosql Database | MongoDB | 
-| Local Development | Tilt |
-| Dashboard | Headlamp,k9s |
+| Backend API | Golang, Python |
+| SQL Database | PostgreSQL 15 |
+| NoSQL Database | Redis 7 |
+| Local Development | Docker Compose |
+| Dashboard | Headlamp, k9s |
 | Container Management | Docker, Podman |
-| CI | Github Actions |
+| CI | GitHub Actions |
 | GitOps | ArgoCD |
-| Progressive Deployment | Argo Events, Argo Rollouts |
+| Progressive Deployment | Argo Rollouts |
 | Secret Store | Vault |
-| Ingress Controller | Apisix |
+| Ingress Controller | Traefik |
 | Packaging | Helm |
 | Patching | Kustomize |
 | Logging | Fluentd (agent), Loki (backend) |
-| Service Mesh | Istio |
-| Monitoring | Prometheus, Grafana |    
-| Compliance Monitoring | kubebench |
-| Policy Engine | OPA/Kyverno |
-| Policy Checker | Kubescape |
+| Service Mesh | Linkerd |
+| Monitoring | Prometheus, Grafana |
+| Policy Engine | OPA Gatekeeper |
 | Backup and Restore | Velero |
-| Load Testing | hey,Kube-monkey |
-| Cluster Provisioning | Kubespray (optional) |
-| Serverless | OpenFaas |
-| Container Builds | Buildah |
+| Load Testing | k6 |
+| Cluster Provisioning | Terraform |
+| Serverless | Knative |
+| Container Builds | Buildah, Kaniko |
 
 Extra:
 

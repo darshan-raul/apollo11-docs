@@ -35,24 +35,24 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: api.apollo11.local
+    - host: identity.apollo11.local
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: auth
+                name: identity
                 port:
                   number: 8080
-    - host: catalog.apollo11.local
+    - host: flight.apollo11.local
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: catalog
+                name: flight
                 port:
                   number: 8081
 ```
@@ -65,20 +65,20 @@ spec:
 
 ```yaml
 rules:
-  - host: api.apollo11.local
+  - host: identity.apollo11.local
     http:
       paths:
         - path: /
           backend:
             service:
-              name: auth
-  - host: catalog.apollo11.local
+              name: identity
+  - host: flight.apollo11.local
     http:
       paths:
         - path: /
           backend:
             service:
-              name: catalog
+              name: flight
 ```
 
 ### 2. Path-Based Routing (Fanout)
@@ -120,7 +120,7 @@ spec:
 ```
 Ingress: HTTP/HTTPS hostname-based routing to backends
 
-Host-based: api.example.com → auth, catalog.example.com → catalog
+Host-based: identity.apollo11.local → identity, flight.apollo11.local → flight
 Path-based: example.com/api → api-svc, example.com/web → web-svc
 
 Ingress Controller: The actual proxy (Traefik, nginx, Envoy)

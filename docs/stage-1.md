@@ -85,20 +85,20 @@ A **ReplicaSet** ensures a specific number of identical Pods are always running.
 apiVersion: apps/v1
 kind: ReplicaSet
 metadata:
-  name: auth
+  name: identity
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: auth
+      app: identity
   template:
     metadata:
       labels:
-        app: auth
+        app: identity
     spec:
       containers:
-        - name: auth
-          image: apollo11/auth:latest
+        - name: identity
+          image: apollo11/identity:latest
 ```
 
 **Why not use ReplicaSet directly?** It has no rolling-update or rollback capabilities. That's why we use Deployments.
@@ -111,27 +111,27 @@ A **Deployment** wraps a ReplicaSet and adds declarative updates, rolling update
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auth
+  name: identity
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: auth
+      app: identity
   template:
     metadata:
       labels:
-        app: auth
+        app: identity
     spec:
       containers:
-        - name: auth
-          image: apollo11/auth:latest
+        - name: identity
+          image: apollo11/identity:latest
           ports:
             - containerPort: 8080
 ```
 
 Key capabilities:
 - **Rolling updates** — replaces pods one-by-one with zero downtime
-- **Rollbacks** — `kubectl rollout undo deployment/auth` reverts to the previous revision
+- **Rollbacks** — `kubectl rollout undo deployment/identity` reverts to the previous revision
 - **Self-healing** — crashed pods are replaced automatically
 
 ### Services — stable network endpoint
@@ -142,17 +142,17 @@ Pods are ephemeral (IP changes on restart). A **Service** provides a stable DNS 
 apiVersion: v1
 kind: Service
 metadata:
-  name: auth
+  name: identity
 spec:
   type: ClusterIP       # Internal only (covered in Stage 2)
   selector:
-    app: auth
+    app: identity
   ports:
     - port: 80
       targetPort: 8080
 ```
 
-Other pods reach the auth service via `http://auth:80` — they never need to know pod IPs.
+Other pods reach the identity service via `http://identity:80` — they never need to know pod IPs.
 
 ---
 
@@ -187,10 +187,10 @@ This creates all of the following:
 | ConfigMap | 1 | service URLs, ports |
 | Secret | 1 | DB passwords, JWT secret |
 | ServiceAccount | 1 | for app pods |
-| Deployment | 5 | auth, catalog, circulation, notification, fines |
-| StatefulSet | 5 | auth-postgres, catalog-postgres, circulation-postgres, catalog-redis, notification-redis |
-| Service | 10 | 5 app ClusterIP + 5 infra ClusterIP |
-| Job | 3 | init-auth-db, init-catalog-db, init-circulation-db |
+| Deployment | 6 | identity, flight, booking, search, notification, frontend |
+| StatefulSet | 4 | identity-db, flight-db, booking-db, redis |
+| Service | 10 | 6 app ClusterIP + 4 infra ClusterIP |
+| Job | 3 | init-identity-db, init-flight-db, init-booking-db |
 
 Check everything is running:
 

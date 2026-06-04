@@ -45,7 +45,7 @@ Pod writes data → Pod crashes/is rescheduled → New pod has FRESH emptyDir �
 
 | Feature | Deployment | StatefulSet |
 |---------|------------|-------------|
-| **Pod naming** | Random hash (auth-7d8f9c6b4-xvw2j) | Stable ordinal (auth-postgres-0) |
+| **Pod naming** | Random hash (identity-7d8f9c6b4-xvw2j) | Stable ordinal (identity-db-0) |
 | **Storage** | Shared emptyDir | Per-pod PVC (each replica has own volume) |
 | **Startup order** | Parallel | Sequential (ordinal order: 0 → 1 → 2) |
 | **Use case** | Stateless apps | Databases, message queues |
@@ -65,7 +65,7 @@ volumeClaimTemplates:
           storage: 1Gi
 ```
 
-Each StatefulSet replica gets its own PVC: `data-auth-postgres-0`, `data-auth-postgres-1`, etc.
+Each StatefulSet replica gets its own PVC: `data-identity-db-0`, `data-identity-db-1`, etc.
 
 ---
 
@@ -81,11 +81,11 @@ initContainers:
       - sh
       - -c
       - |
-        until pg_isready -h auth-postgres -U postgres; do
-          echo "Waiting for auth-postgres..."
+        until pg_isready -h identity-db -U postgres; do
+          echo "Waiting for identity-db..."
           sleep 2
         done
-        psql -h auth-postgres -U postgres -d auth -f /init/init.sql || true
+        psql -h identity-db -U postgres -d identity -f /init/init.sql || true
     volumeMounts:
       - name: init-script
         mountPath: /init
@@ -99,11 +99,11 @@ initContainers:
 apiVersion: v1
 kind: Service
 metadata:
-  name: auth-postgres-headless
+  name: identity-db-headless
 spec:
   clusterIP: None   # Headless — DNS returns pod IPs directly
   selector:
-    app: auth-postgres
+    app: identity-db
   ports:
     - port: 5432
 ```
@@ -111,11 +111,11 @@ spec:
 **DNS behavior:**
 ```bash
 # Query the headless service
-nslookup auth-postgres-headless.apollo11-infra.svc.cluster.local
+nslookup identity-db-headless.apollo11-infra.svc.cluster.local
 # Returns: pod IPs directly (10.244.1.10, 10.244.1.11)
 
 # Each pod has a stable FQDN:
-auth-postgres-0.auth-postgres-headless.apollo11-infra.svc.cluster.local
+identity-db-0.identity-db-headless.apollo11-infra.svc.cluster.local
 ```
 
 ---
@@ -166,7 +166,7 @@ spec:
 emptyDir → PVC: Data survives pod restarts and node failures
 
 Deployment → StatefulSet:
-  - Stable ordinal names (auth-postgres-0, not random hash)
+  - Stable ordinal names (identity-db-0, not random hash)
   - Per-pod PVC (each replica has its own volume)
 
 Init containers:
@@ -185,10 +185,4 @@ NodePort → Ingress: Frontend uses ClusterIP + Traefik Ingress
 
 ## What's Next
 
-Stage 4 introduces **Flight Control** — liveness/readiness/startup probes, resource requests/limits, and QoS classes.
-
----
-
-## Coming Soon
-
-Hands-on labs for this stage are currently being developed.
+Stage 4 introduces **Flight Control** — liveness/readiness/startup probes, resource requests/limits, QoS classes, and PodDisruptionBudgets.

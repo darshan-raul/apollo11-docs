@@ -1,6 +1,6 @@
 ---
 title: "Gateway API — Next-Generation Routing"
-description: "Gateway API (Envoy Gateway) provides typed routing with Gateway + HTTPRoute resources."
+description: "Gateway API provides typed routing with Gateway + HTTPRoute resources."
 ---
 
 # Gateway API — Next-Generation Routing
@@ -50,16 +50,16 @@ The **HTTPRoute** defines routing rules.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: catalog-route
+  name: flight-route
 spec:
   parentRefs:
     - name: apollo11-gateway
       sectionName: http
   hostnames:
-    - catalog.apollo11.local
+    - flight.apollo11.local
   rules:
     - backendRefs:
-        - name: catalog
+        - name: flight
           port: 8081
 ```
 
@@ -75,12 +75,12 @@ kind: Ingress
 spec:
   ingressClassName: traefik
   rules:
-    - host: api.apollo11.local
+    - host: identity.apollo11.local
       http:
         paths:
           - backend:
               service:
-                name: auth
+                name: identity
                 port:
                   number: 8080
 ```
@@ -99,10 +99,10 @@ spec:
 ```yaml
 rules:
   - backendRefs:
-      - name: catalog-stable
+      - name: flight-stable
         port: 8081
         weight: 90          # 90% to stable
-      - name: catalog-canary
+      - name: flight-canary
         port: 8081
         weight: 10          # 10% to canary
 ```

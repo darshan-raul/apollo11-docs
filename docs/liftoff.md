@@ -1,7 +1,7 @@
 :::info
     This is where it all begins!
 
-    - Apollo11 is a **library management system** — 6 microservices that give us realistic patterns to work with: databases, queues, API-to-API calls, background jobs, and a frontend.
+    - Apollo11 is an **airline management system** — 6 microservices that give us realistic patterns to work with: databases, queues, API-to-API calls, background jobs, and a frontend.
     - We use this system to explore the entire cloud-native stack: networking, storage, observability, scaling, security, GitOps, and cloud provisioning.
     - No hello-world apps here — real services with real databases let us explore things that trivial examples can't.
 :::
@@ -56,14 +56,14 @@ The architecture consists of 6 services plus infrastructure:
 
 | Component | Technology | Port | Database |
 | :--- | :--- | :--- | :--- |
-| **frontend** | Go + Gin | 3000 | — |
-| **auth** | Python + FastAPI | 8080 | PostgreSQL 15 |
-| **catalog** | Go + Gin | 8081 | PostgreSQL 15 + Redis 7 |
-| **circulation** | Go + Gin | 8082 | PostgreSQL 15 |
-| **notification** | Go + Gin | 8083 | Redis 7 (port 6380) |
-| **fines** | Go + Gin | 8084 | SQLite on volume |
+| **frontend** | React/Node | 3000 | — |
+| **identity** | Python + FastAPI | 8080 | PostgreSQL 15 |
+| **flight** | Go + Gin | 8081 | PostgreSQL 15 |
+| **booking** | Go + Gin | 8082 | PostgreSQL 15 |
+| **search** | Go + Gin | 8083 | — |
+| **notification** | Go + Gin | 8084 | — |
 
-> **Infrastructure:** auth-postgres, catalog-postgres, circulation-postgres (PostgreSQL 15) + catalog-redis, notification-redis (Redis 7)
+> **Infrastructure:** identity-db, flight-db, booking-db (PostgreSQL 15) + redis (Redis 7)
 
 ---
 
@@ -82,7 +82,7 @@ cd Apollo11/stages/launchpad
 docker compose up -d --build
 ```
 
-This builds all 6 app images and starts all 11 containers (6 apps + 5 infra).
+This builds all 6 app images and starts all 10 containers (6 apps + 4 infra).
 
 ### 3. Wait for databases to initialize
 
@@ -102,7 +102,7 @@ docker compose logs -f
 # Check individual health endpoints
 for port in 3000 8080 8081 8082 8083 8084; do
   echo -n "Port $port: "
-  curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/health
+  curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/healthz
   echo
 done
 ```
@@ -122,50 +122,49 @@ Click **"Check All Services"** — all 6 should show `ok`.
 ## Network Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   apollo-network (bridge)           │
-│                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │
-│  │ frontend │  │   auth   │  │  catalog-postgres │ │
-│  │  :3000   │──│  :8080   │──│      :5432        │ │
-│  └──────────┘  └────┬─────┘  └──────────────────┘ │
-│                     │                               │
-│  ┌──────────┐  ┌────┴─────┐  ┌──────────────────┐ │
-│  │ catalog  │  │catalog- │  │ catalog-redis    │ │
-│  │  :8081   │──│  redis   │  │     :6379        │ │
-│  └────┬─────┘  └──────────┘  └──────────────────┘ │
-│       │                                            │
-│  ┌────┴──────┐  ┌──────────────────┐  ┌────────┐ │
-│  │circulation │  │circulation-postgr│  │  fines │ │
-│  │   :8082   │──│       :5432      │  │ :8084  │ │
-│  └────┬──────┘  └──────────────────┘  └────────┘ │
-│       │                                        │
-│  ┌────┴─────┐  ┌──────────────────┐            │
-│  │notificati│  │notification-redis│            │
-│  │  on:8083 │──│     :6380        │            │
-│  └──────────┘  └──────────────────┘            │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                   apollo-network (bridge)            │
+│                                                       │
+│  ┌──────────┐  ┌──────────┐  ┌────────────────────┐  │
+│  │ frontend │  │ identity │  │    identity-db     │  │
+│  │   :3000  │──│  :8080   │──│       :5432        │  │
+│  └──────────┘  └────┬─────┘  └────────────────────┘  │
+│                     │                                  │
+│  ┌──────────┐  ┌────┴─────┐  ┌────────────────────┐  │
+│  │  flight  │  │ flight-db│  │       redis        │  │
+│  │  :8081   │──│   :5432  │  │       :6379        │  │
+│  └────┬─────┘  └──────────┘  └────────────────────┘  │
+│       │                                               │
+│  ┌────┴──────┐  ┌────────────────────┐  ┌─────────┐  │
+│  │  booking  │  │    booking-db      │  │  search │  │
+│  │   :8082   │──│        :5432       │──│  :8083  │  │
+│  └───────────┘  └────────────────────┘  └─────────┘  │
+│       │                                               │
+│  ┌────┴─────┐  ┌────────────────────┐               │
+│  │notificati│  │     notification    │               │
+│  │  on:8084 │──│      (no DB)        │               │
+│  └──────────┘  └────────────────────┘               │
+└──────────────────────────────────────────────────────┘
 ```
 
-Service discovery: use the service name as hostname (e.g., `auth:8080`, `catalog-postgres:5432`).
+Service discovery: use the service name as hostname (e.g., `identity:8080`, `identity-db:5432`).
 
 ---
 
-## All 11 Services
+## All 10 Services
 
 | Service | Image | Port | Depends On | Purpose |
 |---|---|---|---|---|
-| frontend | Go/Gin | 3000 | auth, catalog, circulation | Web UI + health dashboard |
-| auth | Python/FastAPI | 8080 | auth-postgres | JWT authentication |
-| catalog | Go/Gin | 8081 | catalog-postgres, catalog-redis | Book/author management |
-| circulation | Go/Gin | 8082 | circulation-postgres | Loans, reservations |
-| notification | Go/Gin | 8083 | notification-redis | Email notifications |
-| fines | Go/Gin | 8084 | — | Fine calculations (SQLite) |
-| auth-postgres | postgres:15-alpine | 5432 | — | Auth database |
-| catalog-postgres | postgres:15-alpine | 5432 | — | Catalog database |
-| catalog-redis | redis:7-alpine | 6379 | — | Cache + sessions |
-| circulation-postgres | postgres:15-alpine | 5432 | — | Circulation database |
-| notification-redis | redis:7-alpine | 6380 | — | Notification queue |
+| frontend | React/Node | 3000 | identity, flight, booking | Web UI + health dashboard |
+| identity | Python/FastAPI | 8080 | identity-db | JWT authentication, passenger management |
+| flight | Go/Gin | 8081 | flight-db | Flight inventory, seat management |
+| booking | Go/Gin | 8082 | booking-db | Reservations, the flagship workflow |
+| search | Go/Gin | 8083 | — | Optimised flight search (Redis from Stage 7) |
+| notification | Go/Gin | 8084 | — | Event fan-out |
+| identity-db | postgres:15-alpine | 5432 | — | Identity database |
+| flight-db | postgres:15-alpine | 5432 | — | Flight database |
+| booking-db | postgres:15-alpine | 5432 | — | Booking database |
+| redis | redis:7-alpine | 6379 | — | Cache + queue |
 
 ---
 
@@ -173,33 +172,33 @@ Service discovery: use the service name as hostname (e.g., `auth:8080`, `catalog
 
 ```
 stages/launchpad/
-├── docker-compose.yml          # All 11 services, networking, volumes
+├── docker-compose.yml          # All 10 services, networking, volumes
 ├── code/
 │   ├── frontend/
-│   │   ├── main.go             # Gin HTTP server, serves HTML UI
-│   │   ├── Dockerfile           # Go binary → scratch
-│   │   └── nginx.conf          # (if using nginx sidecar)
-│   ├── auth/
-│   │   ├── main.py             # FastAPI app, JWT stubs, CORS middleware
-│   │   ├── requirements.txt     # fastapi, uvicorn, pydantic
-│   │   ├── Dockerfile           # python:3.11-slim multi-stage
+│   │   ├── package.json         # Node/React app
+│   │   ├── Dockerfile           # node:20-alpine build → nginx:alpine serve
+│   │   └── nginx.conf           # Static file serving
+│   ├── identity/
+│   │   ├── main.py              # FastAPI app, JWT stubs, CORS middleware
+│   │   ├── requirements.txt     # fastapi, uvicorn, pydantic, psycopg2
+│   │   ├── Dockerfile           # python:3.12-slim multi-stage
 │   │   └── init.sql             # DB schema (auto-run on first start)
-│   ├── catalog/
-│   │   ├── main.go             # Books/authors CRUD, CORS middleware
+│   ├── flight/
+│   │   ├── main.go              # Flights, airports, seat management, CORS middleware
 │   │   ├── go.mod / go.sum      # Dependencies
 │   │   ├── Dockerfile           # Go → scratch multi-stage
 │   │   └── init.sql             # DB schema
-│   ├── circulation/
-│   │   ├── main.go             # Loans/reservations CRUD, CORS middleware
+│   ├── booking/
+│   │   ├── main.go              # Reservations CRUD, CORS middleware
 │   │   ├── go.mod / go.sum
 │   │   ├── Dockerfile
 │   │   └── init.sql
-│   ├── notification/
-│   │   ├── main.go             # Notification queue, CORS middleware
+│   ├── search/
+│   │   ├── main.go              # Flight search, CORS middleware
 │   │   ├── go.mod / go.sum
 │   │   └── Dockerfile
-│   └── fines/
-│       ├── main.go             # Fine calc with SQLite, CORS middleware
+│   └── notification/
+│       ├── main.go             # Notification fan-out, CORS middleware
 │       ├── go.mod / go.sum
 │       └── Dockerfile
 ```
@@ -211,32 +210,30 @@ stages/launchpad/
 Each PostgreSQL service mounts its `init.sql` into `/docker-entrypoint-initdb.d/` — Postgres runs it automatically on first container start (only if the DB is empty):
 
 ```yaml
-auth:
+identity:
   volumes:
     - type: bind
-      source: ./code/auth/init.sql
+      source: ./code/identity/init.sql
       target: /docker-entrypoint-initdb.d/init.sql
 ```
 
-Redis has no init script — it starts empty and serves as a cache/queue.
+Redis has no init script — it starts empty and serves as a cache.
 
 ---
 
 ## Health Checks
 
-Every app exposes `GET /health` returning `{"status":"ok"}`.
-
-Database containers use native health checks:
+Every app exposes `GET /healthz` and `GET /readyz`. Database containers use native health checks:
 
 ```yaml
-auth-postgres:
+identity-db:
   healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U postgres -d auth"]
+    test: ["CMD-SHELL", "pg_isready -U postgres -d identity"]
     interval: 5s
     timeout: 5s
     retries: 10
 
-catalog-redis:
+redis:
   healthcheck:
     test: ["CMD-SHELL", "redis-cli ping"]
     interval: 5s
@@ -247,9 +244,9 @@ catalog-redis:
 Apps wait for their DB to be healthy before starting:
 
 ```yaml
-auth:
+identity:
   depends_on:
-    auth-postgres:
+    identity-db:
       condition: service_healthy   # NOT service_started
 ```
 
@@ -261,15 +258,14 @@ Named Docker volumes persist data across restarts:
 
 ```yaml
 volumes:
-  auth-postgres-data:      # Survives `docker compose down`
-  catalog-postgres-data:
-  circulation-postgres-data:
-  fines-data:
+  identity-db-data:      # Survives `docker compose down`
+  flight-db-data:
+  booking-db-data:
 ```
 
 ```
 # See volume contents
-docker volume inspect launchpad_auth-postgres-data
+docker volume inspect launchpad_identity-db-data
 
 # Reset everything (remove volumes)
 docker compose down -v
@@ -279,8 +275,6 @@ docker compose down
 docker compose up -d
 ```
 
-> **Fines service:** SQLite file at `/data/fines.db` — data survives restarts via the `fines-data` volume.
-
 ---
 
 ## Common Tasks
@@ -288,33 +282,33 @@ docker compose up -d
 ### View logs for a specific service
 
 ```bash
-docker compose logs -f auth
-docker compose logs --tail=50 circulation
+docker compose logs -f identity
+docker compose logs --tail=50 booking
 ```
 
 ### Restart a single service (no rebuild)
 
 ```bash
-docker compose restart catalog
+docker compose restart flight
 ```
 
 ### Rebuild a single service after code change
 
 ```bash
-docker compose up -d --build catalog
+docker compose up -d --build flight
 ```
 
 ### Shell into a running container
 
 ```bash
-docker compose exec -it auth-postgres psql -U postgres -d auth
-docker compose exec -it catalog-redis redis-cli
+docker compose exec -it identity-db psql -U postgres -d identity
+docker compose exec -it redis redis-cli
 ```
 
 ### Test service-to-service communication (from inside a container)
 
 ```bash
-docker compose exec catalog curl -s http://auth:8080/health
+docker compose exec flight curl -s http://identity:8080/healthz
 ```
 
 ### Full rebuild
@@ -330,14 +324,13 @@ docker compose up -d --build
 
 ### `COPY failed: file not found in build context`
 
-A service is missing `go.sum` (Go) or `requirements.txt` (Python). Run:
+A Go service is missing `go.sum` or a Python service is missing `requirements.txt`. Run:
 
 ```bash
 # Go services — generate go.sum
-cd code/catalog && go mod tidy
-cd code/circulation && go mod tidy
-cd code/fines && go mod tidy
-cd code/frontend && go mod tidy
+cd code/flight && go mod tidy
+cd code/booking && go mod tidy
+cd code/search && go mod tidy
 cd code/notification && go mod tidy
 ```
 
@@ -345,41 +338,14 @@ Then rebuild.
 
 ### Services show DOWN in browser but curl works
 
-**CORS issue** — the browser's JavaScript makes cross-origin requests. All Go services need CORS middleware added to `main.go`:
-
-```go
-func cors() gin.HandlerFunc {
-    return func(c *gin.Context) {
-        c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-        c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-        if c.Request.Method == "OPTIONS" {
-            c.AbortWithStatus(http.StatusNoContent)
-            return
-        }
-        c.Next()
-    }
-}
-
-func main() {
-    r := gin.Default()
-    r.Use(cors())
-    // ...
-}
-```
-
-For auth (FastAPI), add:
-```python
-from fastapi.middleware.cors import CORSMiddleware
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-```
+**CORS issue** — the browser's JavaScript makes cross-origin requests. All Go services have CORS middleware by default.
 
 ### Container exits immediately
 
 Check logs:
 ```bash
-docker compose logs fines
-docker compose logs catalog
+docker compose logs search
+docker compose logs flight
 ```
 
 ### Port already in use
@@ -410,36 +376,36 @@ docker compose down --rmi local
 
 ## Dockerfile Patterns Used
 
-### 1. Go Services (catalog, circulation, notification, fines)
+### 1. Go Services (flight, booking, search, notification)
 
 Multi-stage build: compile in Go container, run from `scratch` (no OS):
 
 ```dockerfile
-FROM golang:1.21-alpine AS builder
+FROM golang:1.22-alpine AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/catalog .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/flight .
 
 FROM scratch
-COPY --from=builder /bin/catalog /bin/catalog
+COPY --from=builder /bin/flight /bin/flight
 EXPOSE 8081
-ENTRYPOINT ["/bin/catalog"]
+ENTRYPOINT ["/bin/flight"]
 ```
 
-### 2. Python Service (auth)
+### 2. Python Service (identity)
 
 Standard Python + FastAPI with multi-stage build:
 
 ```dockerfile
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim AS builder
 WORKDIR /src
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 WORKDIR /src
 COPY --from=builder /src/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -448,22 +414,24 @@ EXPOSE 8080
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
-### 3. Frontend (Go)
+### 3. Frontend (React SPA)
 
-Single-stage: Go binary on scratch, serves HTML directly:
+Multi-stage: Node builds the React app, NGINX serves static files:
 
 ```dockerfile
-FROM golang:1.21-alpine AS builder
+# Stage 1: Build
+FROM node:20-alpine AS builder
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
+COPY package*.json ./
+RUN npm ci
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/frontend .
+RUN npm run build
 
-FROM scratch
-COPY --from=builder /bin/frontend /bin/frontend
+# Stage 2: Serve
+FROM nginx:alpine
+COPY --from=builder /src/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
-ENTRYPOINT ["/bin/frontend"]
 ```
 
 ---
@@ -473,9 +441,9 @@ ENTRYPOINT ["/bin/frontend"]
 ```
 Docker:       Containers are isolated, reproducible environments
 Compose:      Orchestrate multi-container local development
-Multi-stage:  Build in heavy container, run from minimal image (scratch)
-Health:       Every service exposes /health; DBs use pg_isready/redis-cli ping
-DNS:          Service names resolve to container IPs automatically (auth:8080)
+Multi-stage:  Build in heavy container, run from minimal image (scratch/nginx)
+Health:       Every service exposes /healthz and /readyz; DBs use pg_isready/redis-cli ping
+DNS:          Service names resolve to container IPs automatically (identity:8080)
 Volumes:      Named volumes persist data across restarts
 CORS:         Browser JS needs Access-Control headers to call other services
 Init scripts: PostgreSQL auto-runs .sql files in /docker-entrypoint-initdb.d/

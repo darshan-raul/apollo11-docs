@@ -82,12 +82,12 @@ data:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: auth-pdb
+  name: booking-pdb
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: auth
+      app: booking
 ```
 
 ---
