@@ -164,21 +164,6 @@ stages/launchpad/
 ```
 
 
-**Users:**
-- `admin@apolloairlines.com` / `admin123` (ADMIN)
-- `passenger@apolloairlines.com` / `pass123` (PASSENGER)
-
-## Docker Images Used
-
-| Service | Image |
-|---|---|
-| Go services | `golang:1.22-alpine` |
-| Python service | `python:3.12-slim` |
-| Frontend build | `node:20-alpine` |
-| Frontend serve | `nginx:alpine` |
-| PostgreSQL | `postgres:15-alpine` |
-| Redis | `redis:7-alpine` |
-
 ## Run It
 
 ```bash
@@ -198,7 +183,7 @@ In your browser, go to "http://localhost:3000"
   <figcaption>You should see something like this</figcaption>
 </figure>
 
-
+Go ahead and login with these precreated users.
 
 **Users:**
 - `admin@apolloairlines.com` / `admin123` (ADMIN)
@@ -356,6 +341,108 @@ Key points:
 - No `node_modules` or build tools in the final image — only the pre-built static files.
 
 
+
+---
+
+## Service Workflows
+
+These are the key request flows between services for common user journeys.
+
+### 1. User Login
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant FE as Frontend
+    participant ID as Identity
+    participant IDDB as identity-db
+
+    U->>FE: Navigate to app
+    FE-->>U: Show login page
+    U->>FE: Submit email + password
+    FE->>ID: POST /api/users/login
+    ID->>IDDB: SELECT users WHERE email=?
+    IDDB-->>ID: user record
+    ID-->>FE: JWT token
+    FE-->>U: Login successful, store JWT
+```
+
+### 2. Search Flights
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant FE as Frontend
+    participant SN as Search
+    participant FL as Flight
+    participant FLDB as flight-db
+
+    U->>FE: Enter origin, destination, date
+    FE->>SN: GET /api/search?origin=BOM&destination=SIN&date=2025-07-01
+    SN->>FL: GET /api/flights?origin=BOM&destination=SIN&date=2025-07-01
+    FL->>FLDB: SELECT flights WHERE origin=? AND destination=? AND date=?
+    FLDB-->>FL: flight records (AA101, AA102, ...)
+    FL-->>SN: flight list
+    SN-->>FE: search results
+    FE-->>U: Display available flights
+```
+
+### 3. Book a Flight
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant FE as Frontend
+    participant BK as Booking
+    participant FL as Flight
+    participant ID as Identity
+    participant NT as Notification
+    participant RD as Redis
+    participant FLDB as flight-db
+    participant IDDB as identity-db
+    participant BKDB as booking-db
+
+    U->>FE: Click "Book" on flight AA101
+    FE->>BK: POST /api/bookings (with JWT)
+    BK->>FL: GET /api/flights/AA101 (verify flight)
+    FL->>FLDB: SELECT flight WHERE id=AA101
+    FLDB-->>FL: flight details
+    FL-->>BK: flight exists
+    BK->>ID: GET /api/users/me (verify JWT + get user_id)
+    ID->>IDDB: SELECT users WHERE id=?
+    IDDB-->>ID: user record
+    ID-->>BK: user info
+    BK->>BKDB: INSERT INTO bookings (user_id, flight_id, status)
+    BKDB-->>BK: booking created
+    BK-->>FE: booking confirmed
+    FE-->>U: Show confirmation
+    BK->>NT: POST /api/notify (async, fire-and-forget)
+    NT->>RD: LPUSH notification payload
+    RD-->>NT: queued
+```
+
+### 4. Admin Views All Bookings
+
+```mermaid
+sequenceDiagram
+    actor A as Admin
+    participant FE as Frontend
+    participant BK as Booking
+    participant ID as Identity
+    participant BKDB as booking-db
+    participant IDDB as identity-db
+
+    A->>FE: Navigate to admin dashboard
+    FE->>ID: GET /api/admin/users (verify admin role from JWT)
+    ID->>IDDB: SELECT * FROM users WHERE role=ADMIN
+    IDDB-->>ID: admin user list
+    ID-->>FE: admin verified
+    FE->>BK: GET /api/admin/bookings
+    BK->>BKDB: SELECT bookings JOIN users (with pagination)
+    BKDB-->>BK: all bookings with user info
+    BK-->>FE: booking list
+    FE-->>A: Display admin dashboard
+```
 
 ---
 
