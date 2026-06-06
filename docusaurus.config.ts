@@ -19,15 +19,19 @@ const config: Config = {
 
   onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
-  markdown: {
-    hooks: {
-      onBrokenMarkdownImages: 'warn',
-    },
-  },
 
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
+  },
+
+  themes: ['@docusaurus/theme-mermaid'],
+
+  markdown: {
+    mermaid: true,
+    hooks: {
+      onBrokenMarkdownImages: 'warn',
+    },
   },
 
   presets: [
@@ -46,7 +50,12 @@ const config: Config = {
     ],
   ],
 
+  plugins: ['docusaurus-plugin-image-zoom'],
+
   themeConfig: {
+    mermaid: {
+      theme: { light: 'neutral', dark: 'dark' },
+    },
     colorMode: {
       defaultMode: 'dark',
       disableSwitch: false,
@@ -56,7 +65,7 @@ const config: Config = {
       title: 'Apollo 11',
       items: [
         {to: '/docs', label: 'Home'},
-        {to: '/docs/liftoff', label: 'Launchpad'},
+        {to: '/docs/launchpad', label: 'Launchpad'},
         {to: '/docs/ignition', label: 'Ignition'},
         {to: '/docs/stage-1', label: 'Stage 1'},
         {to: '/docs/stage-2', label: 'Stage 2'},
@@ -78,6 +87,13 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
+    },
+    zoom: {
+      selector: '.markdown img',
+      background: {
+        light: 'rgb(255, 255, 255)',
+        dark: 'rgb(50, 50, 50)',
+      },
     },
   } satisfies Preset.ThemeConfig,
 };

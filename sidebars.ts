@@ -11,7 +11,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Launchpad',
       items: [
-        'liftoff',
+        'launchpad',
       ],
     },
     'ignition',

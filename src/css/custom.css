@@ -176,6 +176,7 @@ pre code {
 .theme-code-block {
   border-radius: var(--border-radius-lg) !important;
   border: 1px solid rgba(155, 89, 182, 0.2);
+  padding: 1rem 1.25rem !important;
 }
 
 .menu {
@@ -234,6 +235,27 @@ table tr:nth-child(even) {
   background: rgba(155, 89, 182, 0.08);
 }
 
+figure {
+  margin: 1.5rem 0;
+  text-align: center;
+}
+
+figure img {
+  margin: 0 auto;
+  border-radius: var(--border-radius-md);
+}
+
+figcaption {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  color: #c9b8db;
+  font-style: italic;
+}
+
+[data-theme='dark'] figcaption {
+  color: #d4bfe3;
+}
+
 .admonition {
   border-radius: var(--border-radius-lg);
   border-width: 1px;
@@ -277,6 +299,7 @@ article blockquote {
   border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
   padding: 1rem 1.5rem;
   margin: 1.5rem 0;
+  color: #e8d5f2;
 }
 
 [data-theme='dark'] article blockquote {

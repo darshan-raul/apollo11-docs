@@ -7,7 +7,7 @@ This section covers the fundamental networking concepts in Kubernetes and how In
 Kubernetes was designed with a specific philosophy regarding how containers should communicate. Unlike the standard Docker networking model which uses port mapping (NAT) to expose containers to the host, Kubernetes imposes a flat network structure.
 
 
-![](../../images/4nwpillars.jpg)
+{/* Image missing: ../../images/4nwpillars.jpg */}
 
 Kubernetes requires every network implementation (via CNIs) to satisfy these fundamental requirements to ensure seamless communication across the cluster:
 

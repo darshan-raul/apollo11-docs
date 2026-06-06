@@ -182,7 +182,7 @@ function HomepageHero() {
               <path d="M5 12h14M12 5l7 7-7 7"/>
             </svg>
           </Link>
-          <Link className={styles.secondaryButton} to="/docs/liftoff">
+          <Link className={styles.secondaryButton} to="/docs/launchpad">
             Explore Curriculum
           </Link>
         </div>
@@ -222,8 +222,8 @@ function StagesSection() {
       </div>
       <div className={styles.stagesGrid}>
         {stages.map((stage, index) => {
-          let linkPath = '/docs/liftoff';
-          if (index === 0) linkPath = '/docs/liftoff';
+          let linkPath = '/docs/launchpad';
+          if (index === 0) linkPath = '/docs/launchpad';
           else if (index === 1) linkPath = '/docs/ignition';
           else linkPath = `/docs/stage-${index}`;
           return (

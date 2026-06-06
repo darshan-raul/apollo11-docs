@@ -17,7 +17,7 @@ This course uses **k3d** (Kubernetes in Docker) — lightweight and fast to prov
 
 ## Prerequisites
 
-`k3d`, `kubectl`, and `docker` are needed. Install from the [Liftoff](./liftoff) section, then enter the devbox shell.
+`k3d`, `kubectl`, and `docker` are needed. Install from the [Launchpad](./launchpad) section, then enter the devbox shell.
 
 ## Creating a k3d cluster
 
