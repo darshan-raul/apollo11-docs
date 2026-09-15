@@ -162,3 +162,16 @@ spec:
 ```
 
 Running `kubectl apply -f cluster.yaml` automatically creates the cloud VPC, control plane, and worker pools!
+
+---
+
+## Explain & Review Questions
+
+1. **What is the difference between a Custom Resource Definition (CRD) and an Operator/Controller?**
+   A CRD simply extends the Kubernetes API to accept new YAML schemas (the "What"). An Operator or Controller is the background software loop that watches those CRDs and actually performs the automation to make the real world match the YAML (the "How").
+
+2. **Why use KEDA over the native HorizontalPodAutoscaler (HPA)?**
+   HPA is limited to CPU/Memory or complex custom metrics adapters. KEDA allows scaling based on external events directly (like the number of messages in a Kafka topic or AWS SQS queue) and importantly, it can scale workloads all the way down to **zero** pods when there is no event activity.
+
+3. **How does k3s differ from standard upstream Kubernetes (k8s)?**
+   k3s is a lightweight, single-binary distribution. It strips out legacy drivers, replaces the heavy `etcd` datastore with a SQL database (like SQLite), and bundles everything needed (containerd, Flannel CNI, Traefik, metrics-server) into one sub-100MB executable, making it perfect for Edge IoT devices, Raspberry Pis, and CI pipelines.

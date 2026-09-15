@@ -147,6 +147,13 @@ bash scripts/teardown.sh --mode kustomize --env dev
 
 ---
 
-## What's Next
+## Explain & Review Questions
 
-In [Stage 6: Mission Operations](./stage-6.md), we add full **observability** — Prometheus scraping application `/metrics`, Grafana dashboards, Loki log aggregation via Alloy, and end-to-end distributed tracing with OpenTelemetry and Tempo.
+1. **What is the fundamental difference between Helm and Kustomize?**
+   Helm is a templating engine (Go templates) that renders manifests dynamically using a `values.yaml` file. Kustomize is a patching engine that takes pure YAML base files and applies strategic merge patches on top of them without any templating logic.
+
+2. **Why use Argo CD (GitOps) instead of running `helm upgrade` from a CI pipeline (like Jenkins or GitHub Actions)?**
+   Argo CD runs inside the cluster and continuously monitors Git (the desired state) against the cluster (the live state). If someone manually edits a deployment (config drift), Argo CD automatically detects it and reverts it to match Git. A push-based CI pipeline only runs when triggered, so drift goes undetected.
+
+3. **Why do we define resource limits, node affinities, and PDBs conditionally in Helm charts?**
+   To allow the same chart to run efficiently on a small developer laptop (with low limits and no PDBs) and safely in production (with Guaranteed QoS, multi-node spread, and strict PDBs).

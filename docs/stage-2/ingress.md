@@ -174,3 +174,16 @@ While Ingress solved Layer 7 routing and TLS, real-world Kubernetes operations e
 3. **High Port Dependency:** In local clusters without a cloud provider, Ingress still had to be accessed via NodePort 30443.
 
 To eliminate high ports, Substage 4 introduces **MetalLB**. To replace fragmented Ingress annotations with typed, portable APIs, Substage 5 introduces the **Envoy Gateway API**.
+
+---
+
+## Explain & Review Questions
+
+1. **How does an Ingress Controller distinguish which backend service to route traffic to?**
+   It inspects Layer 7 data, specifically the HTTP `Host` header and URL path, to match routing rules defined in Ingress resources.
+
+2. **Why is it advantageous to terminate TLS at the Ingress Controller rather than the Pods?**
+   It offloads TLS decryption overhead from the application pods and centralizes certificate management (Secrets) in one place rather than configuring certificates in every microservice.
+
+3. **What happens if a required TLS Secret is deleted while the Ingress resource is active?**
+   The Ingress Controller typically falls back to a default self-signed certificate, which causes browser trust warnings (e.g., `TRAEFIK DEFAULT CERT`) but keeps the proxy running.

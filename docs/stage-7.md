@@ -311,6 +311,13 @@ bash scripts/teardown.sh --mode helm --env dev --purge
 
 ---
 
-## What's Next
+## Explain & Review Questions
 
-In [Stage 8: Command Module Hardening](./stage-8.md), we harden the entire platform: implementing **RBAC**, enforcing **Pod Security Admission (restricted)**, replacing kindnet with **Calico CNI** to enforce NetworkPolicies, integrating **HashiCorp Vault & External Secrets Operator**, and configuring admission policies with **Kyverno**.
+1. **Why is `scaleUp.stabilizationWindowSeconds` set to `0` while `scaleDown` is `300`?**
+   Because traffic surges must be absorbed immediately to avoid dropping requests ("scale fast"). Conversely, scaling down too quickly during brief traffic dips causes pod thrashing ("contract slow").
+
+2. **Why should you never run HPA and VPA `Auto` mode simultaneously on CPU or Memory metrics?**
+   Because VPA changes the `requests`, which automatically changes the denominator HPA uses to calculate utilization percentage. This causes the two controllers to fight each other, leading to wild scaling oscillations.
+
+3. **What happens in Apollo Airlines if the Redis cache completely fails?**
+   The application degrades gracefully. The search service logs the connection timeout (which is strictly bounded) and falls back to querying the PostgreSQL database directly, while continually attempting to reconnect to Redis.

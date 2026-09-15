@@ -236,8 +236,13 @@ Apollo11 delivers a **production-shaped** platform. In an authentic engineering 
 
 ---
 
-## What's Next
+## Explain & Review Questions
 
-Congratulations! You have completed the core linear curriculum of Apollo11 (Launchpad through Stage 9). 
+1. **Why is the EBS `StorageClass` configured with `volumeBindingMode: WaitForFirstConsumer`?**
+   In a multi-AZ cluster, an EBS volume is locked to a single AZ. This mode delays volume creation until the Kubernetes scheduler assigns the Pod to a specific node, ensuring the disk and the node are in the exact same Availability Zone.
 
-You can now explore the optional **[Stage 10: Production Operations Missions](./stage-10.md)** (Linkerd, Argo Rollouts, Chaos Mesh) or the **[Stage 11: Platform Engineering Specializations](./stage-11.md)** (CRDs/Operators, KEDA, k3s Homelab).
+2. **How does the AWS Load Balancer Controller create an NLB for the Envoy Proxy?**
+   It watches for `Service` resources of type `LoadBalancer` (created by the EnvoyProxy resource). When it sees the AWS-specific annotations on the service, the controller makes API calls to AWS EC2 to provision a real Network Load Balancer and points its target groups at the Envoy Pods.
+
+3. **Why is tearing down cloud infrastructure safely so critical?**
+   Because orphaned resources (like NAT Gateways, detached EBS volumes, or unmapped Load Balancers) incur continuous hourly charges even if the Kubernetes cluster that created them is deleted.

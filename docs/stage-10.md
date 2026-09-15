@@ -241,6 +241,13 @@ kubectl get pods -n apollo-airlines-apps
 
 ---
 
-## What's Next
+## Explain & Review Questions
 
-Continue your exploration with **[Stage 11: Towards Mars — Platform Engineering Specializations](./stage-11.md)** to learn Custom Operators, KEDA autoscaling, k3s Homelabs, and Backstage developer portals.
+1. **How does a Service Mesh like Linkerd provide mTLS without changing application code?**
+   It injects a lightweight proxy (sidecar) into every Pod. The application speaks plain HTTP to localhost, and the proxy intercepts the traffic, encrypts it using certificates issued by the mesh control plane, and forwards it to the destination proxy, which decrypts it.
+
+2. **What is the difference between a Kubernetes `Deployment` rolling update and an Argo Rollout Canary?**
+   A Deployment rolling update blindly replaces pods based on health probes, shifting 100% of traffic to new pods as they become ready. A Canary Rollout allows you to shift only a small percentage (e.g., 5%) of real user traffic to the new version, pause, measure error rates, and automatically rollback if metrics fail.
+
+3. **Why use Chaos Engineering in production?**
+   To proactively prove that the system can survive node failures, network partitions, and pod crashes automatically, rather than discovering single points of failure during an unplanned 3 AM outage.

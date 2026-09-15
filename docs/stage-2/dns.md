@@ -168,9 +168,13 @@ kubectl exec -n apollo-airlines-ui curl-client -- \
 
 ---
 
-## Key Takeaways
+## Explain & Review Questions
 
-- CoreDNS dynamically creates DNS records matching `<svc>.<ns>.svc.cluster.local` for every Service.
-- Short names work only within the same namespace; cross-namespace communication must include the target namespace.
-- Services do not run containers; they are virtual IPs mapped to real Pod IPs via EndpointSlices.
-- If a Service selector has a typo, Kubernetes accepts the manifest, but EndpointSlices remain `<none>` and traffic drops silently.
+1. **Why do cross-namespace calls require a Fully Qualified Domain Name (FQDN) or namespace suffix?**
+   Because the auto-injected `/etc/resolv.conf` in a Pod only searches the Pod's local namespace by default (`<namespace>.svc.cluster.local`).
+
+2. **What happens to traffic when a Service selector matches no Pod labels?**
+   The Service continues to exist, but the associated `EndpointSlice` drops to `<none>`. Connection attempts fail or time out because the Service has no valid backend IP addresses to forward traffic to.
+
+3. **Do ClusterIP Services load-balance traffic by acting as a proxy?**
+   No. The ClusterIP is a virtual IP mapped by `kube-proxy` (via iptables/IPVS) directly to the destination Pod IPs. Packets are NAT-routed, avoiding an extra proxy hop.

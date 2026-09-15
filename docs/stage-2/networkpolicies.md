@@ -162,6 +162,13 @@ NetworkPolicies require an underlying CNI plugin that watches the NetworkPolicy 
 
 ---
 
-## What's Next
+## Explain & Review Questions
 
-Now that networking and edge routing are thoroughly established, [Stage 3: Mission Data](../stage-3.md) transitions to **StatefulSets, PersistentVolumeClaims, and headless Services** to give our databases durable storage that survives Pod deletion.
+1. **Why does creating a "default deny" NetworkPolicy instantly block all traffic in a namespace?**
+   Because NetworkPolicies are additive white-lists. The moment any NetworkPolicy selects a Pod, that Pod becomes isolated. Traffic is only permitted if explicitly allowed by a subsequent rule.
+
+2. **Why didn't the NetworkPolicies work in Substage 1/2?**
+   NetworkPolicies are just API objects; they require a network plugin (CNI) like Calico or Cilium to actually enforce the firewall rules on the node data plane. The default `kindnet` CNI does not implement this.
+
+3. **How do you allow traffic from an Ingress Controller/Gateway?**
+   By writing an `ingress` rule that selects the Pods and permits traffic from a `namespaceSelector` (and optionally `podSelector`) matching the Gateway's namespace and labels.

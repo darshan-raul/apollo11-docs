@@ -166,6 +166,17 @@ While convenient for local testing, NodePort has severe operational limitations:
 1. **Port Exhaustion:** Restricted to high ports (`30000–32767`). You cannot expose standard ports `80` or `443` directly.
 2. **No L7 Routing:** NodePort operates strictly at Layer 4 (TCP/UDP). It cannot inspect HTTP `Host` headers or URL paths to route multiple domains through a single entry point.
 3. **No Centralized TLS Termination:** Every application would have to manage its own TLS certificates and decryption overhead.
-4. **Load Balancing Limitations:** Traffic arriving at a node might need an extra network hop across nodes to reach the pod, causing suboptimal routing.
-
 To solve these limitations, we step up to **Ingress Controllers** in Substage 3.
+
+---
+
+## Explain & Review Questions
+
+1. **What is the difference between `port`, `targetPort`, and `nodePort` in a Service definition?**
+   `port` is the internal port on the ClusterIP; `targetPort` is the port the container process is actually listening on inside the Pod; `nodePort` is the static high port opened on every host node's network interface.
+
+2. **If a Pod crashes and gets a new IP address, do you need to update the NodePort Service?**
+   No. The Service dynamically updates its EndpointSlice when Pods restart with new IPs, keeping the routing intact.
+
+3. **Why do connections fail if the `targetPort` is incorrect, even if the Service and Endpoints are active?**
+   Because `kube-proxy` forwards the packets to the Pod IP successfully, but the container's network namespace refuses the connection since no process is listening on the mismatched port.

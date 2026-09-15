@@ -248,3 +248,16 @@ Substage 5 marks the completion of the edge access ladder. This exact combinatio
 - [Stage 5: Payload Integration](../stage-5.md) (Helm & ArgoCD)
 - [Stage 6: Mission Operations](../stage-6.md) (Grafana & Observability Ingress)
 - [Stage 7: Orbital Maneuvering](../stage-7.md) (Autoscaling)
+
+---
+
+## Explain & Review Questions
+
+1. **How does MetalLB solve the NodePort problem for on-prem/local clusters?**
+   It allows `type: LoadBalancer` Services to acquire a real IP address from a local pool, advertising it via ARP/NDP, eliminating the need to connect through high NodePorts on localhost.
+
+2. **What are the three main resource tiers in the Gateway API architecture?**
+   `GatewayClass` (defines the controller/provider), `Gateway` (defines the listener IP/port and TLS), and `HTTPRoute` (defines the application-specific routing rules).
+
+3. **Why is `ReferenceGrant` required for cross-namespace routing?**
+   It explicitly grants permission for a Gateway in one namespace (e.g. `apps`) to accept routes or forward traffic to a Service in another namespace (e.g. `ui`). This prevents malicious teams from hijacking traffic or bypassing firewalls.
