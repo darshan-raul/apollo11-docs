@@ -1,102 +1,243 @@
 ---
-title: "Stage 6: Mission Ops — Monitoring and Observability"
-description: "Collect metrics with Prometheus, visualize with Grafana, centralize logs with Loki, and trace requests with OpenTelemetry."
+title: "Stage 6: Mission Operations — Observability"
+description: "Instrument Apollo Airlines with Prometheus metrics, OpenTelemetry distributed tracing with Tempo, Loki log aggregation via Alloy, and Grafana dashboards."
 ---
 
-# Stage 6: Mission Ops — Monitoring and Observability
+# Stage 6: Mission Operations — Observability
 
-**Goal:** Set up observability stack to monitor application health, visualize metrics, centralize logs, and trace requests.
+**Goal:** Make Apollo Airlines completely observable across the **three pillars of observability** (Metrics, Logs, and Traces) without modifying its public API contracts.
+
+Stage 6 instruments the five backend microservices (`identity`, `flight`, `booking`, `search`, `notification`) with real Prometheus metrics, structured JSON logs containing trace correlation IDs, and OpenTelemetry SDK tracing. The observability infrastructure is deployed into a dedicated `apollo-observability` namespace.
+
+| | |
+|---|---|
+| **Pillars Covered** | Metrics (Prometheus), Dashboards (Grafana), Logs (Loki + Alloy), Distributed Tracing (OpenTelemetry + Tempo) |
+| **New Platform Tools** | Prometheus Operator v0.93.0, Prometheus v3.13.1, Grafana 10.4.2, OpenTelemetry Collector Contrib, Tempo 2.3.1, Loki 2.9.8, Alloy v1.18.0 |
+| **Telemetry Instrumentation** | Real `/metrics` counters/histograms, W3C `traceparent` propagation, `trace_id`/`span_id` in logs, OTLP gRPC export |
+| **Verification Target** | **190 Helm checks / 180 Kustomize checks / 4 Argo CD Applications** |
 
 ---
 
-## What You'll Learn
+## 1. Application Telemetry Architecture
 
-| Concept | Tool | What It Does |
+Every microservice is instrumented to emit telemetry across all three signals:
+
+```mermaid
+flowchart TD
+    subgraph Apollo Airlines Services
+        App["Microservice (Go / Python)"]
+    end
+
+    subgraph Observability Platform (apollo-observability)
+        Prom["Prometheus v3.13.1<br/>(Scrapes /metrics via ServiceMonitor)"]
+        Alloy["Grafana Alloy v1.18.0<br/>(DaemonSet collecting JSON logs)"]
+        Loki["Grafana Loki v2.9.8<br/>(Log Storage & LogQL)"]
+        OTel["OpenTelemetry Collector<br/>(OTLP gRPC receiver :4317)"]
+        Tempo["Grafana Tempo v2.3.1<br/>(Trace Storage & TraceQL)"]
+        Grafana["Grafana 10.4.2<br/>(Unified Visual Dashboards)"]
+    end
+
+    App -->|1. Exposes /metrics| Prom
+    App -->|2. Emits JSON logs with trace_id| Alloy
+    Alloy --> Loki
+    App -->|3. Exports OTLP Spans| OTel
+    OTel --> Tempo
+
+    Prom --> Grafana
+    Loki --> Grafana
+    Tempo --> Grafana
+```
+
+### 1. Prometheus Metrics
+The services expose real metrics endpoints at `/metrics`:
+- `http_requests_total{method, path, status, service}`: Counter tracking total HTTP requests.
+- `http_request_duration_ms_bucket{method, path, service}`: Histogram tracking latency distribution (p50, p95, p99).
+- `db_connections_active`: Gauge tracking live PostgreSQL database connections.
+
+Prometheus Operator manages five `ServiceMonitor` CRDs that instruct Prometheus to scrape these endpoints every 15 seconds.
+
+### 2. Distributed Tracing & W3C Context Propagation
+When a user books a flight, the request traverses four distinct services. Stage 6 propagates the W3C `traceparent` header across every hop:
+
+```text
+Booking Service (Root Span: POST /api/bookings)
+    ├── Identity Service: GET /api/users/me (validates JWT)
+    ├── Flight Service: GET /api/flights/{id} (checks seat availability)
+    ├── Flight Service: PATCH /api/flights/{id}/seats (reserves seat)
+    ├── PostgreSQL: INSERT INTO bookings
+    └── Notification Service: POST /api/notify (queues event in Redis)
+```
+
+Every service adds child spans with custom semantic attributes (`flight.id`, `passenger.id`, `db.statement`).
+
+### 3. Log Correlation (trace_id & span_id)
+Microservices format stdout logs as structured JSON containing active OpenTelemetry trace metadata:
+
+```json
+{
+  "timestamp": "2026-08-25T14:32:10Z",
+  "level": "INFO",
+  "service": "booking",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "span_id": "00f067aa0ba902b7",
+  "message": "Booking confirmed for flight AA101"
+}
+```
+
+In Grafana, clicking on a log line allows you to immediately jump to the exact distributed trace in Tempo using the correlated `trace_id`!
+
+---
+
+## 2. Observability Platform Components
+
+All monitoring components run in the `apollo-observability` namespace:
+
+| Component | Role | Why It Was Chosen |
 |---|---|---|
-| Metrics | Prometheus | Time-series data (CPU, memory, request rates) |
-| Dashboards | Grafana | Visualize metrics from Prometheus |
-| Log aggregation | Loki + Promtail | Centralized log storage and querying |
-| Distributed tracing | OpenTelemetry | Trace requests across microservices |
+| **Prometheus Operator v0.93.0** | Operator managing Prometheus & ServiceMonitors | Declarative CRD-based monitoring lifecycle |
+| **Prometheus v3.13.1** | Time-series metrics engine | CNCF standard for cloud-native metrics collection |
+| **Grafana 10.4.2** | Visualization UI | 5 pre-configured dashboards; exposed via Envoy Gateway at `grafana.apollo.local` |
+| **OpenTelemetry Collector** | Ingestion pipeline | Buffers, batches, and exports OTLP telemetry |
+| **Tempo 2.3.1** | Distributed trace store | Lightweight, object-storage-friendly tracing without Elasticsearch |
+| **Loki 2.9.8** | Log store | Indexes metadata labels rather than full text, keeping memory usage low |
+| **Alloy v1.18.0** | Per-node log shipper | Grafana's modern collector; replaces end-of-life Promtail |
+
+:::tip Operator Bundle Separation
+Prometheus Operator CRDs and controller are installed from `bundles/prometheus-operator-v0.93.0.yaml` rather than embedded inside Helm templates. This prevents Helm's release Secret from exceeding Kubernetes' 1 MiB storage limit.
+:::
 
 ---
 
-## Prometheus
+## 3. Hands-On Lab: Deploy Stage 6
 
-Prometheus collects metrics by scraping endpoints. Services expose `/metrics` with Prometheus-compatible counters, histograms, and gauges:
+### Option A: Deploy via Helm
 
-- `http_requests_total{method, path, status}` — request counter
-- `http_request_duration_ms{method, path}` — latency histogram
-- `db_connections_active` — active DB connections (stateful services)
+```bash
+cd stages/stage6
 
-```yaml
-scrape_configs:
-  - job_name: 'apollo11'
-    static_configs:
-      - targets: ['identity:8080', 'flight:8081', 'booking:8082', 'search:8083', 'notification:8084']
+# Apply dev environment with full observability
+bash scripts/apply.sh --mode helm --env dev
 ```
 
-### Metrics Types
+### Option B: Deploy via Kustomize
 
-| Type | Description | Example |
-|------|-------------|---------|
-| Counter | Incremental value | `http_requests_total` |
-| Gauge | Current value | `memory_usage_bytes` |
-| Histogram | Distribution | `request_duration_seconds_bucket` |
+```bash
+cd stages/stage6
+bash scripts/apply.sh --mode kustomize --env dev
+```
+
+The script builds updated service images containing OpenTelemetry instrumentation, installs the Prometheus Operator, and deploys the entire observability stack.
 
 ---
 
-## Grafana
+## 4. Explore the Telemetry Signals
 
-Grafana connects to Prometheus as a data source and lets you build dashboards. Stage 6 ships a booking service latency dashboard showing p50/p95/p99 response times.
+### 1. Access Grafana Through Envoy Gateway
+
+Find the Envoy LoadBalancer IP and test the Grafana health endpoint:
+
+```bash
+ENVOY_IP=$(kubectl get service -n envoy-gateway-system \
+  -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway \
+  -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+
+curl -H "Host: grafana.apollo.local" "http://${ENVOY_IP}/api/health"
+# Returns: {"commit":"...","database":"ok","version":"10.4.2"}
+```
+
+Add `grafana.apollo.local` to `/etc/hosts` pointing to `${ENVOY_IP}`, or open `http://grafana.apollo.local` in your browser:
+- **Username:** `admin`
+- **Password:** `apollo-admin`
+
+Inspect the 5 pre-provisioned dashboards:
+1. **Apollo Airlines / Overview:** Cluster-wide traffic rates and success ratios.
+2. **Apollo Airlines / Latency:** p50, p95, and p99 latency per service.
+3. **Apollo Airlines / Errors:** 4xx and 5xx error tracking.
+4. **Apollo Airlines / Saturation:** CPU, memory, and database connection pool saturation.
+5. **Apollo Airlines / JVM & Go Runtime:** Garbage collection pauses and goroutine counts.
+
+### 2. Direct Port-Forwarding (Alternative)
+
+```bash
+# Prometheus Web UI (targets, query console)
+kubectl port-forward -n apollo-observability service/prometheus 9090:9090 &
+
+# Grafana Web UI
+kubectl port-forward -n apollo-observability service/grafana 3000:3000 &
+```
+
+Open [http://localhost:9090/targets](http://localhost:9090/targets) to verify that all 5 Apollo ServiceMonitors are `UP`.
 
 ---
 
-## Loki (Log Aggregation)
+## 5. The Distributed Trace Demonstration
 
-Loki stores logs and indexes them by labels (not full text). Promtail ships logs from each node.
+Apollo11 includes an end-to-end distributed tracing test script:
 
-```logql
-{service="identity"} |= "ERROR"
-{service="flight"} |= "ERROR"
-{service="booking"} |= "ERROR"
+```bash
+bash scripts/trace-test.sh
 ```
 
-All services emit structured JSON logs with `trace_id` and `span_id` fields for correlation with OTel traces.
+### What the Script Executes:
+1. Authenticates as `passenger@apolloairlines.com` and retrieves a JWT.
+2. Calls `POST /api/bookings` to reserve a flight.
+3. Extracts the unique `trace_id` returned in the response headers.
+4. Queries the **Tempo API** directly:
+   ```bash
+   curl -s "http://tempo.apollo-observability:3200/api/traces/${TRACE_ID}"
+   ```
+5. Asserts that the single trace contains connected spans across **all 4 services**: `booking`, `identity`, `flight`, and `notification`.
+6. Cancels the booking and verifies that the internal seat-restore rollback span succeeds.
 
 ---
 
-## OpenTelemetry (Distributed Tracing)
+## Maintainer Verification
 
-OpenTelemetry SDK instruments each service to trace requests as they flow through multiple services. Stage 6 traces the booking workflow end-to-end:
+Run the verification test suite:
 
+```bash
+# Helm verification (190 checks)
+bash scripts/verify.sh --mode helm
+
+# Kustomize verification (180 checks)
+bash scripts/verify.sh --mode kustomize
 ```
-Booking Service (root span)
-    ├── Identity Service: GET /api/users/{id}
-    ├── Flight Service: GET /api/flights/{id}
-    ├── Flight Service: PATCH /api/flights/{id}/seats
-    ├── Booking DB: INSERT bookings
-    └── Notification Service: POST /api/notify
+
+**Verification Highlights:**
+- Prometheus Operator CRDs and 5 healthy ServiceMonitors verified.
+- Active metric generation: validates that request counters increase under load.
+- OpenTelemetry Collector, Tempo, Loki, and Alloy pods report `Running`.
+- Alloy successfully collects container logs and ships them to Loki.
+- Tempo successfully indexes multi-service distributed traces.
+- All Stage 5 guarantees (probes, QoS, PDBs, StatefulSets) remain intact.
+
+---
+
+## Clean Up
+
+```bash
+# Helm teardown
+bash scripts/teardown.sh --mode helm --env dev --purge
+
+# Kustomize teardown
+bash scripts/teardown.sh --mode kustomize --env dev --purge
 ```
 
 ---
 
-## Key Takeaways
+## Explain & Review Questions
 
-```
-Prometheus:   Scrapes /metrics endpoints, stores time-series data
-Grafana:      Connects to Prometheus, builds dashboards
-Loki:         Aggregates logs, indexes by labels
-OpenTelemetry: Traces requests across services (trace_id correlates logs + spans)
-```
+1. **What is the difference between a Prometheus Counter and a Gauge?**
+   A **Counter** is a cumulative metric that only increases (or resets to 0 on restart), such as `http_requests_total`. A **Gauge** is an instantaneous value that can go up and down, such as `db_connections_active` or memory usage.
+
+2. **Why does distributed tracing require W3C `traceparent` header propagation?**
+   HTTP is stateless. When `booking` calls `flight`, `flight` has no intrinsic knowledge that it is servicing a sub-task of a booking transaction unless `booking` passes its `trace_id` and parent `span_id` in the HTTP headers.
+
+3. **Why did Grafana Alloy replace Promtail for log shipping?**
+   Promtail is end-of-life. Alloy is Grafana's unified, high-performance telemetry agent based on the OpenTelemetry Collector architecture, supporting metrics, logs, and traces in a single binary.
 
 ---
 
 ## What's Next
 
-Stage 7 introduces **Orbital Maneuvering** — automatically scaling workloads with HPA/VPA, controlling pod placement with taints/tolerations and affinity.
-
----
-
-## Coming Soon
-
-Hands-on labs for this stage are currently being developed.
+In [Stage 7: Orbital Maneuvering](./stage-7.md), we use these observability metrics to drive **dynamic autoscaling**: horizontal pod autoscaling with HPA, vertical right-sizing recommendations with VPA, and database acceleration with a **Redis cache-aside** pattern.

@@ -1,111 +1,176 @@
 ---
-title: "DNS Resolution in Kubernetes"
-description: "How Kubernetes DNS works — from FQDN to ClusterIP, and why cross-namespace calls need full names."
+title: "DNS Resolution & Cross-Namespace Discovery"
+description: "How CoreDNS resolves in-cluster FQDNs, same-namespace vs cross-namespace communication, and EndpointSlice tracking."
 ---
 
-# DNS Resolution in Kubernetes
+# DNS Resolution & Cross-Namespace Discovery
 
-Every Service gets an A record in CoreDNS. Pods use these names to discover services.
+In Kubernetes, Pods are ephemeral and their IP addresses are dynamic. Applications must never hardcode Pod IPs. Instead, Kubernetes provides built-in service discovery through **CoreDNS** and **ClusterIP Services**.
+
+This section corresponds to **Substage 1 (`01-internal-dns`)** of the Stage 2 networking ladder.
 
 ---
 
-## How DNS Works
+## How In-Cluster DNS Works
 
+When a Service is created, CoreDNS automatically assigns it an internal A/AAAA record:
+
+```text
+Pod calls: identity.apollo-airlines-apps.svc.cluster.local:8080
+    │
+    ▼
+Linux libc reads /etc/resolv.conf inside the container
+    nameserver: 10.96.0.10 (CoreDNS ClusterIP)
+    search: apollo-airlines-apps.svc.cluster.local svc.cluster.local cluster.local
+    │
+    ▼
+CoreDNS responds with Service ClusterIP (e.g., 10.96.120.45)
+    │
+    ▼
+kube-proxy (iptables / IPVS) intercepts packets to ClusterIP
+    │
+    ▼
+DNAT load-balances packets directly to a healthy backend Pod IP
 ```
-Pod calls: flight.apollo11-apps.svc.cluster.local:8081
-    │
-    ▼
-libc reads /etc/resolv.conf
-    nameserver: 10.96.0.10 (CoreDNS)
-    search: apollo11-apps.svc.cluster.local ...
-    │
-    ▼
-DNS query → CoreDNS → ClusterIP (10.96.0.180)
-    │
-    ▼
-iptables/IPVS DNATs to backend pod
-```
 
 ---
 
-## /etc/resolv.conf
+## Inside `/etc/resolv.conf`
+
+Every Pod automatically inherits a `/etc/resolv.conf` file configured by the `kubelet`:
 
 ```bash
-# Pod in apollo11-apps:
+# In a Pod running in namespace "apollo-airlines-apps":
 nameserver 10.96.0.10
-search apollo11-apps.svc.cluster.local apollo11.svc.cluster.local ...
+search apollo-airlines-apps.svc.cluster.local svc.cluster.local cluster.local
+options ndots:5
 
-# Pod in apollo11-ui:
+# In a Pod running in namespace "apollo-airlines-ui":
 nameserver 10.96.0.10
-search apollo11-ui.svc.cluster.local ...
+search apollo-airlines-ui.svc.cluster.local svc.cluster.local cluster.local
+options ndots:5
+```
+
+### Same-Namespace vs Cross-Namespace Name Resolution
+
+1. **Same-Namespace Calls (Short Names Work):**
+   When `booking` in `apollo-airlines-apps` calls `http://flight:8081`:
+   - The OS appends the first search domain: `flight` + `.apollo-airlines-apps.svc.cluster.local`.
+   - CoreDNS resolves it immediately.
+
+2. **Cross-Namespace Calls (Require FQDN):**
+   When `frontend` in `apollo-airlines-ui` calls `identity` in `apollo-airlines-apps`:
+   - A short query for `http://identity:8080` resolves to `identity.apollo-airlines-ui.svc.cluster.local` (which does not exist -> **NXDOMAIN**).
+   - Cross-namespace calls must specify the namespace:
+     ```text
+     http://identity.apollo-airlines-apps:8080
+     # Or full FQDN:
+     http://identity.apollo-airlines-apps.svc.cluster.local:8080
+     ```
+
+---
+
+## Hands-On Lab: Substage 1
+
+### 1. Deploy Substage 1
+
+Deploy the baseline workloads and the interactive diagnostic `curl-client`:
+
+```bash
+./stages/stage2/scripts/apply.sh --substage 1 --skip-build
+```
+
+### 2. Inspect CoreDNS and Endpoints
+
+Inspect the services and backing endpoints in the backend namespace:
+
+```bash
+# View services and their virtual ClusterIPs
+kubectl get services -n apollo-airlines-apps
+
+# View the matching endpoints (real Pod IPs)
+kubectl get endpoints -n apollo-airlines-apps
+
+# Inspect modern EndpointSlices
+kubectl get endpointslices -n apollo-airlines-apps -l kubernetes.io/service-name=identity
+```
+
+### 3. Test Cross-Namespace Resolution from `curl-client`
+
+Exec into `curl-client` (running in the `apollo-airlines-ui` namespace):
+
+```bash
+# 1. Test short name (EXPECTED FAILURE: NXDOMAIN)
+kubectl exec -n apollo-airlines-ui curl-client -- \
+  curl -s --connect-timeout 2 http://identity:8080/healthz || echo "Failed as expected: short name not in search path"
+
+# 2. Test cross-namespace FQDN (SUCCESS)
+kubectl exec -n apollo-airlines-ui curl-client -- \
+  curl -s http://identity.apollo-airlines-apps.svc.cluster.local:8080/healthz
+# Returns: {"status":"OK"}
+
+# 3. Resolve DNS records directly with getent
+kubectl exec -n apollo-airlines-ui curl-client -- \
+  getent hosts identity.apollo-airlines-apps.svc.cluster.local
 ```
 
 ---
 
-## Same-Namespace vs Cross-Namespace
+## Break & Recover: Broken Selector Experiment
+
+Let's test what happens when a Service selector breaks.
+
+### 1. Break the Selector
+
+Patch the `identity` service to select a nonexistent label:
 
 ```bash
-# Same namespace (short name works)
-nslookup identity
-# → Found (search path applies)
-
-# Cross-namespace (needs FQDN)
-nslookup identity.apollo11-apps.svc.cluster.local
-# → Found (cross-namespace always works)
-
-# From apollo11-ui, "identity" fails (wrong search path)
-nslookup identity
-# → NXDOMAIN
+kubectl patch service identity -n apollo-airlines-apps \
+  --type='json' -p='[{"op": "replace", "path": "/spec/selector/app", "value": "identity-broken"}]'
 ```
 
----
-
-## Service Discovery via Environment Variables
-
-Kubernetes injects Service URLs as environment variables:
+Inspect endpoints:
 
 ```bash
-env | grep -E "IDENTITY|FLIGHT|BOOKING"
-# IDENTITY_SERVICE_URL=http://identity:8080
-# FLIGHT_SERVICE_URL=http://flight:8081
-# BOOKING_SERVICE_URL=http://booking:8082
+kubectl get endpoints identity -n apollo-airlines-apps
+# NAME       ENDPOINTS   AGE
+# identity   <none>      ...
 ```
 
-> Note: Only Services existing **before** the Pod are injected. Restart Pods to pick up new Services.
-
----
-
-## Headless Services and DNS
-
-```yaml
-spec:
-  clusterIP: None  # Headless - DNS returns pod IPs directly
-```
+The endpoints immediately drop to `<none>`. Attempt a curl from `curl-client`:
 
 ```bash
-# Normal Service: returns ClusterIP
-nslookup identity.apollo11-apps.svc.cluster.local
-# Address: 10.96.0.150
-
-# Headless: returns all pod IPs
-nslookup identity-db-headless.apollo11-infra.svc.cluster.local
-# Address: 10.244.1.10
-# Address: 10.244.1.11
+kubectl exec -n apollo-airlines-ui curl-client -- \
+  curl -s --connect-timeout 3 http://identity.apollo-airlines-apps.svc.cluster.local:8080/healthz || echo "Connection failed!"
 ```
 
-StatefulSets use Headless Services: `identity-db-0.identity-db-headless.ns.svc.cluster.local`
+The request fails because the Service has no healthy backend IPs to route to.
+
+### 2. Recover the Selector
+
+Restore the correct label selector:
+
+```bash
+kubectl patch service identity -n apollo-airlines-apps \
+  --type='json' -p='[{"op": "replace", "path": "/spec/selector/app", "value": "identity"}]'
+```
+
+Verify recovery:
+
+```bash
+kubectl get endpoints identity -n apollo-airlines-apps
+# Endpoints reappear with healthy Pod IPs!
+
+kubectl exec -n apollo-airlines-ui curl-client -- \
+  curl -s http://identity.apollo-airlines-apps.svc.cluster.local:8080/healthz
+# Returns: {"status":"OK"}
+```
 
 ---
 
 ## Key Takeaways
 
-```
-FQDN format: <service>.<namespace>.svc.cluster.local
-
-Short name works:  Within same namespace
-FQDN required:    Cross-namespace
-
-CoreDNS translates FQDN → ClusterIP
-Headless (clusterIP: None) → DNS returns pod IPs directly
-New Service: Restart Pods to pick up env vars
-```
+- CoreDNS dynamically creates DNS records matching `<svc>.<ns>.svc.cluster.local` for every Service.
+- Short names work only within the same namespace; cross-namespace communication must include the target namespace.
+- Services do not run containers; they are virtual IPs mapped to real Pod IPs via EndpointSlices.
+- If a Service selector has a typo, Kubernetes accepts the manifest, but EndpointSlices remain `<none>` and traffic drops silently.

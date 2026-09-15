@@ -1,187 +1,164 @@
 ---
-title: "Stage 11: Towards Mars"
-description: "CRDs and operators, k3s homelab, KEDA autoscaling, Backstage developer platform, Goldilocks cost optimization."
+title: "Stage 11: Towards Mars — Platform Engineering Specializations"
+description: "Optional platform engineering specialization tracks: CRDs & Operators, KEDA autoscaling, k3s homelab, Backstage developer portals, and Cluster API."
 ---
 
-# Stage 11: Towards Mars
+# Stage 11: Towards Mars — Platform Engineering Specializations
 
-**Goal:** Extend Kubernetes beyond managed clusters — build custom controllers, homelab setups, event-driven scaling, and internal developer platforms.
+**Stage 11 is an advanced specialization catalog for aspiring Platform Engineers and Site Reliability Engineers.**
+
+Rather than a single linear deployment, Stage 11 provides specialized tracks that extend Kubernetes into a comprehensive internal developer platform. Each track defines its own prerequisites, architectural concepts, and hands-on lab exercises.
+
+```mermaid
+flowchart TD
+    Base["Apollo11 Production Platform"] --> T1["Track 1: CRDs & Operator Authoring"]
+    Base --> T2["Track 2: Event-Driven Scaling with KEDA"]
+    Base --> T3["Track 3: k3s Homelab & Edge Operations"]
+    Base --> T4["Track 4: Internal Developer Platform with Backstage"]
+    Base --> T5["Track 5: Cost Optimization with Kubecost"]
+    Base --> T6["Track 6: Declarative Clusters with Cluster API (CAPI)"]
+```
 
 ---
 
-## What You'll Learn
+## Track 1: Custom Resources (CRDs) & Operator Authoring
 
-| Concept | Tool | What It Does |
-|---|---|---|
-| **Custom controllers** | Go + controller-runtime | Watch and reconcile custom resources |
-| **Homelab Kubernetes** | k3s | Lightweight k8s on your own hardware |
-| **Event-driven scaling** | KEDA | Scale based on Prometheus, Kafka, RabbitMQ |
-| **Internal developer platform** | Backstage | Catalog services, docs, templates |
-| **Cost optimization** | Goldilocks, Kubecost | Right-size resource requests |
+### The Concept
+Kubernetes is extensible. You can define your own domain-specific API primitives and write custom Go controllers to reconcile them against the cluster state.
 
----
-
-## Custom Resource Definitions (CRDs) and Operators
-
-Kubernetes is extensible — you can define your own resource types and write controllers to manage them.
-
-### A simple CRD
+### The Apollo `FlightStatus` CRD
 
 ```yaml
-apiVersion: apollo11.dev/v1
-kind: FlightStatus
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
 metadata:
-  name: aa101
+  name: flightstatuses.apollo.io
 spec:
-  flightNumber: AA101
-  status: on-time
-  origin: BOM
-  destination: DEL
+  group: apollo.io
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                flightNumber: { type: string }
+                origin: { type: string }
+                destination: { type: string }
+                status: { type: string, enum: ["SCHEDULED", "BOARDING", "DEPARTED", "ARRIVED", "CANCELLED"] }
+            status:
+              type: object
+              properties:
+                activeReplicas: { type: integer }
+                phase: { type: string }
+  scope: Namespaced
+  names:
+    plural: flightstatuses
+    singular: flightstatus
+    kind: FlightStatus
+    shortNames: ["fs"]
 ```
 
-### Operator pattern
-
-An **operator** is a controller that watches your custom resources and manages the underlying k8s objects:
-
-```
-User creates FlightStatus → Controller → Deployment + Service + Ingress
-```
-
-### controller-runtime (Go)
+### The Controller Reconciliation Loop (Go)
 
 ```go
 func (r *FlightStatusReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-    var flight apollo11v1.FlightStatus
-    if err := r.Get(ctx, req.NamespacedName, &flight); err != nil {
+    log := r.Log.WithValues("flightstatus", req.NamespacedName)
+
+    var flightStatus apollov1.FlightStatus
+    if err := r.Get(ctx, req.NamespacedName, &flightStatus); err != nil {
         return ctrl.Result{}, client.IgnoreNotFound(err)
     }
 
-    // Create or update Deployment, Service, etc.
+    // Business Logic: If status is CANCELLED, scale down notification workers
+    if flightStatus.Spec.Status == "CANCELLED" {
+        log.Info("Flight cancelled. Reconciling downstream dependencies...")
+        // Update observed generation and status
+        flightStatus.Status.Phase = "Reconciled"
+        _ = r.Status().Update(ctx, &flightStatus)
+    }
+
     return ctrl.Result{}, nil
 }
 ```
 
 ---
 
-## k3s Homelab
+## Track 2: Event-Driven Autoscaling with KEDA
 
-k3s is a fully certified Kubernetes distribution that runs on a single binary (~60MB). Ideal for homelabs, edge, and IoT.
+### The Problem
+Kubernetes HPA scales on CPU and memory. But what if your notification service is receiving 10,000 bookings queued in Redis while CPU usage is still near zero? Standard HPA won't scale in time.
 
-### Why k3s?
-
-| Feature | k3s | Standard k8s |
-|---------|-----|---|
-| Binary size | ~60MB | ~100MB+ |
-| Memory usage | ~512MB | ~2GB+ |
-| Database | SQLite (built-in) | etcd (separate) |
-| Installation | One command | Multi-step |
-
-### Expose to the internet
-
-**Option 1: Cloudflare Tunnel** (free)
-
-```bash
-cloudflared tunnel run apollo11-tunnel
-```
-
-**Option 2: Tailscale** (free for homelab)
-
-```bash
-tailscale up --accept-routes
-```
-
----
-
-## KEDA — Event-Driven Autoscaling
-
-KEDA scales workloads based on external signals (queue depth, Kafka lag, Prometheus metrics) rather than just CPU/memory.
-
-### Scale based on Prometheus
+### The Solution: KEDA (Kubernetes Event-driven Autoscaling)
+KEDA drives HPA scaling based on external event queues:
 
 ```yaml
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: search-scaler
+  name: notification-redis-scaler
+  namespace: apollo-airlines-apps
 spec:
   scaleTargetRef:
-    name: search
-  minReplicaCount: 2
+    apiVersion: apps/v1
+    kind: Deployment
+    name: notification
+  minReplicaCount: 1
   maxReplicaCount: 20
   triggers:
-    - type: prometheus
+    - type: redis
       metadata:
-        serverAddress: http://prometheus:9090
-        metricName: http_requests_total
-        threshold: "100"
-```
-
-### Scale based on queue depth
-
-```yaml
-    - type: rabbitmq
-      metadata:
-        queueName: booking-queue
-        host: amqp://rabbitmq:5672
-        queueLength: "10"  # scale up when queue > 10
+        address: redis:6379
+        listName: booking_notifications
+        listLength: "50"   # Add 1 pod for every 50 pending notifications in Redis!
 ```
 
 ---
 
-## Backstage — Internal Developer Platform
+## Track 3: k3s Homelab & Edge Deployment
 
-Backstage consolidates service catalogs, documentation, and scaffolding into a single portal.
+Deploy Apollo Airlines on low-cost bare-metal hardware (Intel NUC, Raspberry Pi) and expose services securely to the public internet using **Cloudflare Zero Trust Tunnels** without opening firewall ports.
 
-### Install
+👉 See the complete guide: **[k3s Homelab Setup](./stage-11/k3s-homelab.md)**.
 
-```bash
-helm install backstage bitnami/backstage -n backstage -f values.yaml
-```
+---
 
-### Register a service
+## Track 4: Internal Developer Platform (IDP) with Backstage
+
+Backstage (created by Spotify) centralizes service ownership, documentation, and automated scaffolding:
+1. **Service Catalog:** Tracks ownership, APIs, dependencies, and health for all 6 Apollo microservices.
+2. **Software Templates:** Enables developers to click "Create New Go Microservice", automatically generating Git repositories, Dockerfiles, and Helm charts conforming to Apollo11 standards.
+3. **TechDocs:** Markdown documentation rendered directly from service repositories.
+
+---
+
+## Track 5: Cluster Cost Optimization with Kubecost & Goldilocks
+
+1. **Kubecost:** Allocates cluster spend across namespaces, Deployments, and teams in real time based on AWS/GCP cloud billing rates.
+2. **Goldilocks:** Visualizes VPA recommendations to right-size CPU/memory requests, eliminating cloud waste without compromising stability.
+
+---
+
+## Track 6: Declarative Clusters with Cluster API (CAPI)
+
+Cluster API treats entire Kubernetes clusters as declarative resources managed by a management cluster:
 
 ```yaml
-apiVersion: backstage.io/v1alpha1
-kind: Component
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
 metadata:
-  name: booking
-  annotations:
-    github.com/project-slug: darshan-raul/Apollo11
+  name: apollo-cloud-cluster
 spec:
-  type: service
-  lifecycle: production
-  owner: platform-team
-  dependsOn:
-    - component:booking-db
+  clusterNetwork:
+    pods: { cidrBlocks: ["192.168.0.0/16"] }
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: AWSCluster
+    name: apollo-aws-infra
 ```
 
----
-
-## Goldilocks — Right-size resource requests
-
-Goldilocks queries the VPA (Vertical Pod Autoscaler) to recommend resource requests:
-
-```bash
-kubectl apply -f https://github.com/realtimeapps/Goldilocks/raw/main/deploy/kubernetes/all-in-one.yaml
-goldilocks ns apollo11-apps
-```
-
-This generates recommended `resources.requests` for every Deployment based on actual usage patterns.
-
----
-
-## Key Takeaways
-
-```
-CRDs + Operators: Extend k8s with custom resources and reconciliation loops
-k3s:               Single-binary k8s for homelab/edge (~60MB, SQLite backend)
-KEDA:              Scale on events (queue depth, Kafka, Prometheus) not just CPU
-Backstage:         IDP — service catalog, docs, tech radar, plugins
-Goldilocks:        VPA-based resource right-sizing recommendations
-```
-
----
-
-## What You've Built
-
-13 stages from Docker Compose to production-grade Kubernetes — storage, networking, observability, scaling, security, GitOps, cloud provisioning, service mesh, and operators. You're ready to operate real production clusters.
+Running `kubectl apply -f cluster.yaml` automatically creates the cloud VPC, control plane, and worker pools!

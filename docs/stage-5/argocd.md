@@ -1,173 +1,235 @@
 ---
-title: "ArgoCD — GitOps Deployment"
-description: "Implement declarative, Git-driven deployment with ArgoCD."
+title: "Argo CD — Declarative GitOps Delivery"
+description: "Implement declarative GitOps delivery with Argo CD v3.5.1: AppProjects, multi-environment Applications, drift detection, and automated self-healing."
 ---
 
-# ArgoCD — GitOps Deployment
+# Argo CD — Declarative GitOps Delivery
 
-ArgoCD watches a Git repository and automatically syncs changes to the cluster. It enforces the desired state defined in Git.
+**GitOps** is an operational model where the desired state of your Kubernetes cluster is version-controlled in a Git repository. An in-cluster controller continuously compares the live cluster state with the declared state in Git and automatically resolves discrepancies.
+
+In Stage 5, Apollo11 includes a complete, offline-capable **Argo CD GitOps module** located at `stages/stage5/argocd/`.
 
 ---
 
-## How ArgoCD Works
+## The GitOps Control Loop
 
+```mermaid
+flowchart TD
+    Git["Git Repository (Single Source of Truth)<br/>stages/stage5/helm/apollo11/"] -->|watches repo| Argo["Argo CD Controller (v3.5.1)"]
+    Argo -->|compares desired vs live state| Diff{"Drift Detected?"}
+    Diff -->|No Drift| InSync["Status: Synced & Healthy"]
+    Diff -->|Drift Detected!| Heal{"selfHeal: true?"}
+    Heal -->|Yes| Auto["Automated Reconciliation<br/>(Forces live state to match Git)"]
+    Heal -->|No| Alert["Status: OutOfSync<br/>(Awaiting manual approval)"]
+    Auto --> Cluster["Kubernetes Workloads"]
 ```
-Git Repository (source of truth)
-       │
-       ▼ (push/merge)
-ArgoCD detects changes
-       │
-       ▼ (diff against cluster state)
-Drift detected → Auto-sync (or manual trigger)
-       │
-       ▼
-Kubernetes cluster updated
-```
 
 ---
 
-## Application Manifest
+## Architectural Components
+
+The Argo CD module is divided into three distinct layers:
+
+```text
+stages/stage5/argocd/
+├── install.sh                  # Installs vendored Argo CD v3.5.1 offline
+├── platform/                   # Shared Envoy Gateway & 6 environment namespaces
+│   ├── namespaces.yaml         # apollo-dev-*, apollo-staging-*, apollo-prod-*
+│   └── gateway.yaml            # Shared MetalLB + Envoy Gateway
+├── projects/
+│   └── project.yaml            # AppProject: apollo-airlines (security boundary)
+├── applications/
+│   ├── dev.yaml                # Dev App (auto-sync, values-dev.yaml)
+│   ├── staging.yaml            # Staging App (auto-sync, values-staging.yaml)
+│   └── prod.yaml               # Prod App (manual gate, values-prod.yaml)
+└── scripts/
+    ├── bootstrap.sh            # Idempotent bootstrap orchestrator
+    ├── verify.sh               # 74 live GitOps verification checks
+    └── teardown.sh             # Graceful teardown (--full, --purge)
+```
+
+### 1. The Platform Layer: 6 Isolated Namespaces
+To simulate real-world environment promotion locally, the platform provisions three pairs of namespaces:
+- `apollo-dev-apps` & `apollo-dev-ui`
+- `apollo-staging-apps` & `apollo-staging-ui`
+- `apollo-prod-apps` & `apollo-prod-ui`
+
+### 2. The `AppProject` Security Boundary
+In production, multi-tenant clusters must restrict where applications can deploy resources. The `apollo-airlines` AppProject enforces:
+- **Allowed Destinations:** Only the 6 apollo namespaces listed above.
+- **Cluster Resource Whitelist:** Blocks tenant applications from creating cluster-wide resources (such as `ClusterRole`, `StorageClass`, or CRDs).
+
+### 3. Three Environment Applications
 
 ```yaml
+# applications/dev.yaml (Automated Continuous Delivery)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: apollo11
+  name: apollo11-dev
   namespace: argocd
 spec:
-  project: default
-
+  project: apollo-airlines
   source:
-    repoURL: https://github.com/darshan-raul/Apollo11
+    repoURL: https://github.com/darshan-raul/Apollo11.git
     targetRevision: main
-    path: stages/stage-5/k8s
-
+    path: stages/stage5/helm/apollo11
+    helm:
+      valueFiles:
+        - values-dev.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: apollo11-apps
-
+    namespace: apollo-dev-apps
   syncPolicy:
     automated:
-      prune: true        # Delete resources removed from Git
-      selfHeal: true    # Sync if drift detected
-      allowEmpty: false
+      prune: true     # Deletes objects removed from Git
+      selfHeal: true  # Reverts manual 'kubectl' drift automatically
 ```
 
----
-
-## Sync Policy
-
-| Option | Behavior |
-|--------|----------|
-| `automated.prune` | Delete resources no longer in Git |
-| `automated.selfHeal` | Sync if cluster state diverges from Git |
-| `automated.allowEmpty` | Allow zero replicas after sync |
-
----
-
-## Sync Options
-
 ```yaml
-syncOptions:
-  - CreateNamespace=true
-  - PrunePropagationPolicy=foreground
-  - ServerSideApply=true
-```
-
----
-
-## Multi-Environment (App of Apps)
-
-```yaml
+# applications/prod.yaml (Gated Production Delivery)
 apiVersion: argoproj.io/v1alpha1
-kind: ApplicationSet
+kind: Application
 metadata:
-  name: apollo11-all
+  name: apollo11-prod
+  namespace: argocd
 spec:
-  generators:
-    - matrix:
-        generators:
-          - git:
-              repoURL: https://github.com/darshan-raul/Apollo11
-              revision: main
-              paths:
-                - path: clusters/*
-          - clusters:
-              values:
-                namespace: apollo11-apps
-  template:
-    metadata:
-      name: '{{path.basename}}-{{name}}'
-    spec:
-      project: default
-      source:
-        repoURL: https://github.com/darshan-raul/Apollo11
-        path: '{{path}}/k8s'
-        targetRevision: main
-      destination:
-        server: '{{server}}'
-        namespace: '{{values.namespace}}'
+  project: apollo-airlines
+  source:
+    repoURL: https://github.com/darshan-raul/Apollo11.git
+    targetRevision: main
+    path: stages/stage5/helm/apollo11
+    helm:
+      valueFiles:
+        - values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apollo-prod-apps
+  # NOTICE: No automated sync block! Production requires manual approval.
 ```
 
 ---
 
-## ArgoCD CLI Commands
+## Hands-On Lab Walkthrough
+
+### 1. Install Argo CD
+Install the vendored Argo CD v3.5.1 bundle without external internet dependencies:
 
 ```bash
-# Login
-argocd login argocd-server --username admin --password <secret>
+cd stages/stage5/argocd
+bash install.sh --offline
 
-# List applications
-argocd app list
+# Wait for all Argo CD system pods to be Ready
+kubectl wait --for=condition=Ready pods --all -n argocd --timeout=120s
+```
 
-# Get app status
-argocd app get apollo11
+### 2. Access the Argo CD Web UI
 
-# Sync manually
-argocd app sync apollo11
+Forward the Argo CD server port to your local machine:
 
-# Rollback
-argocd app rollback apollo11
+```bash
+kubectl port-forward svc/argocd-server -n argocd 8080:443 &
+```
 
-# View logs
-argocd app logs apollo11
+Retrieve the initial auto-generated `admin` password:
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d && echo
+```
+
+Open [https://localhost:8080](https://localhost:8080) in your browser:
+- **Username:** `admin`
+- **Password:** *(the string decoded above)*
+
+### 3. Bootstrap Projects and Applications
+
+Execute the bootstrap script to create the 6 environment namespaces, apply the `apollo-airlines` AppProject, register the 3 Applications, and trigger the initial sync:
+
+```bash
+bash scripts/bootstrap.sh --sync
+```
+
+Check application synchronization status:
+
+```bash
+kubectl get applications -n argocd
+# NAME               SYNC STATUS   HEALTH STATUS
+# apollo11-dev       Synced        Healthy
+# apollo11-staging   Synced        Healthy
+# apollo11-prod      OutOfSync     Missing
+```
+
+Notice that `dev` and `staging` automatically synced to `Synced / Healthy`, while `prod` sits safely in `OutOfSync`, awaiting manual approval!
+
+---
+
+## Break & Recover: Drift Detection & Automated Self-Healing
+
+What happens if an engineer bypasses Git and imperatively tampers with a running deployment?
+
+### 1. Cause Manual Cluster Drift
+
+Manually scale the `booking` deployment in the `dev` environment from 1 to 5 replicas using `kubectl`:
+
+```bash
+kubectl scale deployment booking -n apollo-dev-apps --replicas=5
+```
+
+Immediately watch the deployment replicas:
+
+```bash
+kubectl get deployment booking -n apollo-dev-apps -w
+```
+
+### 2. Observe Argo CD Self-Healing in Real Time
+
+```text
+NAME      READY   UP-TO-DATE   AVAILABLE   AGE
+booking   1/5     5            1           2m
+booking   1/1     1            1           2m   <-- SELF-HEALED!
+```
+
+**Observation:**
+1. The Argo CD controller detected that live state (`replicas: 5`) diverged from the declared Git state (`replicas: 1`).
+2. The Application status briefly switched to `OutOfSync`.
+3. Because `selfHeal: true` is configured, Argo CD immediately forced the live Kubernetes object back to `1` replica, canceling the unauthorized manual mutation!
+
+---
+
+## Maintainer Verification
+
+Run the automated GitOps verification script:
+
+```bash
+bash scripts/verify.sh
+```
+
+**Result: 74/74 checks pass**, verifying:
+- Argo CD CRDs, API server, controller, and repository server health.
+- Platform namespaces and shared Envoy Gateway configuration.
+- AppProject permissions and cluster-resource denial policies.
+- Automated sync on `dev` and `staging`.
+- Manual approval gating on `prod`.
+- Live imperative mutation detection and automated self-healing.
+
+---
+
+## Clean Up
+
+```bash
+# Delete the 3 tenant applications
+bash scripts/teardown.sh
+
+# Remove the entire Argo CD system and 6 environment namespaces
+bash scripts/teardown.sh --full
+
+# Complete purge including cluster-scoped CRDs
+bash scripts/teardown.sh --purge
 ```
 
 ---
 
-## Health Check
+## What's Next
 
-```yaml
-spec:
-  ignoreDifferences:
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        - /spec/replicas
-
-  syncRetry:
-    limit: 3
-```
-
----
-
-## Key Takeaways
-
-```
-GitOps pattern:
-  1. Define desired state in Git
-  2. ArgoCD watches and detects drift
-  3. Auto-sync keeps cluster matching Git
-
-Application:
-  source: Git repo + path
-  destination: cluster + namespace
-  syncPolicy: automated prune/self-heal
-
-ArgoCD CLI:
-  argocd app get      - view status
-  argocd app sync    - trigger sync
-  argocd app rollback - revert to previous
-
-Multi-environment: ApplicationSet for many apps/envs
-```
+Now that packaging, CI, and GitOps delivery are in place, [Stage 6: Mission Operations](../stage-6.md) shifts focus to **comprehensive observability**: collecting Prometheus metrics, visualizing Grafana dashboards, shipping logs with Loki and Alloy, and tracing distributed requests with OpenTelemetry and Tempo.

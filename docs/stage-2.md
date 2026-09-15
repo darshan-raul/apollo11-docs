@@ -1,108 +1,163 @@
-# Kubernetes Networking & Ingress
+---
+title: "Stage 2: Guidance — Networking & Edge Access"
+description: "Progressive networking ladder from internal ClusterIP and cross-namespace CoreDNS to Envoy Gateway API on MetalLB."
+---
 
-This section covers the fundamental networking concepts in Kubernetes and how Ingress serves as a crucial component for exposing applications.
+# Stage 2: Guidance — Networking & Edge Access
 
-## Kubernetes Networking Fundamentals
+Stage 2 takes the single-namespace baseline from Stage 1 and establishes Kubernetes networking across two production namespaces:
+- `apollo-airlines-apps`: Backend microservices (`identity`, `flight`, `booking`, `search`, `notification`), databases, and Redis.
+- `apollo-airlines-ui`: Frontend single-page application (`frontend`).
 
-Kubernetes was designed with a specific philosophy regarding how containers should communicate. Unlike the standard Docker networking model which uses port mapping (NAT) to expose containers to the host, Kubernetes imposes a flat network structure.
-
-
-{/* Image missing: ../../images/4nwpillars.jpg */}
-
-Kubernetes requires every network implementation (via CNIs) to satisfy these fundamental requirements to ensure seamless communication across the cluster:
-
-## 1. Pod-to-Pod Communication
-All Pods can communicate with all other Pods across the cluster without Network Address Translation (NAT). This creates a flat network topology where any Pod with `IP_A` can directly communicate with any Pod at `IP_B`, regardless of which Node they're running on.
-
-**Key Points:**
-- Each Pod receives a unique IP address from the cluster's Pod CIDR range
-- Pods see themselves with the same IP that other Pods see them as (no NAT)
-- This applies across Node boundaries—Pods on different Nodes communicate as if on the same network
-- The CNI plugin is responsible for implementing this routing, whether through overlay networks (like VXLAN in Flannel/Calico) or underlay networks (like AWS VPC CNI)
-- Network policies can restrict this communication, but the underlying capability must exist
-
-## 2. Node-to-Pod Communication
-All Nodes and their system components (kubelet, kube-proxy, container runtime) can communicate with all Pods on that Node without NAT.
-
-**Key Points:**
-- Enables kubelet to perform health checks (liveness/readiness probes) on Pods
-- Allows Node-level monitoring and logging agents to collect metrics from Pods
-- This is typically achieved via the Node's root network namespace and routing tables
-- The Node can reach Pods on other Nodes as well, though this is often part of Pod-to-Pod communication
-- Critical for DaemonSets and system Pods that need Node-level access
-
-## 3. Pod-to-Service Communication
-Pods can communicate with Services using stable virtual IP addresses (VIPs) or DNS names to reach backend applications, decoupling consumers from specific Pod instances.
-
-**Key Points:**
-- Services provide stable endpoints (ClusterIP) backed by dynamic Pod sets
-- kube-proxy or CNI-native service implementations handle load balancing across Service endpoints
-- Service discovery works through DNS (typically CoreDNS) or environment variables
-- Multiple service types exist: ClusterIP (internal only), NodePort, LoadBalancer
-- Supports session affinity and various load balancing algorithms
-- Headless services (ClusterIP: None) allow direct Pod discovery without VIP
-
-## 4. External-to-Service Communication
-External clients outside the cluster can reach Services through specific exposure methods designed for ingress traffic.
-
-**Key Points:**
-- **NodePort**: Exposes service on a static port (30000-32767) on every Node's IP
-- **LoadBalancer**: Provisions an external load balancer (cloud provider dependent) with a stable external IP
-- **Ingress**: HTTP/HTTPS layer 7 routing using an Ingress Controller (nginx, Traefik, etc.) with path-based or host-based routing
-- **Gateway API**: Next-generation alternative to Ingress with role-oriented design and more expressive routing
-- Typically requires additional components beyond the CNI (LoadBalancer requires cloud controller, Ingress requires controller)
+Rather than duplicating static manifest files, Stage 2 follows a progressive **5-substage access ladder**. Workload Deployments and internal Service definitions remain stable; what evolves is **how traffic is discovered internally and routed from the outside edge**.
 
 ---
 
-## Additional Critical Network Considerations
+## The Networking Access Ladder
 
-### IP Address Management (IPAM)
-- CNI plugins must manage IP allocation to prevent conflicts
-- Pod CIDR ranges must not overlap with Node or Service CIDR ranges
-- Different IPAM strategies exist: host-local, DHCP, cloud provider integration
+```
+Substage 1                 Substage 2            Substage 3                Substage 4             Substage 5
+──────────                 ──────────            ──────────                ──────────             ──────────
+ClusterIP & DNS     ──►    NodePort       ──►    Traefik Ingress    ──►    MetalLB LoadBalancer ──► Envoy Gateway API
+Internal FQDN              High NodePorts        Host routing              L2 ARP real IP         Gateway API CRDs
+Endpoints & Slices         30080–30084           Local TLS termination     Port 80 / 443          Canonical Baseline
+```
 
-### DNS Resolution
-- CoreDNS (or kube-dns) provides service discovery within the cluster
-- Pods automatically receive DNS configuration via `/etc/resolv.conf`
-- Service DNS format: `<service-name>.<namespace>.svc.cluster.local`
+| Substage | Mechanism | Protocol / Port | Learning Outcome |
+|---|---|---|---|
+| **01-internal-dns** | `Service type: ClusterIP` | Virtual internal IPs | CoreDNS FQDN resolution, `Endpoints` vs `EndpointSlice`, selector binding |
+| **02-nodeport** | `Service type: NodePort` | `localhost:30080–30084` | L4 host-to-container forwarding via `kube-proxy`, port target mapping |
+| **03-traefik-ingress-tls** | Traefik v3 IngressController | `*.apollo.local:30443` | L7 Host routing, Ingress resources, wildcard TLS termination with Secrets |
+| **04-metallb** | MetalLB L2 + `type: LoadBalancer` | `*.apollo.local` on MetalLB IP | ARP-based external IP allocation in local clusters, elimination of high NodePorts |
+| **05-envoy-gateway** | Envoy Gateway v1.5.0 + MetalLB | `*.apollo.local` on MetalLB IP | Gateway API standard: GatewayClass, Gateway, HTTPRoute, cross-namespace ReferenceGrant |
 
-### Network Policies
-- Optional feature that requires CNI support (Calico, Cilium, Weave support this)
-- Allows fine-grained control over Pod-to-Pod and Pod-to-Service traffic
-- Default behavior without policies is allow-all
+:::important Canonical Access Baseline
+**Envoy Gateway + MetalLB (Substage 5)** forms the **canonical access stack** that carries forward into Stage 3 and all subsequent stages. Traefik is a required transitional learning experience; Headless Services are introduced in Stage 3 alongside StatefulSets, and NetworkPolicies are deferred to Stage 8 where Calico enforcement makes them observable.
+:::
 
-### Service Mesh Considerations
-- Solutions like Istio, Linkerd operate at Layer 7 and add features like mTLS, advanced traffic management, and observability
-- Work alongside CNI networking, not as replacement
+---
 
-### IPv4/IPv6 Dual Stack
-- Kubernetes supports dual-stack networking where Pods can have both IPv4 and IPv6 addresses
-- Requires CNI plugin support and proper cluster configuration
+## Directory Layout
 
-### Network Performance
-- Overlay networks (VXLAN, IPIP) add encapsulation overhead
-- Direct routing or VPC-native solutions offer better performance but require infrastructure support
-- Consider MTU settings to avoid fragmentation
+```text
+stages/stage2/
+├── code/                        # Shared source code for Apollo Airlines services
+├── k8s/
+│   ├── config/                  # Namespaces (apps, ui), ConfigMaps, Secrets, ServiceAccounts
+│   ├── infra/                   # identity-db, flight-db, booking-db, redis (Deployments + ClusterIP)
+│   ├── jobs/                    # Idempotent database schema initialization Jobs
+│   ├── apps/                    # identity, flight, booking, search, notification, frontend
+│   └── substages/
+│       ├── 01-internal-dns/     # Substage 1: curl client & cross-namespace DNS inspection
+│       ├── 02-nodeport/         # Substage 2: NodePort service definitions (30080–30084)
+│       ├── 03-traefik-ingress-tls/ # Substage 3: Traefik DaemonSet, TLS secret generator, Ingresses
+│       ├── 04-metallb/          # Substage 4: MetalLB native manifest, IP pool, LoadBalancer Service
+│       └── 05-envoy-gateway/    # Substage 5: Envoy Gateway v1.5.0, Gateway, HTTPRoutes, ReferenceGrant
+└── scripts/
+    ├── build-images.sh          # Builds all 6 application images and loads into kind
+    ├── apply.sh                 # Progressive deployment orchestrator (--substage 1-5)
+    ├── verify.sh                # Comprehensive verification suite (46-57 checks per active stack)
+    └── teardown.sh              # Clean resource teardown and residue verification
+```
 
-### Multi-Cluster Networking
-- Tools like Submariner, Cilium Cluster Mesh enable Pod communication across clusters
-- Requires careful IP space planning and network connectivity between clusters
+---
 
-These guarantees form the foundation that allows Kubernetes to provide a consistent, portable networking model across different infrastructure providers and CNI implementations.
+## Hands-On Lab Walkthrough
 
+### 1. Build and Load Images
 
-### Why CNIs are Required
-Kubernetes **does not** implement the network itself. It offloads the logic of allocating IPs and setting up routes to **CNI (Container Network Interface)** plugins.
-Common CNIs include:
--   **Flannel**: Simple overlay network (vxlan).
--   **Calico**: Layer 3 networking with BGP, supports Network Policies.
--   **Cilium**: eBPF-based high-performance networking and security.
+Ensure your local `kind-apollo11` cluster is running, then build and load the container images:
 
-The CNI plugin is responsible for ensuring the "flat network" guarantee is met, often by creating an overlay network (encapsulating packets) or using direct routing.
+```bash
+./stages/stage2/scripts/build-images.sh --cluster apollo11
+```
 
-### Why separate CIDRs?
-Understanding the network ranges is crucial:
+---
 
--   **Node CIDR** (e.g., `192.168.1.0/24`): The physical network where your servers/VMs live.
--   **Pod CIDR** (e.g., `10.42.0.0/16`): A dedicated virtual network for Pods. Every Pod gets a unique IP from this range. Separation allows Pods to move freely without IP conflicts with the host network.
--   **Service CIDR** (e.g., `10.43.0.0/16`): A virtual IP range for Services. These IPs do not exist on any interface; `kube-proxy` intercepts traffic destined for these IPs and forwards it to random backing Pod IPs.
+### 2. Walk Through the 5 Substages
+
+Each substage follows the **Learner Contract**: **Build → Inspect → Break → Recover → Explain**.
+
+#### Substage 1: Internal Discovery & Cross-Namespace DNS
+Deploy baseline workloads and inspect CoreDNS discovery:
+```bash
+./stages/stage2/scripts/apply.sh --substage 1 --skip-build
+```
+- **Inspect:** Run `kubectl get endpoints -n apollo-airlines-apps` and query services from `curl-client` via `<svc>.<ns>.svc.cluster.local`.
+- **Break:** Break the selector on `identity` service (`app: identity-broken`). Observe endpoints drop to `<none>`.
+- **Recover:** Restore selector `app: identity`. Endpoints reappear and traffic flows.
+- **Deep Dive:** See [DNS Resolution in Kubernetes](./stage-2/dns.md).
+
+#### Substage 2: NodePort External Access
+Expose services to the host machine via high NodePorts:
+```bash
+./stages/stage2/scripts/apply.sh --substage 2 --skip-build
+```
+- **Inspect:** Query `http://localhost:30083/healthz` (Identity) and `http://localhost:30080/` (Frontend).
+- **Break:** Change `targetPort` on `identity` service to `9999`. Observe connection failure.
+- **Recover:** Restore `targetPort: 8080`.
+- **Deep Dive:** See [Service Types Deep Dive](./stage-2/services.md).
+
+#### Substage 3: Traefik Ingress & Local TLS
+Consolidate traffic behind an L7 reverse proxy with TLS termination:
+```bash
+./stages/stage2/scripts/apply.sh --substage 3 --skip-build
+```
+- **Inspect:** Query `https://identity.apollo.local:30443/healthz` and verify TLS certificate subject (`CN=*.apollo.local`).
+- **Break:** Delete `apollo-tls-secret` in `apollo-airlines-apps`. Observe Traefik fallback to `TRAEFIK DEFAULT CERT`.
+- **Recover:** Re-run `generate-certs.sh`. Certificate subject restored.
+- **Deep Dive:** See [Ingress and Its Need](./stage-2/ingress.md).
+
+#### Substage 4: MetalLB & LoadBalancer Services
+Eliminate high NodePorts by provisioning real IP addresses on the local Docker network:
+```bash
+./stages/stage2/scripts/apply.sh --substage 4 --skip-build
+```
+- **Inspect:** Verify Traefik's `EXTERNAL-IP` (e.g. `172.18.0.50`). Query standard ports 80 and 443 directly on the IP.
+- **Break:** Delete `apollo-pool` from `metallb-system`. Recreate Traefik service and observe `<pending>` EXTERNAL-IP.
+- **Recover:** Reapply `01-ip-pool.yaml`. External IP is allocated immediately.
+
+#### Substage 5: Migration to Envoy Gateway API (Canonical Baseline)
+Decommission Traefik and transition to the modern Gateway API standard:
+```bash
+./stages/stage2/scripts/apply.sh --substage 5 --skip-build
+```
+- **Inspect:** Examine CRDs (`kubectl get crd | grep gateway`). Check Gateway status (`Accepted=True`, `Programmed=True`). Verify HTTPRoute attachments and access via the Envoy Proxy LoadBalancer IP.
+- **Break:** Patch the `frontend` HTTPRoute's backend port to `9999`. Inspect route status `ResolvedRefs=False` and HTTP 500 error.
+- **Recover:** Restore port `3000`. Route recovers to `Accepted=True`.
+- **Deep Dive:** See [Gateway API — Next-Generation Routing](./stage-2/gateway-api.md).
+
+---
+
+## Verification
+
+Run the verification test suite at any point:
+
+```bash
+./stages/stage2/scripts/verify.sh
+```
+
+The script automatically detects the active substage (1 through 5) and runs 46 to 57 checks verifying:
+1. Core namespaces and token automount disabled on all 13 ServiceAccounts.
+2. Workload readiness and database bootstrap Job completion.
+3. Active EndpointSlices and CoreDNS resolution.
+4. Layer-specific routing and TLS certificates.
+5. End-to-end user authentication and database queries.
+
+---
+
+## Clean Up
+
+Tear down Stage 2 resources:
+
+```bash
+./stages/stage2/scripts/teardown.sh
+```
+
+The teardown script removes application namespaces, the Gateway and HTTPRoutes, Envoy Gateway, and MetalLB, auditing the cluster for zero residue.
+
+---
+
+## What's Next
+
+In [Stage 3: Mission Data](./stage-3.md), we build on this Envoy Gateway + MetalLB access baseline to replace ephemeral `emptyDir` database storage with **StatefulSets, PersistentVolumeClaims, and headless Services**.
