@@ -314,6 +314,36 @@ The script cleans up PVCs, StatefulSets, Deployments, Envoy Gateway, and MetalLB
 
 ---
 
+
+### Exact Failure Injection (from verify.sh)
+
+To prove that the StatefulSet's PersistentVolumeClaim correctly preserves data across Pod deletion:
+
+1. Create a booking through the Gateway (this writes a row to `booking-db-0`):
+```bash
+EG_IP=$(kubectl get svc -n envoy-gateway-system -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+TOKEN=$(curl -s -X POST "http://${EG_IP}/api/users/login" -H "Host: identity.apollo.local" -H "Content-Type: application/json" -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' | jq -r .token)
+FLIGHT_ID=$(curl -s -H "Host: flight.apollo.local" "http://${EG_IP}/api/flights" | jq -r '.flights[0].id')
+BOOKING_ID=$(curl -s -X POST "http://${EG_IP}/api/bookings" -H "Host: booking.apollo.local" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" -d "{\"flightId\":\"${FLIGHT_ID}\"}" | jq -r .id)
+```
+
+2. Break it by deleting the database pod forcefully:
+```bash
+kubectl delete pod booking-db-0 -n apollo-airlines-apps --wait=true
+```
+
+3. Wait for the StatefulSet controller to recreate the pod and reattach the PVC:
+```bash
+kubectl wait --for=condition=Ready pod/booking-db-0 -n apollo-airlines-apps --timeout=60s
+```
+
+4. Verify the data survived inside the new pod:
+```bash
+kubectl exec -n apollo-airlines-apps booking-db-0 -- psql -U postgres -d booking -tAc "SELECT id FROM bookings WHERE id='${BOOKING_ID}';"
+# Expected Output: The exact $BOOKING_ID string should be returned, proving survival.
+```
+
+
 ## Explain & Review Questions
 
 1. **Why does a StatefulSet require a Headless Service (`clusterIP: None`)?**

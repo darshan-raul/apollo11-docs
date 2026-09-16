@@ -243,6 +243,18 @@ Dozzle requires mounting the Docker host socket (`/var/run/docker.sock`). Even w
 
 ---
 
+
+### Note on Authentication & JWT Validation
+
+A critical design pattern in Apollo Airlines is that **JWT validation is decentralized**:
+- When a user logs in, the **Identity Service** issues a JWT containing claims (e.g., `sub`, `role`) signed by the `JWT_SECRET`.
+- When the user calls the **Booking Service**, the Booking Service parses the JWT and **verifies the cryptographic signature locally** using its own copy of the `JWT_SECRET`.
+- The Booking Service does *not* make a network call to the Identity Service to validate the token. It only makes a network call (GET `/api/users/{id}`) to confirm the user account is still active (`is_active = true`).
+- For internal service-to-service calls (like Booking calling Flight to decrement seats), Booking mints a short-lived internal JWT with `role=SERVICE`.
+
+This decentralized validation prevents the Identity Service from becoming a performance bottleneck and a single point of failure for every request in the system.
+
+
 ## 4. Prove Application Behavior
 
 Verify individual endpoints, Prometheus metrics, and the end-to-end booking flow.

@@ -5,6 +5,10 @@ description: "Modular, independent production missions: Linkerd service mesh, Ar
 
 # Stage 10: Production Operations Missions
 
+> [!WARNING] Lab Status: Planned
+> The underlying verified scripts for this stage are currently marked as **Planned/Prototyped** in the Apollo11 repository roadmap. The architectural theory below is correct, but the exact lab manifests and commands may change as the stage undergoes a clean rebuild and verification.
+
+
 **Stage 10 is an optional catalog of independent, advanced operational missions.** 
 
 Unlike Stages 1 through 9, which form a strict linear learning path, Stage 10 missions are **modular**. You can pick and choose missions based on your operational interests without needing to complete the entire catalog. Each mission starts from a known working baseline, introduces one mechanism, runs an observable experiment, and returns the cluster to a clean state.

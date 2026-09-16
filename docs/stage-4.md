@@ -333,6 +333,27 @@ Run the comprehensive Stage 4 verification suite:
 
 ---
 
+
+### Exact Failure Injection & PDB Proof (from verify.sh)
+
+1. Test that the Graceful SIGTERM drain works on the API:
+```bash
+kubectl logs --follow deployment/booking -n apollo-airlines-apps &
+kubectl delete pod -n apollo-airlines-apps -l app=booking
+# Expected Output in logs: "Received SIGTERM, shutting down gracefully"
+```
+
+2. Test that the PodDisruptionBudget (PDB) blocks voluntary evictions:
+```bash
+kubectl create poddisruptionbudget booking-pdb --selector=app=booking --min-available=1 -n apollo-airlines-apps
+BOOKING_POD=$(kubectl get pod -n apollo-airlines-apps -l app=booking -o jsonpath='{.items[0].metadata.name}')
+# Attempt to evict using the raw Eviction API
+kubectl proxy &
+curl -X POST -H "Content-Type: application/json" -d '{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"'"$BOOKING_POD"'","namespace":"apollo-airlines-apps"}}' http://localhost:8001/api/v1/namespaces/apollo-airlines-apps/pods/$BOOKING_POD/eviction
+# Expected Output: HTTP 429 Too Many Requests (Cannot evict pod as it would violate the pod's disruption budget.)
+```
+
+
 ## Explain & Review Questions
 
 1. **Why does readiness probe failure NOT restart the container?**

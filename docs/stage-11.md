@@ -5,6 +5,10 @@ description: "Optional platform engineering specialization tracks: CRDs & Operat
 
 # Stage 11: Towards Mars — Platform Engineering Specializations
 
+> [!WARNING] Lab Status: Planned
+> The underlying verified scripts for this stage are currently marked as **Planned/Prototyped** in the Apollo11 repository roadmap. The architectural theory below is correct, but the exact lab manifests and commands may change as the stage undergoes a clean rebuild and verification.
+
+
 **Stage 11 is an advanced specialization catalog for aspiring Platform Engineers and Site Reliability Engineers.**
 
 Rather than a single linear deployment, Stage 11 provides specialized tracks that extend Kubernetes into a comprehensive internal developer platform. Each track defines its own prerequisites, architectural concepts, and hands-on lab exercises.

@@ -225,6 +225,29 @@ bash scripts/teardown.sh --mode kustomize --env dev --purge
 
 ---
 
+
+### OTEL Trace Propagation Path
+
+When a user makes a booking, the W3C trace context is propagated downstream:
+1. **Frontend (NGINX/Browser):** Generates `traceparent` (in Stage 8 RUM, currently uninstrumented).
+2. **Booking Service:** Receives request, initiates active OTEL span.
+3. **Identity Service:** Booking calls Identity to verify `is_active=true`. `traceparent` is injected.
+4. **Flight Service:** Booking calls Flight to patch `available_seats`. `traceparent` is injected.
+5. **Notification Service:** Booking calls Notification to dispatch email. `traceparent` is injected.
+
+To verify this from `verify.sh`:
+```bash
+EG_IP=$(kubectl get svc -n envoy-gateway-system -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+TOKEN=$(curl -s -X POST "http://${EG_IP}/api/users/login" -H "Host: identity.apollo.local" -H "Content-Type: application/json" -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' | jq -r .token)
+REQ_ID="stage6-verify-trace-001"
+
+curl -s -X POST "http://${EG_IP}/api/bookings" -H "Host: booking.apollo.local" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" -H "X-Request-ID: ${REQ_ID}" -d '{"flightId":"...uuid..."}'
+
+# Check Loki for the propagated logs across multiple services:
+kubectl exec -n apollo-observability deploy/loki -- logcli query '{namespace="apollo-airlines-apps"} | json | x_request_id="'${REQ_ID}'"'
+```
+
+
 ## Explain & Review Questions
 
 1. **What is the difference between a Prometheus Counter and a Gauge?**

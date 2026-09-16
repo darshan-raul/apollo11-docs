@@ -311,6 +311,34 @@ bash scripts/teardown.sh --mode helm --env dev --purge
 
 ---
 
+
+### HPA Auto-scaling & Caching Proof (from verify.sh)
+
+To prove that HPA responds to sustained traffic correctly:
+
+1. Trigger the cache-aside behaviour to see Redis hits:
+```bash
+# First request hits Flight service, writes to Redis
+curl -s -H "Host: search.apollo.local" "http://${EG_IP}/api/search?origin=BOM&destination=DEL" -v
+# Second request hits Redis directly (X-Cache: HIT)
+curl -s -H "Host: search.apollo.local" "http://${EG_IP}/api/search?origin=BOM&destination=DEL" -v
+# Expected Output: HTTP header 'X-Cache: HIT'
+```
+
+2. Run a load test using `k6` to trigger the HorizontalPodAutoscaler:
+```bash
+kubectl run k6-loadtest -n apollo-airlines-apps --image=grafana/k6 --restart=Never -- k6 run -u 50 -d 3m - < loadtest.js
+```
+
+3. Watch the HPA scale up to 3 replicas:
+```bash
+kubectl get hpa search -n apollo-airlines-apps -w
+# Expected Output:
+# search   Deployment/search   0%/50%   1         3         1
+# search   Deployment/search   120%/50% 1         3         3  <-- scaled up!
+```
+
+
 ## Explain & Review Questions
 
 1. **Why is `scaleUp.stabilizationWindowSeconds` set to `0` while `scaleDown` is `300`?**

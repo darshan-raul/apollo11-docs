@@ -5,6 +5,10 @@ description: "Platform security hardening: RBAC, Pod Security Admission, Calico 
 
 # Stage 8: Command Module — Security Enforcement
 
+> [!WARNING] Lab Status: Planned
+> The underlying verified scripts for this stage are currently marked as **Planned/Prototyped** in the Apollo11 repository roadmap. The architectural theory below is correct, but the exact lab manifests and commands may change as the stage undergoes a clean rebuild and verification.
+
+
 **Goal:** Transform the Stage 7 platform into an enterprise-hardened, defense-in-depth Kubernetes environment. 
 
 In earlier stages, security defaults (such as non-root container users and read-only filesystems) were introduced without active enforcement. Stage 8 makes those controls **explicit, observable, and attackable**. We implement granular access control with **RBAC**, enforce zero-trust container security with **Pod Security Admission**, replace kindnet with **Calico CNI** to enforce NetworkPolicies, integrate **HashiCorp Vault and External Secrets Operator (ESO)**, and enforce supply-chain admission gates with **Kyverno, Trivy, and Cosign**.

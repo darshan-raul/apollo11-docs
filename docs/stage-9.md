@@ -5,6 +5,10 @@ description: "Deploy Apollo Airlines to Amazon EKS using modular Terraform: AWS 
 
 # Stage 9: Lunar Orbit — AWS Cloud Lifecycle & Capstone
 
+> [!WARNING] Lab Status: Planned
+> The underlying verified scripts for this stage are currently marked as **Planned/Prototyped** in the Apollo11 repository roadmap. The architectural theory below is correct, but the exact lab manifests and commands may change as the stage undergoes a clean rebuild and verification.
+
+
 **Goal:** Graduate from local development to a real, production-shaped cloud deployment on **Amazon Web Services (AWS) using Amazon EKS**. 
 
 In Stages 1 through 8, Apollo Airlines ran entirely on local `kind` clusters using simulated LoadBalancers (MetalLB) and node-local storage (`local-path`). Stage 9 replaces every local mock with its real AWS cloud equivalent:
