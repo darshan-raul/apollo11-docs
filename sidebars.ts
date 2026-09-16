@@ -21,11 +21,6 @@ const sidebars: SidebarsConfig = {
       label: 'Stage 2: Guidance',
       items: [
         'stage-2',
-        'stage-2/dns',
-        'stage-2/services',
-        'stage-2/ingress',
-        'stage-2/gateway-api',
-        'stage-2/networkpolicies',
       ],
     },
     'stage-3',
@@ -35,9 +30,6 @@ const sidebars: SidebarsConfig = {
       label: 'Stage 5: Payload Integration',
       items: [
         'stage-5',
-        'stage-5/helm',
-        'stage-5/kustomize',
-        'stage-5/argocd',
       ],
     },
     'stage-6',
@@ -47,10 +39,13 @@ const sidebars: SidebarsConfig = {
     'stage-10',
     {
       type: 'category',
-      label: 'Stage 11: Towards Mars',
+      label: 'Cloud & Optional Missions',
       items: [
+        'eks',
+        'stage-8',
+        'stage-9',
+        'stage-10',
         'stage-11',
-        'stage-11/k3s-homelab',
       ],
     },
   ],

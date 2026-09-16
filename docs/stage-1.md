@@ -1,433 +1,215 @@
 ---
-title: "Stage 1: Liftoff — Workloads & Configuration"
-description: "Deploy Apollo Airlines on Kubernetes with Deployments, Services, ConfigMaps, Secrets, ServiceAccounts, and Jobs, then diagnose and roll back a failed rolling update."
+title: Stage 1 — Liftoff
+description: Deploy Apollo Airlines with core Kubernetes workload and configuration objects.
 ---
 
-# Stage 1: Liftoff — Workloads & Configuration
+# Stage 1 — Liftoff
 
-**Goal:** Move the complete ten-component Apollo Airlines application from Docker Compose into Kubernetes, inspect the controllers and configuration keeping it healthy, and recover from both Pod loss and a failed rolling update.
-
-In [Ignition](./ignition.md), we saw that deleting a bare Pod left it absent permanently. Stage 1 introduces **Deployments and ReplicaSets** to manage pod lifecycle, **Services and EndpointSlices** for stable networking, **ConfigMaps and Secrets** for decoupled configuration, and **Jobs** for database initialization.
+Stage 1 moves all ten Launchpad components into one `apollo-airlines` namespace. The key transition is from a bare Pod to controller-owned workloads:
 
 ```mermaid
-flowchart TD
-    D["Deployment (e.g. booking)"] -->|manages| RS["ReplicaSet (desired: 2)"]
-    RS -->|creates & monitors| P1["Pod: booking-xxxxx"]
-    RS -->|creates & monitors| P2["Pod: booking-yyyyy"]
-    S["Service: booking<br/>(selector: app=booking)"] -.->|routes to| P1
-    S -.->|routes to| P2
+flowchart LR
+  D[Deployment] --> R[ReplicaSet] --> P[Pods]
+  S[Service selector] --> P
 ```
 
----
+## What changes
 
-## What You Will Learn
+- Deployments and ReplicaSets keep application replicas running.
+- Services give changing Pods stable names and virtual IPs.
+- ConfigMaps and Secrets separate configuration from the image.
+- Jobs initialize the three databases once.
+- Dedicated tokenless ServiceAccounts give workload identity without API access.
+- Databases still use `emptyDir`; replacement loses data. Persistence is Stage 3.
 
-1. **Deployments, ReplicaSets, and Pod Templates:** How declarative desired state drives automated reconciliation and self-healing.
-2. **Services & EndpointSlices:** How labels and selectors decouple stable virtual endpoints from dynamic, ephemeral Pod IPs.
-3. **Namespaces, ConfigMaps, and Secrets:** How configuration and credentials are decoupled from container images.
-4. **Dedicated Workload ServiceAccounts:** Why disabling token automount enforces least-privilege security.
-5. **One-Shot Initialization Jobs:** How batch Jobs bootstrap databases with bounded retries and `ON_ERROR_STOP`.
-6. **Ephemeral Storage (`emptyDir`):** Why database storage currently lives and dies with Pod lifecycles (setting up the problem Stage 3 solves).
-7. **Rolling Updates & Rollbacks:** How Deployments manage zero-downtime rollouts, how to diagnose `ImagePullBackOff`, and how to revert with `kubectl rollout undo`.
-
----
-
-## Architecture: The `apollo-airlines` Namespace
-
-All Stage 1 resources reside in a dedicated namespace: `apollo-airlines`.
-
-```text
-Namespace: apollo-airlines
-
-  Configuration & Identities           Stable Networking
-  ┌─────────────────────────┐          ┌───────────────────────┐
-  │ ConfigMap + Secret      ├─────────►│ 10 Services           │
-  │ 13 ServiceAccounts      │          │ (5 NodePorts, 5 CIPs) │
-  └─────────────────────────┘          └───────────┬───────────┘
-                                                   │
-  Infrastructure Deployments (x1)                  ▼
-  ┌────────────────────────────────────────────────────────────┐
-  │ identity-db   flight-db   booking-db   redis               │
-  │ (emptyDir volumes: storage survives container restart only)│
-  └──────────────────────────────▲─────────────────────────────┘
-                                 │ seeded by
-  Database Initialization Jobs   │
-  ┌──────────────────────────────┴─────────────────────────────┐
-  │ init-identity-db    init-flight-db    init-booking-db      │
-  └────────────────────────────────────────────────────────────┘
-
-  Application Deployments (x2 replicas each)
-  ┌────────────────────────────────────────────────────────────┐
-  │ identity      flight      booking     search               │
-  │ notification  frontend                                     │
-  └────────────────────────────────────────────────────────────┘
-```
-
-:::note Storage Boundary in Stage 1
-In Stage 1, all four databases intentionally mount `emptyDir` volumes. Data survives a container crash inside the same Pod, but if the database Pod is deleted, the data is lost. [Stage 3: Mission Data](./stage-3.md) replaces `emptyDir` with `PersistentVolumeClaims` and `StatefulSets`.
-:::
-
----
-
-## Prerequisites
-
-- Active multi-node `kind-apollo11` cluster created during [Ignition](./ignition.md).
-- Verify cluster context:
-  ```bash
-  kubectl config current-context
-  # Expected: kind-apollo11 (or kind-apollo11-dev)
-  kubectl get nodes
-  ```
-- Docker, kubectl, curl, and jq available.
-- Run all commands from the repository root.
-
----
-
-## 1. Inspect Declared Manifests
-
-Examine the relationships between Deployments, Pod templates, ServiceAccounts, and Services:
+## Build
 
 ```bash
-# View namespace definition
-cat stages/stage1/k8s/config/namespace.yaml
-
-# View booking Deployment
-sed -n '1,65p' stages/stage1/k8s/apps/booking/booking-dep.yaml
-
-# View booking Service
-cat stages/stage1/k8s/apps/booking/booking-svc.yaml
-```
-
-Notice the exact contract:
-1. `deployment.spec.selector.matchLabels` equals `app: booking`.
-2. `deployment.spec.template.metadata.labels` equals `app: booking`.
-3. `service.spec.selector` equals `app: booking`.
-4. `service.spec.ports[0].targetPort` equals the container's `8082`.
-5. `deployment.spec.template.spec.serviceAccountName` specifies `booking`.
-
-If any selector or label is mismatched, Kubernetes accepts the resource, but traffic routing silently fails!
-
----
-
-## 2. Build and Deploy
-
-The build script compiles all 6 application images and loads them into your kind cluster. The apply script creates configuration, infrastructure, runs database init Jobs, and deploys the application tier:
-
-```bash
-# 1. Build and load images into kind
-bash stages/stage1/scripts/build-images.sh
-
-# 2. Apply all resources in dependency order
+cd Apollo11
 bash stages/stage1/scripts/apply.sh
-```
-
-:::tip Skip Image Builds
-If images are already built and loaded in your kind cluster, run:
-```bash
+# If images are already loaded:
 bash stages/stage1/scripts/apply.sh --skip-build
+kubectl get deployments,statefulsets,jobs,pods -n apollo-airlines
 ```
-:::
 
-The apply script pauses at each boundary to ensure databases are responsive before starting their respective initialization Jobs.
-
----
-
-## 3. Inspect: Controllers, Networking, and Identity
-
-### 1. Follow Ownership & Reconciliation
-
-Inspect the ownership chain from Deployment down to Pods:
+Read the graph before applying it:
 
 ```bash
-# View deployments, replicasets, and pods
+sed -n '1,180p' stages/stage1/k8s/apps/booking/booking-dep.yaml
+sed -n '1,120p' stages/stage1/k8s/apps/booking/booking-svc.yaml
+kubectl kustomize stages/stage1/k8s > /tmp/stage1.yaml
+```
+
+## Concepts: controllers, Services, and configuration
+
+A Deployment declares a desired number of interchangeable Pods. It owns a ReplicaSet, and the ReplicaSet owns the Pods. When one Pod disappears, the ReplicaSet notices the replica count is below the desired value and creates a replacement. This is reconciliation.
+
+A Service is a stable virtual address plus a selector. The selector finds matching, ready Pods and publishes them through EndpointSlices. The Service is not an owner and does not restart anything. A Deployment selector and its Pod-template labels must match; a Service selector must match those Pod labels. Kubernetes can accept a wrong selector because the error is semantic, not YAML syntax.
+
+A ConfigMap stores ordinary configuration. A Secret is a separate API type for sensitive values, but base64 is only encoding—not encryption. A ServiceAccount is workload identity; token automount is disabled here because these applications do not need to call the Kubernetes API. A Job is for bounded work such as database initialization, not a long-running server.
+
+### Deployment lifecycle, slowly
+
+When you apply a Deployment, the API server stores the Deployment object. The Deployment controller notices that no ReplicaSet represents the requested Pod template, so it creates one. The ReplicaSet controller notices that no Pods exist for its selector, so it creates them. The scheduler assigns each unscheduled Pod to a node. The kubelet starts the containers and reports status back through the API server.
+
+That chain is why a Deployment is more than a nicer Pod manifest. It creates an ownership graph and a reconciliation loop. The desired number is `.spec.replicas`; the observed number appears in `.status.replicas`, `.status.readyReplicas`, and `.status.availableReplicas`. Those values can differ while images pull, probes fail, or a node is unavailable.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking
+  labels:
+    app.kubernetes.io/name: booking
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: booking
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  template:
+    metadata:
+      labels:
+        app: booking
+    spec:
+      serviceAccountName: booking
+      containers:
+        - name: booking
+          image: apollo11/booking:latest
+          ports:
+            - name: http
+              containerPort: 8082
+```
+
+`replicas` is a request, not a promise that two Pods are immediately ready. `selector` is immutable after creation for a Deployment because changing ownership underneath a running controller would be unsafe. The Pod template is hashed; changing the template creates a new ReplicaSet. `maxSurge` allows temporary extra Pods during an update, while `maxUnavailable` bounds how many old Pods may be unavailable. The `containerPort` is metadata for the Pod; it is not a host port.
+
+### Why labels and selectors are a contract
+
+The Deployment selector and Pod-template labels form one ownership contract. The Service selector forms a second traffic contract. These three blocks are often visually close, which makes copy/paste mistakes common:
+
+```yaml
+# The Deployment owns Pods with this label.
+spec:
+  selector:
+    matchLabels: { app: booking }
+  template:
+    metadata:
+      labels: { app: booking }
+
+---
+# The Service sends traffic to those same labels.
+spec:
+  selector: { app: booking }
+```
+
+If the Service says `app: bookings`, the Service still exists and gets a ClusterIP, but its EndpointSlice is empty. If the Deployment template says `tier: backend` but the Deployment selector says `app: booking`, the controller cannot own the intended Pods. Always inspect the live labels and selectors instead of assuming the YAML you opened is the object that was applied.
+
+### Configuration injection and precedence
+
+Apollo11 uses ConfigMaps for URLs, ports, and ordinary settings, and Secrets for database credentials and JWT material. Configuration can be mounted as files or injected as environment variables. Environment variables are captured when a container starts; changing a ConfigMap does not necessarily restart existing containers or update an already-read environment variable. A rollout is often required after configuration changes.
+
+The safe reading pattern is:
+
+```yaml
+env:
+  - name: FLIGHT_SERVICE_URL
+    valueFrom:
+      configMapKeyRef:
+        name: apollo-airlines-config
+        key: flight-service-url
+  - name: JWT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: apollo-airlines-secrets
+        key: jwt-secret
+```
+
+The Pod template references object names, not the values themselves. This keeps configuration separate from the image and makes a deployment reusable. It does not make a Secret safe to print: anyone who can read the Secret or the process environment may still retrieve it.
+
+### Jobs are completion controllers
+
+A Job is successful only when its Pod exits with code zero and the Job controller records completion. A Pod in `Running` or `Completed` state is not the same as a Job whose desired completions are satisfied. Inspect `kubectl get job`, `.status.succeeded`, `kubectl describe job`, and the Job Pod logs together.
+
+Apollo11's database Jobs use bounded retries while PostgreSQL becomes reachable, then run SQL with `ON_ERROR_STOP`. This matters because a shell pipeline can otherwise hide a failing SQL command and let the Job exit successfully. A seed operation should be idempotent: running it twice should converge to the same data rather than create duplicates.
+
+## YAML explainer
+
+For a Deployment, `.spec.selector.matchLabels` must match `.spec.template.metadata.labels`; the controller uses that relationship to decide which Pods it owns. A Service's `.spec.selector` must match the Pod labels, and `.spec.ports[].targetPort` must match the container's listening port. These are semantic contracts that a YAML parser cannot validate.
+
+ConfigMap values are non-secret configuration. Secret values are commonly base64-encoded, not automatically encrypted or safe to print. `envFrom` is convenient but hides the origin of each variable; explicit `valueFrom.configMapKeyRef` and `secretKeyRef` are easier to audit. `emptyDir` survives a container restart but belongs to the Pod, so replacing the database Pod loses its contents.
+
+## Inspect
+
+```bash
 kubectl get deployments,replicasets,pods -n apollo-airlines
-
-# Inspect the ownerReferences of a booking ReplicaSet
-kubectl get replicaset -n apollo-airlines -l app=booking \
-  -o custom-columns='NAME:.metadata.name,DESIRED:.spec.replicas,OWNER:.metadata.ownerReferences[0].name'
-```
-
-Notice that the Deployment owns the ReplicaSet, and the ReplicaSet owns the individual Pods.
-
-### 2. Follow Service Selectors to EndpointSlices
-
-A Kubernetes Service is not a running container; it is an iptables/IPVS rule programmed by `kube-proxy` across all nodes. The endpoints are tracked via `EndpointSlice`:
-
-```bash
-# View booking Service
-kubectl get service booking -n apollo-airlines -o wide
-
-# View EndpointSlice generated for booking
+kubectl describe deployment booking -n apollo-airlines
 kubectl get endpointslice -n apollo-airlines -l kubernetes.io/service-name=booking -o wide
-
-# Compare with the running booking Pod IPs
-kubectl get pods -n apollo-airlines -l app=booking -o wide
-```
-
-The IP addresses listed under the EndpointSlice correspond directly to the healthy booking Pods.
-
-### 3. Inspect Configuration & Secrets
-
-```bash
-# View externalized configuration
-kubectl describe configmap apollo-airlines-config -n apollo-airlines
-
-# View secrets metadata (values are hidden)
-kubectl describe secret apollo-airlines-secrets -n apollo-airlines
-
-# See how booking injects environment variables from ConfigMap and Secret
-kubectl get deployment booking -n apollo-airlines \
-  -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}{" <- "}{.valueFrom.configMapKeyRef.name}{.valueFrom.secretKeyRef.name}{"\n"}{end}'
-```
-
-:::note Base64 vs Encryption
-Kubernetes Secrets are base64-encoded by default, not encrypted at rest. Anyone with RBAC permissions to read Secrets can decode them. [Stage 8: Command Module](./stage-8.md) introduces enterprise secret management with HashiCorp Vault and External Secrets Operator.
-:::
-
-### 4. Workload Identity & Token Security
-
-In Kubernetes, every Pod runs with a `ServiceAccount`. If token automount is enabled, Kubernetes mounts a sensitive API token into `/var/run/secrets/kubernetes.io/serviceaccount/token`.
-
-Since our microservices do not talk to the Kubernetes API, Stage 1 explicitly configures `automountServiceAccountToken: false` on all 13 ServiceAccounts:
-
-```bash
-# Verify the 13 dedicated ServiceAccounts exist
-kubectl get serviceaccounts -n apollo-airlines
-
-# Test RBAC authorization for the booking identity
-kubectl auth can-i get pods \
-  --as=system:serviceaccount:apollo-airlines:booking \
-  -n apollo-airlines
-# Expected: no
-
-# Prove no token is mounted inside the container
-BOOKING_POD=$(kubectl get pod -n apollo-airlines -l app=booking -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n apollo-airlines "$BOOKING_POD" -- \
-  test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token && echo "Secure: No service account token mounted"
-```
-
-### 5. Inspect One-Shot Jobs
-
-Database schemas are initialized using Kubernetes `Job` resources:
-
-```bash
-kubectl get jobs,pods -n apollo-airlines -l app=init-flight-db
+kubectl get configmap,secret,serviceaccount -n apollo-airlines
+kubectl get jobs -n apollo-airlines
 kubectl logs job/init-flight-db -n apollo-airlines
+kubectl auth can-i get pods --as=system:serviceaccount:apollo-airlines:booking -n apollo-airlines
 ```
 
-Notice that:
-- The Job runs `psql` with `ON_ERROR_STOP=1`. If any SQL statement fails, the Job exits with a non-zero code instead of masking errors.
-- Completed Job Pods remain in `Completed` state so logs can be audited later.
+The authorization answer should be `no`, and the Jobs should be `Complete`. Verify behavior on the mapped ports: frontend `30080`, flight `30081`, booking `30082`, identity `30083`, search `30084`.
 
----
-
-## 4. Prove Application Behavior
-
-Stage 1 maps five services to NodePorts exposed on your host via kind's port mappings:
-
-| Service | Protocol | NodePort | URL |
-|---|---|---|---|
-| **frontend** | HTTP | 30080 | [http://127.0.0.1:30080](http://127.0.0.1:30080) |
-| **flight** | HTTP | 30081 | [http://127.0.0.1:30081](http://127.0.0.1:30081) |
-| **booking** | HTTP | 30082 | [http://127.0.0.1:30082](http://127.0.0.1:30082) |
-| **identity** | HTTP | 30083 | [http://127.0.0.1:30083](http://127.0.0.1:30083) |
-| **search** | HTTP | 30084 | [http://127.0.0.1:30084](http://127.0.0.1:30084) |
-
-Test each endpoint from your host terminal:
+### Read status instead of guessing
 
 ```bash
-# Frontend health
-curl --fail http://127.0.0.1:30080/healthz
-
-# Flight inventory query (186 flights seeded across 31 days)
-curl --fail http://127.0.0.1:30081/api/flights | jq '.flights | length'
-
-# Booking readiness
-curl --fail http://127.0.0.1:30082/readyz
-
-# Identity Prometheus metrics
-curl --fail http://127.0.0.1:30083/metrics | head -n 10
-
-# Search readiness
-curl --fail http://127.0.0.1:30084/readyz
+kubectl get deployment booking -n apollo-airlines -o yaml
+kubectl get deployment booking -n apollo-airlines \
+  -o jsonpath='desired={.spec.replicas} ready={.status.readyReplicas} updated={.status.updatedReplicas}{"\n"}'
+kubectl get rs,pod -n apollo-airlines -l app=booking --show-labels
+kubectl get endpointslice -n apollo-airlines \
+  -l kubernetes.io/service-name=booking -o yaml
 ```
 
-:::info Why is notification not a NodePort?
-`notification` is only invoked internally by `booking`. Leaving internal services as `ClusterIP` reduces attack surface by not exposing unnecessary ports to the host network.
-:::
+Compare desired, updated, ready, and available counts. For a Service, compare its selector to Pod labels, then compare EndpointSlice addresses to the ready Pods. For a Job, compare completion state, exit code, logs, and events. Each object answers a different question; no single `kubectl get` output is enough.
 
----
+## Break and recover
 
-## 5. Break 1: Delete a Controller-Owned Pod
-
-Let's test self-healing on a Deployment-managed workload.
-
-Capture the currently running booking Pods:
+Delete a Booking Pod and watch the ReplicaSet create a replacement:
 
 ```bash
-kubectl get pods -n apollo-airlines -l app=booking \
-  -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,NODE:.spec.nodeName'
-
-# Select one pod and delete it
-BOOKING_POD=$(kubectl get pod -n apollo-airlines -l app=booking -o jsonpath='{.items[0].metadata.name}')
-kubectl delete pod "$BOOKING_POD" -n apollo-airlines
-```
-
-Instantly observe the pods:
-
-```bash
-kubectl get pods -n apollo-airlines -l app=booking
-```
-
-**Observation:** Unlike Ignition's bare Pod, the deleted pod was immediately replaced by the ReplicaSet. The new pod has a fresh UID, and the Deployment returned to `2/2` ready replicas within seconds:
-
-```bash
+kubectl delete pod -n apollo-airlines -l app=booking --wait=false
+kubectl rollout status deployment/booking -n apollo-airlines --timeout=120s
 curl --fail http://127.0.0.1:30082/readyz
 ```
 
----
-
-## 6. Break 2: Diagnose a Failed Rolling Update
-
-Deployments update pods incrementally using a rolling update strategy. Let's trigger a failure by deploying an image tag that does not exist.
-
-### 1. Perform a Healthy Rollout Restart
-
-First, restart the `search` deployment and observe the rollout history:
+Create a failed rollout, diagnose it with the Ignition ladder, then roll back:
 
 ```bash
-kubectl rollout restart deployment/search -n apollo-airlines
-kubectl rollout status deployment/search -n apollo-airlines --timeout=60s
-kubectl rollout history deployment/search -n apollo-airlines
-```
-
-### 2. Deploy a Broken Image Tag
-
-Now instruct Kubernetes to update `search` to a nonexistent image:
-
-```bash
-kubectl set image deployment/search \
-  search=apollo11/search:missing-stage1-demo \
-  -n apollo-airlines
-```
-
-Monitor the rollout:
-
-```bash
-kubectl rollout status deployment/search -n apollo-airlines --timeout=20s
-```
-
-The command times out! Now use the **Evidence Ladder** to diagnose the failure:
-
-```bash
-# 1. Status: Check pod state
-kubectl get deployment,replicaset,pod -n apollo-airlines -l app=search
-
-# 2. Events: Check recent cluster events
-kubectl get events -n apollo-airlines \
-  --sort-by=.metadata.creationTimestamp | tail -n 15
-
-# 3. Describe: Inspect why the pod is failing
-kubectl describe pod -n apollo-airlines -l app=search | grep -E "(Image|Failed|Error)"
-```
-
-Look at the evidence: `ErrImagePull` and `ImagePullBackOff`.
-
-### 3. Check Application Availability During Failure
-
-Crucially, test whether the user-facing search service is down:
-
-```bash
-curl --fail http://127.0.0.1:30084/readyz
-# Output: HTTP 200 OK!
-```
-
-**Why is it still working?** Kubernetes' default `RollingUpdate` strategy (`maxUnavailable: 25%`) never destroys old, healthy Pods until the new revision's Pods pass readiness checks! Because the new Pod never became Ready, the old healthy ReplicaSet continues serving 100% of user traffic.
-
----
-
-## 7. Recover: Roll Back the Failed Revision
-
-Revert the deployment back to the previous working revision:
-
-```bash
-# Roll back to previous revision
+kubectl set image deployment/search search=apollo11/search:missing-stage1-demo -n apollo-airlines
+kubectl rollout status deployment/search -n apollo-airlines --timeout=30s || true
+kubectl get events -n apollo-airlines --sort-by=.metadata.creationTimestamp | tail -20
+kubectl describe pod -n apollo-airlines -l app=search
 kubectl rollout undo deployment/search -n apollo-airlines
-
-# Verify rollout completes successfully
-kubectl rollout status deployment/search -n apollo-airlines --timeout=60s
-
-# Verify image tag is restored
-kubectl get deployment search -n apollo-airlines \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
-# Output: apollo11/search:latest
-
-# Verify live readiness
-curl --fail http://127.0.0.1:30084/readyz
+kubectl rollout status deployment/search -n apollo-airlines --timeout=120s
 ```
 
-The failed Pods are removed, and the search service is completely restored.
+Look for `ErrImagePull`/`ImagePullBackOff`. A failed new ReplicaSet can coexist with old healthy Pods because the default RollingUpdate strategy preserves availability within its budget.
 
----
+The failure is deliberately useful: the API server accepted the new image string because an image name is syntactically valid. The kubelet discovers the problem only when it asks the registry for the image. The Deployment then reports a progressing or stalled rollout, the new ReplicaSet has unavailable Pods, and the old ReplicaSet may still serve traffic. This is the difference between **configuration validation** and **runtime validation**.
 
-## Maintainer Verification
+### Common Stage 1 failure table
 
-Run the automated Stage 1 verification suite:
+| Symptom | Most useful evidence | Likely cause |
+| --- | --- | --- |
+| `0/2` ready | `describe pod`, events | Image pull, probe, crash, or missing config |
+| Service has no endpoints | Service selector + Pod labels + EndpointSlice | Selector mismatch or Pods not ready |
+| Job never completes | Job events + Pod logs | Database unavailable, SQL error, or bad credentials |
+| `CreateContainerConfigError` | `describe pod` | Missing ConfigMap/Secret key or wrong name |
+| New rollout stuck, old Pods healthy | Deployment/ReplicaSet events | Bad image, command, port, or readiness probe |
+| Data disappears after restart | Pod volume definition | `emptyDir` is Pod-scoped; Stage 3 is required |
+
+## Verify and clean up
 
 ```bash
 bash stages/stage1/scripts/verify.sh
-```
-
-The script runs **167 comprehensive checks**, including:
-1. Namespace and 13 tokenless ServiceAccounts.
-2. Deployment replicas, selectors, and EndpointSlices.
-3. Database initialization Job completion and SQL data consistency.
-4. Health, readiness, and metrics for all services.
-5. Flagship booking workflow with `X-Request-ID` tracing across logs.
-6. Automated Pod termination and ReplicaSet replacement.
-7. Simulated rollout failure, diagnosis verification, and rollback recovery.
-
----
-
-## Clean Up & Residue Audit
-
-To tear down Stage 1 resources:
-
-```bash
 bash stages/stage1/scripts/teardown.sh
 ```
 
-Verify that zero residue remains in the cluster:
-
-```bash
-kubectl get namespace apollo-airlines
-# Expected: Error from server (NotFound)
-
-kubectl get all -A | grep apollo-airlines || echo "Residue clean: 0 resources found"
-```
-
-Retain your kind cluster for Stage 2!
-
----
-
-## Explain & Review Questions
-
-1. **How do a Deployment selector, Pod template label, and Service selector link together?**
-   - The Deployment selector defines which Pods the controller manages.
-   - The Pod template specifies the labels stamped onto new Pod instances.
-   - The Service selector queries the API server for Pods matching those labels to populate its `EndpointSlice`.
-
-2. **Why did the search service continue returning 200 OK during the broken image rollout?**
-   The Deployment's rolling update strategy does not terminate older, healthy replicas until newly spawned replicas transition to `Ready`.
-
-3. **What is the difference between base64 encoding and encryption in Kubernetes Secrets?**
-   Base64 is an encoding format that converts binary data to ASCII strings for safe transmission; it provides zero confidentiality. Encryption requires cryptographic keys (e.g., KMS, Vault).
-
-4. **Why is `automountServiceAccountToken: false` a recommended security standard?**
-   If an attacker achieves remote code execution (RCE) in an application container, an automounted token provides valid credentials to query the Kubernetes API server directly.
-
----
-
-## What's Next
-
-In [Stage 2: Guidance — Networking & Edge Access](./stage-2.md), we move from direct NodePorts into a progressive **5-substage edge access ladder**: ClusterIP & CoreDNS, NodePort, Traefik Ingress with TLS, MetalLB LoadBalancers, and the modern Envoy Gateway API.
+The verifier is maintainer evidence; your checkpoint is being able to trace Deployment → ReplicaSet → Pod and Service → EndpointSlice, and explain why `emptyDir` is not persistence. Continue to [Stage 2](./stage-2).

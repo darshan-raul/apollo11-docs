@@ -1,4 +1,4 @@
-import type {ReactNode} from 'react';
+import type {CSSProperties, ReactNode} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
@@ -13,6 +13,7 @@ const stages = [
     title: 'Launchpad',
     emoji: '🧱',
     description: 'Docker fundamentals, containers, Dockerfiles, and Docker Compose',
+    href: '/docs/launchpad',
     color: '#9b59b6'
   },
   {
@@ -20,77 +21,72 @@ const stages = [
     title: 'Ignition',
     emoji: '🔥',
     description: 'First Kubernetes cluster, kubectl basics, and your first Pod',
+    href: '/docs/ignition',
     color: '#e74c3c'
   },
   {
     number: '02',
     title: 'Liftoff',
     emoji: '🚀',
-    description: 'Deployments, Namespaces, ConfigMaps, Secrets, Jobs',
+    description: 'Deployments, Services, ConfigMaps, Secrets, Jobs, and rollouts',
+    href: '/docs/stage-1',
     color: '#3498db'
   },
   {
     number: '03',
     title: 'Guidance',
     emoji: '🧭',
-    description: 'Networking, Services, Ingress, DNS, NetworkPolicies',
+    description: 'DNS, NodePort, Ingress, TLS, MetalLB, and Gateway API',
+    href: '/docs/stage-2',
     color: '#2ecc71'
   },
   {
     number: '04',
     title: 'Data Systems',
     emoji: '💾',
-    description: 'Persistent Storage, PV, PVC, StorageClasses, StatefulSets',
+    description: 'StatefulSets, PVCs, StorageClasses, headless Services, and seeds',
+    href: '/docs/stage-3',
     color: '#f39c12'
   },
   {
     number: '05',
     title: 'Flight Control',
     emoji: '🎛️',
-    description: 'Probes, Resources, QoS, Priority, Resource Quotas',
+    description: 'Probes, resources, QoS, scheduling, shutdown, and PDBs',
+    href: '/docs/stage-4',
     color: '#1abc9c'
   },
   {
     number: '06',
     title: 'Payload Integration',
     emoji: '📦',
-    description: 'Helm, Kustomize, CI/CD, GitHub Actions, ArgoCD',
+    description: 'Helm, Kustomize, CI/GHCR, and Argo CD',
+    href: '/docs/stage-5',
     color: '#9b59b6'
   },
   {
     number: '07',
     title: 'Operations',
     emoji: '📡',
-    description: 'Monitoring, Prometheus, Grafana, Loki, OpenTelemetry',
+    description: 'Metrics, dashboards, alerts, logs, traces, and correlation',
+    href: '/docs/stage-6',
     color: '#e67e22'
   },
   {
     number: '08',
     title: 'Scaling',
     emoji: '🛰️',
-    description: 'HPA, Taints, Tolerations, Node Affinity, Pod Affinity',
+    description: 'Redis cache, HPA, VPA recommendations, and scheduling',
+    href: '/docs/stage-7',
     color: '#8e44ad'
   },
   {
-    number: '09',
-    title: 'Hardening',
-    emoji: '🔐',
-    description: 'RBAC, Security Contexts, Vault, Sealed Secrets, OPA',
+    number: '☁',
+    title: 'EKS Appendix',
+    emoji: '☁️',
+    description: 'Terraform, EKS, NLB, EBS CSI, and cloud lifecycle gotchas',
+    href: '/docs/eks',
     color: '#c0392b'
-  },
-  {
-    number: '10',
-    title: 'Cloud Deploy',
-    emoji: '🌕',
-    description: 'EKS, GKE, AKS, Terraform, Cluster Autoscaler',
-    color: '#2980b9'
-  },
-  {
-    number: '11',
-    title: 'Extensions',
-    emoji: '🧪',
-    description: 'Service Mesh, Argo Rollouts, DevSecOps, Velero, Chaos Mesh',
-    color: '#16a085'
   }
 ];
 
@@ -115,7 +111,7 @@ function StarField() {
   );
 }
 
-function GlowOrb({color, size, position}: {color: string; size: string; position: string}) {
+function GlowOrb({color, size, position}: {color: string; size: string; position: CSSProperties}) {
   return (
     <div
       className={styles.glowOrb}
@@ -123,7 +119,7 @@ function GlowOrb({color, size, position}: {color: string; size: string; position
         background: `radial-gradient(circle, ${color} 0%, transparent 70%)`,
         width: size,
         height: size,
-        ...position
+        ...position,
       }}
     />
   );
@@ -166,14 +162,14 @@ function HomepageHero() {
       <GlowOrb color="rgba(187, 143, 206, 0.3)" size="400px" position={{bottom: '-100px', right: '-50px'}} />
       <Rocket />
       <div className={styles.heroContent}>
-        <div className={styles.badge}>11-Stage Journey</div>
+        <div className={styles.badge}>Runnable core + optional missions</div>
         <h1 className={styles.heroTitle}>
           <span className={styles.heroTitleMain}>Apollo 11</span>
           <span className={styles.heroTitleSub}>Kubernetes Learning Bootstrap</span>
         </h1>
         <p className={styles.heroDescription}>
           A comprehensive, hands-on journey from container fundamentals to advanced cluster operations.
-          Build real-world Kubernetes expertise through 13 progressive stages.
+          Build real-world Kubernetes expertise through a verified, progressive lab.
         </p>
         <div className={styles.heroCta}>
           <Link className={styles.primaryButton} to="/docs">
@@ -218,16 +214,12 @@ function StagesSection() {
     <section className={styles.stagesSection}>
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle}>Your Mission Architecture</h2>
-        <p className={styles.sectionSubtitle}>Progress through 13 carefully designed stages</p>
+        <p className={styles.sectionSubtitle}>Build, inspect, break, recover, and explain</p>
       </div>
       <div className={styles.stagesGrid}>
-        {stages.map((stage, index) => {
-          let linkPath = '/docs/launchpad';
-          if (index === 0) linkPath = '/docs/launchpad';
-          else if (index === 1) linkPath = '/docs/ignition';
-          else linkPath = `/docs/stage-${index}`;
+        {stages.map((stage) => {
           return (
-            <Link key={index} to={linkPath} className={styles.stageCard}>
+            <Link key={stage.number} to={stage.href} className={styles.stageCard}>
               <div className={styles.stageCardGlow} style={{background: stage.color}} />
               <div className={styles.stageNumber} style={{color: stage.color}}>{stage.number}</div>
               <div className={styles.stageEmoji}>{stage.emoji}</div>
@@ -314,7 +306,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Kubernetes Learning Journey"
-      description="13-stage Kubernetes learning bootstrap - From containers to advanced cluster operations">
+      description="A hands-on Kubernetes learning path from containers to platform operations">
       <HomepageHero />
       <main>
         <StagesSection />

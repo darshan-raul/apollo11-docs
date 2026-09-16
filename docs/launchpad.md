@@ -1,537 +1,168 @@
 ---
-title: "Launchpad — Docker Compose"
-description: "Build, run, inspect, break, and recover Apollo Airlines locally with Docker Compose before moving to Kubernetes."
+title: Launchpad — Docker Compose
+description: Run Apollo Airlines locally and learn the container fundamentals used by Kubernetes.
 ---
 
-# Launchpad: Docker Compose
+# Launchpad — Docker Compose
 
-**Goal:** Run Apollo Airlines locally, trace requests across containers, inspect container hardening, and understand the application architecture before Kubernetes orchestrates it in later stages.
+Launchpad gives you a working mental model before Kubernetes adds another control plane. You will run ten components, read YAML, see Compose DNS, trace a request, break a database dependency, and prove persistence.
 
-Launchpad establishes the baseline for all **10 workloads** used throughout the course: six application microservices, three PostgreSQL databases, and Redis. It also includes an optional log viewer (Dozzle) as a learning aid.
+## Build
 
----
-
-## The Learner Mission
-
-By the end of this lab you will have:
-1. Built the container images from multi-stage Dockerfiles.
-2. Started all 10 workloads and inspected their shared bridge network.
-3. Authenticated as a seeded passenger and traced an API booking across multiple services.
-4. Inspected container security defaults: non-root users and read-only root filesystems.
-5. Executed a safe failure experiment: stopped a database and observed cascading readiness failures while liveness remained green.
-6. Restored the database and verified observable application recovery.
-7. Proved data persistence across container deletion using named Docker volumes.
-8. Run the automated 73-check verification test suite.
-
----
-
-## Concept Mapping: Compose to Kubernetes
-
-| Docker Compose Concept | Where to Inspect | What Kubernetes Replaces It With |
-|---|---|---|
-| `Dockerfile` | `code/*/Dockerfile` | Container image executed inside a Kubernetes Pod |
-| Compose service | `docker-compose.yml` | `Deployment` (stateless) or `StatefulSet` (stateful) |
-| `environment` block | service env definitions | `ConfigMap` and `Secret` |
-| Service-name DNS | `http://flight:8081` | Kubernetes `Service` and CoreDNS in-cluster FQDN |
-| `healthcheck` block | PostgreSQL / Redis healthchecks | `startupProbe`, `livenessProbe`, `readinessProbe` |
-| Named volume | `identity-db-data` | `PersistentVolumeClaim` (PVC) and `StorageClass` |
-| Shared network | `apollo-airlines` bridge network | Pod network CNI and cluster CIDR |
-| Hardening (`user`, `read_only`) | container security settings | Pod `securityContext` and Linux capabilities |
-
----
-
-## Prerequisites
-
-Check your local toolchain from your terminal:
-
-```bash
-docker version
-docker compose version
-curl --version
-jq --version
-```
-
-:::tip Devbox Support
-If you prefer not to install CLI tools manually, Apollo11 includes a `devbox.json` configuration:
-```bash
-# Install Devbox (optional)
-curl -fsSL https://get.jetify.com/devbox | bash
-devbox shell
-```
-:::
-
-### Configure Local Environment Secrets
-
-Before starting Compose, create your local `.env` configuration from the provided template:
+From the Apollo11 repository:
 
 ```bash
 cd stages/launchpad
 cp .env.example .env
-```
-
-Open `.env` in your editor. Notice that `.env` defines development credentials:
-- `POSTGRES_USER=postgres`
-- `POSTGRES_PASSWORD=postgres`
-- `JWT_SECRET=supersecretjwtkey`
-
-:::caution URL-Safe Passwords
-If you customize `POSTGRES_PASSWORD`, use URL-safe alphanumeric characters. Docker Compose embeds this variable into database connection strings (`postgresql://user:pass@host:5432/db`).
-:::
-
----
-
-## 1. Architecture & Service Topology
-
-```mermaid
-graph TB
-    subgraph Client
-        Browser([Browser :3000])
-    end
-
-    subgraph App Services
-        ID([identity :8080])
-        FL([flight :8081])
-        BK([booking :8082])
-        SN([search :8083])
-        NT([notification :8084])
-        FE([frontend :3000])
-    end
-
-    subgraph Databases & Queues
-        IDDB[(identity-db :5432)]
-        FLDB[(flight-db :5432)]
-        BKDB[(booking-db :5432)]
-        RD[(redis :6379)]
-    end
-
-    Browser --> FE
-    Browser --> ID
-    Browser --> FL
-    Browser --> BK
-    Browser --> SN
-
-    FE --> ID
-    FE --> FL
-    FE --> BK
-    FE --> SN
-
-    BK --> ID
-    BK --> FL
-    BK --> BKDB
-    BK --> NT
-
-    SN --> FL
-    NT --> RD
-
-    ID --> IDDB
-    FL --> FLDB
-```
-
-### Workload Inventory
-
-| Service | Language / Stack | Port | Database | Role |
-|---|---|---|---|---|
-| **frontend** | React 18, Vite, Tailwind, NGINX | 3000 | — | Single-page application UI |
-| **identity** | Python 3.12, FastAPI | 8080 | `identity-db` | User authentication, passenger profiles, JWT issuance |
-| **flight** | Go 1.22, Gin | 8081 | `flight-db` | Flight schedules, airports, seat reservation |
-| **booking** | Go 1.22, Gin | 8082 | `booking-db` | Flagship booking coordinator |
-| **search** | Go 1.22, Gin | 8083 | — | Flight search proxy (Redis cache added in Stage 7) |
-| **notification** | Go 1.22, Gin | 8084 | — | Asynchronous event worker |
-| **identity-db** | PostgreSQL 15 Alpine | 5432 | Volume | `users` table |
-| **flight-db** | PostgreSQL 15 Alpine | 5432 | Volume | `airports` and `flights` tables |
-| **booking-db** | PostgreSQL 15 Alpine | 5432 | Volume | `bookings` table |
-| **redis** | Redis 7 Alpine | 6379 | Volume | Notification queue |
-
----
-
-## 2. Build and Start Apollo Airlines
-
-Run Docker Compose to build images and launch all 10 containers in detached mode:
-
-```bash
-cd stages/launchpad
-docker compose up --build --wait -d
-```
-
-Check the running status of every container:
-
-```bash
+docker compose up --build -d
 docker compose ps
 ```
 
-All 10 workloads should report `healthy` or `running`:
-```text
-NAME                                 IMAGE                          COMMAND                  SERVICE         STATUS
-launchpad-booking-1                  launchpad-booking              "/app/booking-service"   booking         Up (healthy)
-launchpad-booking-db-1               postgres:15-alpine             "docker-entrypoint.s…"   booking-db      Up (healthy)
-launchpad-flight-1                   launchpad-flight               "/app/flight-service"    flight          Up (healthy)
-launchpad-flight-db-1                postgres:15-alpine             "docker-entrypoint.s…"   flight-db       Up (healthy)
-launchpad-frontend-1                 launchpad-frontend             "/docker-entrypoint.…"   frontend        Up
-launchpad-identity-1                 launchpad-identity             "uvicorn main:app --…"   identity        Up (healthy)
-launchpad-identity-db-1              postgres:15-alpine             "docker-entrypoint.s…"   identity-db     Up (healthy)
-launchpad-notification-1             launchpad-notification         "/app/notification-s…"   notification    Up (healthy)
-launchpad-redis-1                    redis:7-alpine                 "docker-entrypoint.s…"   redis           Up (healthy)
-launchpad-search-1                   launchpad-search               "/app/search-service"    search          Up (healthy)
+`.env.example` is a variable contract, not a secret. Keep `.env` local. Compose interpolates values such as `${JWT_SECRET:?Copy .env.example to .env}` and fails early when one is missing.
+
+Open `http://localhost:3000`. The API ports are identity `8080`, flight `8081`, booking `8082`, search `8083`, notification `8084`; Dozzle is optional on `8085` with `docker compose --profile tools up -d`.
+
+## Concepts: images, containers, and Compose
+
+An **image** is a packaged filesystem and startup configuration. A **container** is a running process created from that image. Containers are lighter than virtual machines because they share the host kernel; isolation comes from Linux namespaces and resource controls rather than a second operating system.
+
+Compose gives several containers a shared network and lifecycle. Service names become DNS names inside that network, so `booking` can call `flight:8081`; it should not call `localhost:8081`, because `localhost` would point back to the Booking container itself. Published ports such as `8082:8082` are for your laptop, not for container-to-container discovery.
+
+## YAML explainer: one Compose service
+
+```yaml
+identity:
+  build: { context: ./code/identity, dockerfile: Dockerfile }
+  ports: ["8080:8080"]
+  environment:
+    DATABASE_URL: postgresql://...@identity-db:5432/identity
+  depends_on:
+    identity-db:
+      condition: service_healthy
+  read_only: true
 ```
 
-If any service encounters issues, inspect its recent logs:
+`build` creates an image; `ports` publishes host-to-container traffic; `environment` configures the process; `depends_on` gates startup on a healthcheck but is not a complete readiness strategy; `read_only` makes accidental writes visible. The application also uses `/tmp` as tmpfs and drops Linux capabilities.
+
+### Read the Compose file as a dependency graph
+
+The ten components are not ten independent processes. Frontend calls the browser-visible API URLs. Booking calls Identity, Flight, and Notification and writes to Booking PostgreSQL. Search calls Flight. Notification uses Redis. Each PostgreSQL service owns one database. The `depends_on` conditions express startup dependencies, but they do not turn Compose into a full orchestration system: a dependency can become unavailable after startup, and the application must still handle that failure through timeouts and readiness checks.
+
+The `networks` entry creates a private network from the application's point of view. Service-name DNS is provided by Docker's embedded DNS. There is no Kubernetes Service, EndpointSlice, scheduler, or reconciliation controller here. Compose starts containers from your declared model; it does not continuously replace a deleted container with a new desired replica set in the Kubernetes sense.
+
+### Dockerfile layers and runtime users
+
+A Dockerfile is a build recipe. Each instruction can create an image layer, and the build cache reuses layers whose inputs have not changed. Copying dependency manifests before application source often lets package installation remain cached when only code changes. The final image should contain the runtime artifact, not compilers, credentials, or local build caches.
+
+At runtime, Apollo11 application containers use non-root users, read-only root filesystems, a writable `/tmp` tmpfs, `no-new-privileges`, and dropped capabilities. These controls reduce the impact of a process compromise, but they do not replace dependency patching, authentication, network segmentation, or secret management.
+
+### Environment variables and secret boundaries
+
+Compose substitutes variables before it creates containers. `docker compose config` is useful because it shows the resolved model, but be careful: it can print passwords and tokens. The committed `.env.example` documents required names and safe development defaults; `.env` is local state and should not be committed.
+
+The browser is different from the backend. Vite variables baked into the frontend image are public to anyone who downloads the JavaScript bundle. Never put a private database password or signing key into a `VITE_*` variable. Backend environment variables are not automatically safe either; they can appear in process inspection, crash dumps, or debug output.
+
+## Inspect
 
 ```bash
-docker compose logs --tail=50 identity identity-db
-```
-
----
-
-## 3. Inspect the System & Security Defaults
-
-Don't just trust green containers — verify the network, process identity, and filesystem boundaries.
-
-### Check Service Discovery & Network Isolation
-
-Every container connects to a shared user-defined bridge network `launchpad_apollo-airlines`:
-
-```bash
-# Inspect the Docker network
+docker compose config
 docker network inspect launchpad_apollo-airlines
-
-# Test internal DNS resolution from the booking service to flight service
-docker compose exec booking getent hosts flight
+docker compose logs -f booking
+docker compose exec booking getent hosts flight identity notification
+curl --fail http://localhost:8080/readyz
+curl --fail http://localhost:8081/metrics | head
 ```
 
-Notice that `booking` resolves `flight` to an internal IP (e.g., `172.x.x.x`), not `localhost`.
+`healthz` means “the process is alive.” `readyz` means “this process can serve its dependency-aware workload.” A container can be running while it is not ready.
 
-### Verify Non-Root Runtime Users
+### What each inspection proves
 
-Every application Dockerfile defines a dedicated, unprivileged user (`appuser` with UID 10001 or `nginx`):
+`docker compose config` proves interpolation and merge results, not application behavior. `docker compose ps` proves container state and healthcheck status, not that a request follows the intended dependency path. `docker network inspect` proves which containers share a network and which aliases exist. `docker compose exec ... getent hosts` proves service-name resolution from the caller's network namespace. `curl` proves one endpoint at one moment. Logs explain process decisions but can be incomplete if the process is killed abruptly.
 
 ```bash
-# Verify booking runs as non-root
-docker compose exec booking id
-# Expected: uid=10001(appuser) gid=10001(appuser)
-
-# Verify identity runs as non-root
-docker compose exec identity id
-# Expected: uid=10001(appuser) gid=10001(appuser)
-
-# Verify frontend runs as nginx
-docker compose exec frontend id
-# Expected: uid=101(nginx) gid=101(nginx)
+docker compose ps
+docker inspect "$(docker compose ps -q booking)" --format '{{json .State.Health}}'
+docker compose exec booking sh -c 'wget -qO- http://flight:8081/readyz'
+docker compose exec booking sh -c 'wget -qO- http://identity:8080/readyz'
+docker compose logs --tail=50 --timestamps booking
 ```
 
-### Verify Read-Only Root Filesystems
+If the in-network calls work but the browser fails, the issue is likely host publishing, frontend configuration, CORS, or browser-side URL resolution—not service discovery between containers.
 
-Application containers mount root filesystems in read-only mode to prevent runtime tampering. Temporary writable scratch space is limited to tmpfs `/tmp`:
-
-```bash
-# Attempt to write to the container filesystem
-docker compose exec booking sh -c \
-  'touch /app/should-fail 2>/dev/null || echo "expected: /app is read-only"'
-# Expected output: expected: /app is read-only
-```
-
-### Optional Log Viewer (Dozzle)
-
-Dozzle provides an optional browser-based UI to tail container logs at `http://localhost:8085`:
-
-```bash
-docker compose --profile tools up -d dozzle
-```
-
-:::warning Security Note
-Dozzle requires mounting the Docker host socket (`/var/run/docker.sock`). Even with a read-only mount, exposing the Docker socket provides privileged control over the host daemon. For this reason, Dozzle is isolated behind the `--profile tools` flag and excluded from default production workflows.
-:::
-
----
-
-
-### Note on Authentication & JWT Validation
-
-A critical design pattern in Apollo Airlines is that **JWT validation is decentralized**:
-- When a user logs in, the **Identity Service** issues a JWT containing claims (e.g., `sub`, `role`) signed by the `JWT_SECRET`.
-- When the user calls the **Booking Service**, the Booking Service parses the JWT and **verifies the cryptographic signature locally** using its own copy of the `JWT_SECRET`.
-- The Booking Service does *not* make a network call to the Identity Service to validate the token. It only makes a network call (GET `/api/users/{id}`) to confirm the user account is still active (`is_active = true`).
-- For internal service-to-service calls (like Booking calling Flight to decrement seats), Booking mints a short-lived internal JWT with `role=SERVICE`.
-
-This decentralized validation prevents the Identity Service from becoming a performance bottleneck and a single point of failure for every request in the system.
-
-
-## 4. Prove Application Behavior
-
-Verify individual endpoints, Prometheus metrics, and the end-to-end booking flow.
-
-### Check Health, Readiness, and Metrics
-
-```bash
-# Liveness probe (process is running)
-curl -i http://localhost:8081/healthz
-
-# Readiness probe (DB connection is active)
-curl -i http://localhost:8081/readyz
-
-# Flight inventory query
-curl -s http://localhost:8081/api/flights | jq '.flights | length'
-# Returns: 186 flights across 31 days
-
-# Prometheus text metrics
-curl -s http://localhost:8081/metrics | head -n 15
-```
-
-### Execute the Flagship Booking Workflow
-
-Authenticate with the seeded passenger credentials, extract the JWT, and book flight `AA101`:
-
-```bash
-# 1. Authenticate with Identity service
-TOKEN=$(curl -s -X POST http://localhost:8080/api/users/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' \
-  | jq -r .token)
-
-echo "JWT Token: ${TOKEN:0:30}..."
-
-# 2. Create a booking with correlated X-Request-ID
-curl -s -X POST http://localhost:8082/api/bookings \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -H 'X-Request-ID: launchpad-demo-001' \
-  -d '{"flightId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}' | jq
-```
-
-Expected response:
-```json
-{
-  "booking": {
-    "id": "...",
-    "userId": "11111111-1111-1111-1111-111111111111",
-    "flightId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    "status": "CONFIRMED",
-    "seat": "14B"
-  }
-}
-```
-
-Follow the logs across all services to see the request propagation:
-
-```bash
-docker compose logs --tail=20 booking identity flight notification
-```
-
-Notice how `X-Request-ID: launchpad-demo-001` is forwarded from `booking` to `flight`, `identity`, and queued into `notification` via `redis`.
-
-### Access the Web UI
-
-Open your browser to [http://localhost:3000](http://localhost:3000):
-- Log in as `passenger@apolloairlines.com` / `pass123`.
-- Search for flights from `BOM` (Mumbai) to `DEL` (Delhi).
-- Click **Book Now** and view your confirmed reservation.
-
----
-
-## 5. Break Readiness, Then Recover
-
-Kubernetes relies heavily on distinguishing between **liveness** (should we restart the container?) and **readiness** (should we route user traffic to it?). Let's test this behavior.
-
-### The Break Experiment
-
-Deliberately stop `flight-db` while keeping the `flight` service container running:
+## Break and recover
 
 ```bash
 docker compose stop flight-db
-```
-
-Now test both probes on the `flight` service:
-
-```bash
-# Process is still alive -> returns 200 OK
-curl -i http://localhost:8081/healthz
-
-# Database is unreachable -> returns 503 Service Unavailable
 curl -i http://localhost:8081/readyz
-```
-
-Observe how the failure cascades to dependent services:
-
-```bash
-# Search service depends on Flight -> returns 503
 curl -i http://localhost:8083/readyz
-
-# Booking service depends on Flight and Flight-DB -> returns 503
 curl -i http://localhost:8082/readyz
-```
-
-Inspect the container logs to observe connection retries:
-
-```bash
-docker compose logs --tail=40 flight
-```
-
-### The Recovery Experiment
-
-Restart `flight-db` and observe automatic recovery:
-
-```bash
 docker compose start flight-db
-
-# Retry until readyz returns 200 OK
-curl -i --retry 15 --retry-delay 2 --retry-all-errors http://localhost:8081/readyz
+docker compose ps
+curl --retry 10 --retry-all-errors --fail http://localhost:8081/readyz
 ```
 
-Once `flight` recovers, check `search` and `booking`:
+Search and Booking should expose the dependency failure through readiness, then recover. Test persistence by inspecting seeded data, restarting a database container, and checking the data again. `docker compose down` preserves named volumes; `docker compose down -v` removes them and is destructive.
+
+The important distinction is between failure propagation and failure recovery. A good readiness implementation withdraws a service from dependent traffic while the dependency is unavailable. A good client uses bounded timeouts instead of hanging forever. A good recovery check confirms the dependency returns, readiness turns green, and an actual request succeeds again. “The container restarted” is not enough.
+
+## Gotchas
+
+- Compose service names resolve inside the Compose network; `localhost` inside a container means that same container.
+- Published ports are host access, not service discovery.
+- A read-only filesystem needs an explicit writable tmpfs for programs that use `/tmp`.
+- PostgreSQL init scripts run only when the data directory is empty.
+- Dozzle requires Docker socket access; leave its profile off unless you understand that privilege.
+
+## A guided request trace
+
+Use the browser to log in or search for a flight, then watch the services in separate terminals:
 
 ```bash
-curl -i http://localhost:8083/readyz
-curl -i http://localhost:8082/readyz
+docker compose logs -f --timestamps frontend
+docker compose logs -f --timestamps booking
+docker compose logs -f --timestamps identity
+docker compose logs -f --timestamps flight
+docker compose logs -f --timestamps notification
 ```
 
-Both return `200 OK`. The system recovered cleanly without restarting the application processes.
+Follow the request ID in the structured logs. The frontend talks to the public host ports because browser JavaScript runs outside the Compose network. Booking then uses service-name DNS because it runs inside the network. This is the first time you see one user action cross multiple network perspectives.
 
----
+## Docker security fields, one at a time
 
-## 6. Prove Database Persistence
+`user` selects a non-root UID/GID. `read_only` prevents writes to the image filesystem. `tmpfs: /tmp` provides an explicitly disposable writable area. `cap_drop: ALL` removes Linux capabilities that the application does not need. `no-new-privileges:true` prevents a process from gaining additional privileges through setuid or file capabilities. The database containers intentionally have different storage and runtime needs from application containers; security settings should follow the process contract rather than be copied blindly.
 
-Containers are disposable, but application data must not be lost. Let's prove that Docker named volumes preserve state across container destruction.
+These controls are defense in depth. A non-root container can still access every network path available to it, leak secrets it can read, or exploit an application vulnerability. The correct lesson is to reduce blast radius and make assumptions explicit, not to claim a container is “secure” because it runs as UID 1000.
+
+## Break a different boundary: browser versus backend
+
+Stop the frontend only:
 
 ```bash
-# 1. Count users currently stored in identity-db
-docker compose exec identity-db \
-  sh -c 'psql -U "$POSTGRES_USER" -d identity -c "SELECT count(*) FROM users;"'
-# Output: 2
-
-# 2. Stop and delete the identity-db container completely
-docker compose stop identity-db
-docker compose rm -f identity-db
-
-# 3. Start a brand new identity-db container
-docker compose up -d --wait identity-db
-
-# 4. Re-query the database
-docker compose exec identity-db \
-  sh -c 'psql -U "$POSTGRES_USER" -d identity -c "SELECT count(*) FROM users;"'
-# Output: 2 (Data is intact!)
+docker compose stop frontend
+curl -i http://localhost:3000/healthz
+curl --fail http://localhost:8081/readyz
+docker compose start frontend
 ```
 
-The data survived because the named volume `identity-db-data` was retained on the Docker host and re-attached to the new container.
+The APIs can remain healthy while the browser entry point is unavailable. Now stop Flight and compare direct Flight readiness with Search and Booking readiness. This teaches that component health is not the same as whole-system health, and that dependency graphs should be tested from both edges and nodes.
 
----
+## Launchpad checkpoint questions
 
-## 7. Deep Dive: Dockerfile Patterns
+Before leaving, answer these without looking at the file:
 
-### Multi-Stage Build: Go Services
+1. Why does `booking` call `flight`, but the browser calls `localhost:8081`?
+2. What survives a database container restart? What survives `down`? What does `down -v` remove?
+3. Why can a container be `Up` while `/readyz` returns an error?
+4. Which values are public because they are compiled into the frontend?
+5. What evidence proves a service-name lookup works from the Booking network namespace?
+6. Why is `depends_on` useful at startup but insufficient for runtime recovery?
 
-All Go services (`flight`, `booking`, `search`, `notification`) use an identical two-stage pattern:
+## Concepts: health, readiness, and persistence
 
-```dockerfile
-# Stage 1: Build Environment (~800MB)
-FROM golang:1.22-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/service .
+A healthcheck is a command Docker runs to classify a container. Apollo11 separates `/healthz` (“the process is alive”) from `/readyz` (“the process can serve requests and its required dependencies are usable”). A running container can therefore be unhealthy or unready.
 
-# Stage 2: Production Runtime (~15MB)
-FROM alpine:3.19
-RUN apk --no-cache add ca-certificates tzdata
-RUN adduser -D -u 10001 -g appuser appuser
-WORKDIR /app
-COPY --from=builder /app/service /app/service
-USER 10001:10001
-EXPOSE 8081
-ENTRYPOINT ["/app/service"]
-```
+Named volumes outlive containers. PostgreSQL's `/docker-entrypoint-initdb.d/` scripts run only when the database directory is first created; editing the SQL file later does not re-run it against an existing volume. `docker compose down` keeps named volumes, while `docker compose down -v` removes them.
 
-**Why this matters:**
-- `CGO_ENABLED=0` generates a statically linked binary with zero external libc dependencies.
-- Build tools, Go compiler, and source files are discarded; the runtime image contains only the compiled binary and root certificates.
-- Runs under UID `10001` (`appuser`) rather than root.
+## Checkpoint
 
-### Multi-Stage Build: Frontend (React SPA + NGINX)
-
-```dockerfile
-# Stage 1: Node.js build
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-ARG VITE_IDENTITY_URL
-ARG VITE_FLIGHT_URL
-ARG VITE_BOOKING_URL
-ARG VITE_SEARCH_URL
-ENV VITE_IDENTITY_URL=$VITE_IDENTITY_URL \
-    VITE_FLIGHT_URL=$VITE_FLIGHT_URL \
-    VITE_BOOKING_URL=$VITE_BOOKING_URL \
-    VITE_SEARCH_URL=$VITE_SEARCH_URL
-RUN npm run build
-
-# Stage 2: Minimal NGINX Server
-FROM nginx:1.25-alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-USER nginx
-EXPOSE 3000
-CMD ["nginx", "-g", "daemon off;"]
-```
-
-**Why this matters:**
-- Build arguments (`ARG VITE_*`) are baked into the compiled JavaScript bundle at build time.
-- `nginx.conf` configures `try_files $uri $uri/ /index.html;` so React Router can handle client-side routing.
-
----
-
-## Maintainer Verification
-
-Run the automated verification test script to audit your environment:
-
-```bash
-cd stages/launchpad
-./scripts/verify.sh
-```
-
-The script runs **73 automated checks**, verifying:
-1. Docker Compose profile isolation (Dozzle is off by default).
-2. All 10 application containers report `healthy`.
-3. Non-root user compliance across all containers.
-4. Read-only filesystem enforcement.
-5. Functional `/healthz`, `/readyz`, and `/metrics` endpoints.
-6. Successful user login, flight query, and end-to-end booking execution.
-
----
-
-## Clean Up
-
-### Option A: Stop Containers, Keep Data
-Preserves database volumes for your next session:
-```bash
-docker compose down
-```
-
-### Option B: Complete Teardown (Fresh Start)
-Stops containers **and destroys all named database volumes**:
-```bash
-docker compose down --volumes
-```
-
----
-
-## Explain & Review Questions
-
-Before proceeding to Ignition, ensure you can answer:
-
-1. **Why do containers communicate using `http://flight:8081` rather than `http://localhost:8081`?**
-   Docker assigns each container its own network namespace and IP on the bridge network. `localhost` refers only to the container itself; the embedded Docker DNS server resolves service names to container IPs.
-
-2. **What is the critical distinction between `/healthz` and `/readyz`?**
-   `/healthz` tests process liveness (is the web server thread responsive?). `/readyz` tests operational dependencies (can the service connect to PostgreSQL/Redis?).
-
-3. **Why did database records survive when `identity-db` was destroyed with `docker compose rm`?**
-   The PostgreSQL data directory was mounted to a named Docker volume (`identity-db-data`), which resides on the host and decouples data lifecycle from container lifecycle.
-
-4. **Why are application containers configured with read-only root filesystems?**
-   To prevent attackers from downloading binaries, modifying application code, or writing web shells if a vulnerability is exploited at runtime.
-
----
-
-## What's Next
-
-In [Ignition](./ignition.md), we transition from Docker Compose to Kubernetes. You will create a multi-node **kind** cluster, explore cluster internals, launch your first Pod, and learn the Kubernetes troubleshooting evidence ladder.
+Explain image, container, volume, network, `healthcheck`, and `depends_on` in your own words. Then continue to [Ignition](./ignition).
