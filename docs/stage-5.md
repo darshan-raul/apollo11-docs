@@ -1,183 +1,350 @@
 ---
-title: Stage 5 — Payload Integration
-description: Package, customize, test, and reconcile Apollo Airlines with Helm, Kustomize, CI, and Argo CD.
+title: "Stage 5 — Payload Integration: Helm, Kustomize & GitOps"
+description: "Package, parameterize, validate, and reconcile Apollo Airlines across environments using Helm charts, Kustomize overlays, CI pipelines, and Argo CD."
+sidebar_label: "Stage 5: Packaging (Helm & GitOps)"
 ---
 
-# Stage 5 — Payload Integration
+# Stage 5: Payload Integration — Helm, Kustomize & GitOps
 
-Stage 5 turns a working cluster into a repeatable delivery system. Helm is the canonical packaging path; Kustomize is the template-free comparison; GitHub Actions builds and validates images; Argo CD reconciles Git state.
+In Stages 1–4, we authored dozens of individual Kubernetes YAML files. But in real-world engineering, maintaining raw manifests becomes unmanageable:
+- How do you deploy the exact same application to `dev` (1 replica, minimal memory), `staging` (2 replicas), and `production` (3 replicas, strict PDBs, production images) without copy-pasting hundreds of lines of YAML?
+- How do you version releases and execute instant rollbacks if a deployment fails?
+- How do you guarantee that cluster state matches what is committed to Git?
 
-## Concepts: packaging and desired state
+In **Stage 5 (Payload Integration)**, we solve this by packaging Apollo Airlines into a **production-ready Helm chart**, contrasting it with **Kustomize overlays**, automating image delivery with **GitHub Actions CI**, and reconciling state with **Argo CD GitOps**.
 
-Helm is a package and release manager. `Chart.yaml` identifies the package, `values.yaml` supplies inputs, and templates render Kubernetes objects. The release stores revision history, which is why `helm rollback` can select an earlier rendered revision. `helm template` only renders locally; it does not prove the API server will accept or successfully run the objects.
+```mermaid
+flowchart TD
+  subgraph SourceControl ["Git Repository (Single Source of Truth)"]
+    HC["Helm Chart (helm/apollo11/)"]
+    VDEV["values-dev.yaml (1 replica)"]
+    VPROD["values-prod.yaml (3 replicas)"]
+    KO["Kustomize (overlays/dev, prod)"]
+  end
 
-Kustomize composes a base with overlays and patches. It does not template arbitrary strings, but patches still have exact targets and paths. Rendered YAML is the truth to inspect. A patch matching nothing or a wrong image name can leave the output unchanged.
+  subgraph DeliveryMechanisms ["Packaging & Delivery Engines"]
+    HelmEng["Helm Engine\n(helm install / upgrade)"]
+    KustEng["Kustomize Engine\n(kubectl apply -k)"]
+    ArgoEng["Argo CD Controller\n(GitOps Reconciliation & Self-Healing)"]
+  end
 
-GitOps makes Git the desired-state source. Argo CD renders Git, compares it with live objects, reports drift, and optionally syncs. Automated sync, prune, and self-heal are separate policies. A manual production Application remaining `OutOfSync` is an intentional approval boundary.
+  subgraph Environments ["Kubernetes Cluster Namespaces"]
+    DevNS["apollo-airlines (Dev)\n- 1 Replica per app\n- Tag: :latest\n- PDBs disabled"]
+    ProdNS["apollo-airlines (Prod)\n- 3 Replicas per app\n- Tag: :v1.0.0\n- Strict PDBs enabled"]
+  end
 
-### Read a Helm template as a program
+  HC --> HelmEng
+  VDEV --> HelmEng
+  VPROD --> HelmEng
+  KO --> KustEng
 
-Helm templates are Go-template programs that produce YAML. A value such as `.Values.apps.booking.replicas` is input; an `if` decides whether an object exists; a helper centralizes names and labels; `toYaml` serializes a nested map with indentation. The chart is not the object that Kubernetes runs—the rendered output is.
+  HelmEng --> DevNS
+  HelmEng --> ProdNS
+  ArgoEng <-->|Watches Git & Reconciles Drift| SourceControl
+  ArgoEng -->|Automated Sync & Self-Heal| DevNS
+```
+
+---
+
+## 🎯 Learning Goals
+
+By the end of this stage, you will be able to:
+1. Understand the architecture of a **Helm chart** (`Chart.yaml`, `values.yaml`, `templates/`, `_helpers.tpl`).
+2. Read and write Go template expressions, conditionals, and indentation helpers (`nindent`).
+3. Manage multi-environment configurations using **values files** (`values-dev.yaml` vs `values-prod.yaml`).
+4. Contrast Helm's templating model with **Kustomize's overlay and patching model**.
+5. Inspect Helm release history and perform automated rollbacks.
+6. Understand GitOps principles and observe **Argo CD drift detection and self-healing**.
+
+---
+
+## 📦 Helm: The Package Manager for Kubernetes
+
+**Helm** treats a collection of related Kubernetes resources as a single versioned unit called a **Chart**.
+
+### Chart Anatomy
+
+*Source: `stages/stage5/helm/apollo11/`*
+
+```text
+helm/apollo11/
+├── Chart.yaml              # Package metadata (name, version 1.0.0, description)
+├── values.yaml             # Default configuration values
+├── values-dev.yaml         # Dev overrides (1 replica, :latest tag, no PDBs)
+├── values-staging.yaml     # Staging overrides (2 replicas, :latest tag)
+├── values-prod.yaml        # Prod overrides (3 replicas, :v1.0.0 tag, full PDBs)
+├── bundles/                # Static dependencies (Envoy Gateway, MetalLB)
+└── templates/              # Go-templated Kubernetes manifests
+    ├── _helpers.tpl        # Reusable template functions (labels, names)
+    ├── config/             # ConfigMap, Secret, ServiceAccounts
+    ├── infra/              # PostgreSQL & Redis StatefulSets + Headless SVCs
+    ├── apps/               # Application Deployments & Services
+    ├── ui/                 # Frontend Deployment & Service
+    ├── gateway/            # Gateway, HTTPRoutes, ReferenceGrant
+    └── pdb/                # PodDisruptionBudgets
+```
+
+### Go Template Mechanics & `nindent`
+
+In Helm, YAML files inside `templates/` are Go-template programs evaluated against values.
+
+Let's examine how the `booking` Deployment is templated:
+
+*Source: `stages/stage5/helm/apollo11/templates/apps/booking.yaml`*
 
 ```yaml
+{{- $name := "booking" -}}
+{{- $appCfg := index .Values.apps $name -}}
+{{- $tier := index .Values.tiers $appCfg.tier -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.namespaces.apps }}
+  labels:
+    {{- include "apollo11.labels" . | nindent 4 }}
+    app: {{ $name }}
 spec:
-  replicas: {{ .Values.apps.booking.replicas }}
+  replicas: {{ $appCfg.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
   template:
     metadata:
       labels:
-        {{- include "apollo11.labels" . | nindent 8 }}
+        {{- include "apollo11.podLabels" (dict "root" . "name" $name) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      containers:
+        - name: {{ $name }}
+          image: "{{ .Values.image.repository }}/{{ $name }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            requests:
+              cpu: {{ $tier.cpu }}
+              memory: {{ $tier.memory }}
+            limits:
+              cpu: {{ $tier.cpu }}
+              memory: {{ $tier.memory }}
 ```
 
-Whitespace controls the generated document. `{{-` trims preceding whitespace and `nindent` adds a newline plus indentation. A template can render successfully while producing a wrong selector, wrong namespace, or wrong type, so inspect the output with `helm template` and then validate it against the cluster API.
+### Critical Syntax Rules:
 
-Values merge from chart defaults, selected values files, and command-line overrides. Nested maps are usually merged by key; lists and scalar values are commonly replaced. A `--set apps.booking.replicas=3` override may be useful for a one-off experiment but is invisible to reviewers unless recorded. Production values pin image tags because `latest` is a moving pointer, not a release identity.
+1. **`{{-` and `-}}` (Whitespace Trimming)**:
+   The hyphen strips leading or trailing whitespace. In YAML, unintended extra spaces or newlines can corrupt the indentation structure.
+2. **`nindent 4` / `nindent 8`**:
+   `nindent N` inserts a newline followed by $N$ spaces before every line of rendered text.
+   Notice: `metadata.labels` needs 4 spaces of indentation, while `spec.template.metadata.labels` needs 8 spaces! Using `nindent` ensures helper outputs align perfectly with the surrounding YAML hierarchy.
+3. **Environment Values Hierarchy**:
+   When you run `helm install -f values.yaml -f values-prod.yaml`, Helm merges values from left to right. Keys defined in `values-prod.yaml` override identical keys in `values.yaml`.
 
-### Read a Kustomize overlay as a transformation
+| Configuration | `values-dev.yaml` | `values-prod.yaml` |
+|---|---|---|
+| Replicas per app | `1` | `3` |
+| Image tag | `latest` | `v1.0.0` (immutable) |
+| PodDisruptionBudgets | `enabled: false` | `enabled: true` |
+| Resource Tier | `low` / `default` | `flagship` / `default` |
 
-Kustomize starts with resources in a base, then applies name transformations, common metadata, image changes, and patches. The base should contain the shared contract; an overlay should contain only environment differences. A patch target identifies an existing resource, and the patch path must exist with the expected type.
+---
+
+## 🔧 Kustomize: Template-Free Declarative Overlays
+
+While Helm uses string templating, **Kustomize** uses pure declarative composition. It starts with a base of raw Kubernetes YAML and applies structured patches.
+
+*Source: `stages/stage5/overlays/dev/kustomization.yaml`*
 
 ```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
 resources:
   - ../base
-patches:
-  - target:
-      kind: Deployment
-      name: booking
-    patch: |-
-      - op: replace
-        path: /spec/replicas
-        value: 1
+
+labels:
+  - includeSelectors: false
+    pairs:
+      environment: dev
+
+replicas:
+  - name: identity
+    count: 1
+  - name: flight
+    count: 1
+  - name: booking
+    count: 1
+  - name: search
+    count: 1
+  - name: notification
+    count: 1
+  - name: frontend
+    count: 1
+
 images:
   - name: apollo11/booking
     newTag: latest
 ```
 
-The rendered result is the contract. `kubectl kustomize overlays/dev` is therefore the Kustomize equivalent of `helm template`. Do not review only the patch: review the final Deployment, image, namespace, selector, and generated resources.
+### When to use Helm vs. Kustomize?
+- **Use Helm** when creating reusable, distributable packages for other teams, or when complex logic (conditionals, dynamic loops) is needed.
+- **Use Kustomize** when managing environment variations within a single Git repository without wanting template syntax errors, or when tweaking third-party vendor manifests.
 
-### GitOps ownership and drift
+---
 
-An Argo CD Application has a source (repository, revision, path, and renderer), a destination (cluster and namespace), and a sync policy. The controller repeatedly compares rendered desired objects with live objects. `OutOfSync` is a comparison result, not automatically a failure. `Healthy` is a resource health assessment, not a statement that desired and live state match.
+## 🐙 GitOps with Argo CD
 
-Prune removes resources that disappeared from the source. Self-heal reapplies desired state after an out-of-band mutation. An AppProject restricts what an Application may deploy and where it may deploy. Those boundaries prevent one tenant Application from silently owning cluster-wide infrastructure.
+**GitOps** is an operational framework where **Git is the single source of truth** for your cluster's desired state.
 
-## Helm: values are inputs, templates are functions
+Instead of human engineers running `helm install` or `kubectl apply` from their laptops, an in-cluster controller (**Argo CD**) continuously synchronizes the live cluster with Git:
+
+```
+┌────────────────────────────────────────────────────────┐
+│ ARGO CD RECONCILIATION LOOP                            │
+│                                                        │
+│  1. READ Git Commit (helm/apollo11 + values-prod.yaml) │
+│  2. READ Live Cluster State (via kube-apiserver)       │
+│  3. COMPARE Desired vs Observed State                  │
+│     ├── If identical  ──► Status: Synced & Healthy     │
+│     └── If different  ──► Status: OutOfSync            │
+│                            │                           │
+│     ┌──────────────────────┘                           │
+│     ▼                                                  │
+│  4. SELF-HEAL / PRUNE                                  │
+│     Overwrites rogue manual kubectl changes and        │
+│     deletes orphaned cluster resources!                │
+└────────────────────────────────────────────────────────┘
+```
+
+In `stages/stage5/argocd/`, Apollo11 defines an Argo CD `Application` that monitors the Git repository. If an engineer manually deletes a Deployment via `kubectl delete deployment booking`, Argo CD detects the drift within seconds and **automatically recreates it**!
+
+---
+
+## 🧪 Hands-On Guided Exercises
+
+### Exercise 1: Local Template Rendering with Helm
+
+- **Objective**: Inspect the rendered Kubernetes YAML generated by Helm without applying it to the cluster.
+- **Starting Point**: Terminal in the Apollo11 repository.
+- **Instructions**:
 
 ```bash
+cd Apollo11
+
+# 1. Lint the chart to catch syntax or schema errors
 helm lint stages/stage5/helm/apollo11
-helm template apollo11 stages/stage5/helm/apollo11 -f stages/stage5/helm/apollo11/values-dev.yaml > /tmp/apollo-dev.yaml
-helm install apollo11 stages/stage5/helm/apollo11 -f stages/stage5/helm/apollo11/values-dev.yaml
-helm history apollo11
-```
 
-`Chart.yaml` identifies the package. `values.yaml` supplies defaults. `values-*.yaml` override environment choices. Templates render Kubernetes objects. Later `-f` files and `--set` override earlier values; `--set` is easy to mistype and difficult to review, so use checked-in files for durable environment policy.
-
-### A disciplined Helm reading exercise
-
-Pick Booking and trace it through the chart in this order:
-
-1. Find `apps.booking` in `values.yaml` and each environment file.
-2. Find the template that reads that value.
-3. Render the chart for dev and prod.
-4. Compare image repository/tag, replicas, resources, PDB settings, and namespace.
-5. Confirm that the Service selector still matches the rendered Deployment labels.
-
-```bash
-helm show values stages/stage5/helm/apollo11
+# 2. Render the dev environment manifests to stdout
 helm template apollo11 stages/stage5/helm/apollo11 \
+  -f stages/stage5/helm/apollo11/values-dev.yaml > /tmp/rendered-dev.yaml
+
+# 3. Check rendered replicas for booking
+grep -A 10 "name: booking" /tmp/rendered-dev.yaml | grep "replicas:"
+# Output: replicas: 1
+
+# 4. Render the prod environment manifests
+helm template apollo11 stages/stage5/helm/apollo11 \
+  -f stages/stage5/helm/apollo11/values-prod.yaml > /tmp/rendered-prod.yaml
+
+# Check rendered replicas for prod
+grep -A 10 "name: booking" /tmp/rendered-prod.yaml | grep "replicas:"
+# Output: replicas: 3
+```
+
+- **What Concept This Reinforces**:
+  `helm template` is client-side rendering. It lets you inspect every generated line of YAML before it ever touches the API server.
+
+---
+
+### Exercise 2: Deploying Apollo Airlines with Helm
+
+- **Objective**: Install Apollo Airlines as a Helm release and inspect its revision history.
+- **Starting Point**: Running `kind-apollo11` cluster.
+- **Instructions**:
+
+```bash
+# 1. Run the verified Stage 5 apply script in Helm mode
+bash stages/stage5/scripts/apply.sh --mode helm --env dev
+
+# 2. Inspect Helm release list
+helm list -A
+
+# 3. Check release revision history
+helm history apollo11 -n apollo-airlines-apps
+```
+
+- **Expected Result**:
+  `helm list` shows `apollo11` with `STATUS: deployed` at revision `1`.
+  All 10 workloads, 2 namespaces, Gateway, and MetalLB resources are active!
+
+---
+
+### Exercise 3: Upgrades and Automated Rollbacks
+
+- **Objective**: Upgrade the Helm release, trigger a simulated failure, and execute an instant rollback.
+- **Starting Point**: Healthy Helm release from Exercise 2.
+- **Instructions**:
+
+```bash
+# 1. Upgrade the release to scale booking to 4 replicas
+helm upgrade apollo11 stages/stage5/helm/apollo11 \
   -f stages/stage5/helm/apollo11/values-dev.yaml \
-  --debug > /tmp/apollo-dev.yaml
-grep -n -A35 -B5 'name: booking' /tmp/apollo-dev.yaml
+  --set apps.booking.replicas=4 \
+  -n apollo-airlines-apps
+
+# Verify booking now has 4 pods:
+kubectl get deployment booking -n apollo-airlines-apps
+
+# 2. Inspect history (now revision 2!)
+helm history apollo11 -n apollo-airlines-apps
+
+# 3. Roll back to revision 1
+helm rollback apollo11 1 -n apollo-airlines-apps
+
+# 4. Confirm booking scaled back down to 1 replica
+kubectl get deployment booking -n apollo-airlines-apps
 ```
 
-The rendered document contains `---` separators because one chart produces many API objects. Search by `kind`, `metadata.name`, and labels rather than reading it only from top to bottom. If a conditional disables PDBs or observability, the absence of a resource is part of the environment contract.
+- **Expected Result**:
+  `helm rollback` instantly restores revision 1 without modifying any unrelated services!
 
-### Values are an API
+---
 
-Treat chart values like a public function signature. Renaming `apps.booking.replicas`, changing a default, or changing a value from a map to a scalar can break every environment file and every GitOps Application. Schema validation can constrain types and required keys, but it cannot tell you that three replicas exceed your local cluster capacity or that a production image tag does not exist.
+### Exercise 4: Kustomize Inspection
 
-Avoid putting secrets directly into committed values. Prefer a secret reference or external secret mechanism when the security stage supports it. Avoid using `latest` as a production identity because two syncs of the same Git revision can pull different image bytes.
-
-Gotchas: YAML indentation changes data types; a quoted value is a string; `helm template` proves rendering, not API acceptance; `helm install --dry-run` can expose rendered Secrets in terminal output; and a chart release has history, while raw Kustomize does not.
-
-## Kustomize: patches preserve YAML shape
+- **Objective**: Render and inspect Kustomize overlays.
+- **Starting Point**: Stage 5 directory.
+- **Instructions**:
 
 ```bash
-kubectl kustomize stages/stage5/overlays/dev > /tmp/apollo-kustomize.yaml
-kubectl apply -k stages/stage5/overlays/dev
+# Render dev overlay using kubectl's built-in kustomize engine
+kubectl kustomize stages/stage5/overlays/dev > /tmp/kustomize-dev.yaml
+
+# Verify image tags and replicas
+grep -B 2 -A 5 "image: apollo11/booking:latest" /tmp/kustomize-dev.yaml
 ```
 
-The base contains common resources; overlays select patches and image transformations. A JSON6902 patch path is exact. A target selector that matches no resource can silently fail to express the intent you thought it did, so inspect the rendered output.
+Notice that Kustomize injected `labels: environment: dev` into all resources without needing a single Go template curly brace!
 
-### Base versus overlay responsibility
+---
 
-The base should answer “what is Apollo Airlines?”—workload names, ports, selectors, common configuration, and shared security defaults. An overlay should answer “how does this environment differ?”—replica count, image registry/tag, PDB policy, and resource sizing. If every overlay copies the entire Deployment, the system has three independent manifests and drift becomes hard to see. If the base contains production-only values, dev becomes dangerous or expensive.
+## 🏁 What You Learned
 
-```bash
-kubectl kustomize stages/stage5/overlays/dev > /tmp/dev.yaml
-kubectl kustomize stages/stage5/overlays/prod > /tmp/prod.yaml
-diff -u /tmp/dev.yaml /tmp/prod.yaml | less
-```
+- How Helm packages multi-service architectures into reusable, parameterizable charts.
+- How Go templating, conditionals, and `nindent` generate valid Kubernetes YAML.
+- How multi-environment values files (`dev`, `staging`, `prod`) eliminate code duplication.
+- How Kustomize provides a template-free patching alternative to Helm.
+- How Helm tracks release revisions and enables atomic one-command rollbacks.
+- How GitOps and Argo CD ensure that cluster state continuously reconciles with Git.
 
-Review the diff for intended differences only. A namespace change, selector change, or missing Secret is usually a composition bug rather than a desired environment distinction.
+---
 
-| Helm | Kustomize |
-| --- | --- |
-| Template/package/release history | Base/overlay/ordinary YAML |
-| Strong for reusable distributions | Strong for environment deltas |
-| `helm rollback` | Git revert + re-apply |
+## ✈️ Before Continuing: Checkpoint
 
-## CI and GitOps
+Before moving to Stage 6, test your understanding:
+1. Why is `nindent 8` used instead of `indent 8` when embedding labels into a Pod template?
+2. If you pass two values files (`-f values.yaml -f values-prod.yaml`), which one wins if a key is defined in both?
+3. How does `helm rollback` know what configuration existed in an earlier revision?
+4. What happens when an engineer manually deletes a Pod in an Argo CD-managed cluster with self-healing enabled?
 
-Inspect `.github/workflows/main.yml` and understand its gates: build images, run checks, and publish only when the workflow's conditions allow it. GHCR image tags are an artifact identity; production values pin a tag rather than relying on `latest`.
+Now that Apollo Airlines is packaged and deployable across any environment, let's turn on full observability: metrics, distributed tracing, and centralized logging!
 
-The Argo CD module lives at `stages/stage5/argocd/` and owns three environment Applications. Dev and staging automate sync, prune, and self-heal; prod is manual. The AppProject limits destinations and denies Application-owned cluster-scoped resources. The observability Application is introduced in Stage 6.
-
-### CI is not deployment
-
-Continuous integration proves an artifact can be built, tested, scanned, and published. Continuous delivery changes an environment. GitOps separates these concerns: CI publishes an immutable image and updates the desired configuration; Argo CD notices the Git revision and performs the cluster-side reconciliation. A green image build does not prove the cluster is healthy. A Synced Application does not prove the user journey works.
-
-The useful artifact chain is:
-
-```text
-source commit → image digest → registry → values/manifest revision → rendered objects → live health → user behavior
-```
-
-At every boundary, ask what identity is being carried forward. A mutable tag breaks the image-to-deployment link. A missing Git revision breaks the desired-to-live link. A health check that only checks Pod existence breaks the live-to-behavior link.
-
-### Argo CD resource ownership
-
-Argo CD can manage namespaced resources and, if permitted, cluster-scoped resources. The Apollo Project limits what Applications may own so the tenant chart cannot accidentally manage CRDs, GatewayClasses, or observability infrastructure. Shared components are installed once by a platform-owned Application. If two Applications render the same object, whichever reconciles last can overwrite the other, producing an ownership fight rather than a stable platform.
-
-An Application can be `Synced` but `Progressing`, meaning desired object versions match while Pods are still becoming ready. It can be `OutOfSync` but `Healthy`, meaning live resources work while a manual edit differs from Git. Learn to read sync status and health status as separate dimensions.
-
-```bash
-bash stages/stage5/argocd/scripts/validate.sh
-bash stages/stage5/argocd/install.sh --offline
-bash stages/stage5/argocd/scripts/bootstrap.sh --sync
-kubectl get applications -n argocd
-bash stages/stage5/argocd/scripts/verify.sh
-```
-
-## Break and recover
-
-Imperatively scale a dev Deployment or edit a rendered object. Argo CD should show `OutOfSync` and self-heal it. For prod, the same drift should remain until a human syncs it. Recover by changing Git/YAML through the intended path or invoking the documented sync; do not “fix” GitOps drift only with `kubectl`.
-
-```bash
-kubectl scale deployment booking -n apollo-airlines-dev-apps --replicas=5
-kubectl get applications -n argocd -w
-kubectl get deployment booking -n apollo-airlines-dev-apps
-
-Now repeat the thought experiment for production. The prod Application should remain out of sync until a deliberate sync operation. That difference is the purpose of the policy, not a defect in the controller.
-
-## Stage 5 checkpoint questions
-
-1. What is the difference between chart input, rendered YAML, and live state?
-2. Why can `helm template` succeed while `kubectl apply` or the workload fails?
-3. When should a value live in a values file, a Secret reference, or the image itself?
-4. What does a Kustomize overlay change, and what should remain in the base?
-5. Which system owns replicas in your current experiment: Helm, Kustomize, Argo CD, HPA, or a human?
-6. What does `OutOfSync` mean when the application is still `Healthy`?
-7. Why must shared CRDs, GatewayClasses, and observability resources have one clear owner?
-```
-
-Continue to [Stage 6](./stage-6).
+👉 **Continue to [Stage 6: Mission Operations (Observability & Tracing)](./stage-6)**

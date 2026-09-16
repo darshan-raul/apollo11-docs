@@ -1,53 +1,114 @@
 ---
-title: Stage 7 — Orbital Maneuvering
-description: Add measurable Redis caching, horizontal and vertical scaling, and observable scheduling policy.
+title: "Stage 7 — Orbital Maneuvering: Autoscaling & Scheduling"
+description: "Master Redis cache-aside, Horizontal Pod Autoscaling (HPA v2), Vertical Pod Autoscaler (VPA), node taints, tolerations, and affinity."
+sidebar_label: "Stage 7: Scaling & Scheduling"
 ---
 
-# Stage 7 — Orbital Maneuvering
+# Stage 7: Orbital Maneuvering — Autoscaling & Scheduling
 
-Stage 7 makes the platform elastic without hiding the evidence. Search uses a cache-aside Redis design; HPA changes replica count from CPU utilization; VPA recommends resources in `Off` mode; the scaling lab makes taints, affinity, and topology spread visible.
+In previous stages, our replica counts were static. If thousands of holiday travelers suddenly search for flights, our search service would saturate its CPU limits and drop requests. Conversely, running 10 replicas overnight when traffic is zero wastes expensive compute resources.
 
-## Build
+In **Stage 7 (Orbital Maneuvering)**, we make Apollo Airlines **elastic and cache-friendly**:
+1. **Redis Cache-Aside**: We introduce a high-performance caching layer into the `search` service, serving flight availability queries from memory with observable `X-Cache: HIT/MISS` headers.
+2. **Horizontal Pod Autoscaler (HPA v2)**: We scale `search` replicas dynamically between 2 and 10 based on CPU utilization metrics supplied by `metrics-server`.
+3. **Vertical Pod Autoscaler (VPA)**: We deploy VPA in recommendation-only mode (`updateMode: "Off"`) to calculate ideal CPU and memory sizing based on real historical consumption.
+4. **Advanced Scheduling Lab**: We run an observable, reversible scheduling experiment using **node taints, tolerations, node affinity, and topology spread constraints**.
 
-```bash
-cd Apollo11
-bash stages/stage7/scripts/apply.sh --env dev
-bash stages/stage7/scripts/verify.sh
+```mermaid
+flowchart TD
+  subgraph Client ["Client Traffic"]
+    Req["GET /api/search?origin=BOM&dest=SIN&date=..."]
+  end
+
+  subgraph SearchService ["Search Microservice (Cache-Aside)"]
+    SearchApp["search (Go / Gin)\n(Port :8083)"]
+    CacheCheck{"Check Redis Cache\nsearch:BOM:SIN:date"}
+  end
+
+  subgraph BackingServices ["Backing Infrastructure"]
+    RedisStore[("redis (Redis 7)\nTTL: 300s")]
+    FlightSvc["flight (Go / Gin)\n(Source of Truth)"]
+  end
+
+  subgraph AutoscalingEngine ["Kubernetes Autoscaling Engine"]
+    MetricsServer["metrics-server\n(metrics.k8s.io)"]
+    HPA["search-hpa (autoscaling/v2)\n(Target: 70% CPU, Min: 2, Max: 10)"]
+    VPA["search-vpa (autoscaling.k8s.io)\n(updateMode: Off - Recommendations)"]
+  end
+
+  Req --> SearchApp
+  SearchApp --> CacheCheck
+  CacheCheck -->|HIT: Return cached JSON\nX-Cache: HIT| SearchApp
+  CacheCheck -->|MISS: Forward to flight\nStore in Redis (SETEX 300)\nX-Cache: MISS| FlightSvc
+  FlightSvc --> SearchApp
+  CacheCheck -.-> RedisStore
+
+  MetricsServer -->|Node/Pod CPU metrics| HPA
+  HPA -->|Scales Replicas 2 -> 10| SearchApp
+  MetricsServer -->|Historical Metrics| VPA
 ```
 
-Use staging/prod values when studying VPA; dev intentionally disables it. The script installs metrics-server before dependent HPA resources and installs VPA outside dev.
+---
 
-## Concepts: cache-aside and autoscaling
+## 🎯 Learning Goals
 
-Cache-aside means the application checks Redis first, reads the source on a miss, then writes the result with a TTL. It must define key shape, staleness, invalidation, cardinality, and failure behavior. Apollo11 search treats Redis as an optimization: a Redis outage should not make the user request fail.
+By the end of this stage, you will be able to:
+1. Implement the **cache-aside pattern** with bounded keys, TTLs, graceful degradation, and Prometheus metrics.
+2. Explain how **HorizontalPodAutoscaler (HPA v2)** calculates desired replica count from CPU resource requests.
+3. Configure **stabilization windows and scaling policies** to prevent rapid scaling oscillations (flapping).
+4. Explain why **VPA and HPA must not compete** on the same metric, and how to use VPA in recommendation-only mode.
+5. Contrast **node taints** (repelling pods), **tolerations** (permitting pods), and **node affinity** (attracting pods).
 
-HPA reads a metric through the metrics API and adjusts a target Deployment between `minReplicas` and `maxReplicas`. CPU utilization is calculated relative to resource requests. `behavior.scaleUp` and `scaleDown` control how quickly it reacts. VPA `updateMode: Off` observes history and writes recommendations without evicting Pods; it is a measurement tool here, not automatic resizing.
+---
 
-### Cache-aside, in detail
+## ⚡ 1. The Cache-Aside Pattern with Redis
 
-Search is the right teaching workload because its result can be recomputed from Flight data. The request path is:
+The `search` service is the highest-volume read path in Apollo Airlines. Every time a customer searches for flights between two cities, `search` queries `flight`. Because flight schedules change infrequently, querying the relational database for every single search is inefficient.
 
-1. Build a bounded key from origin, destination, and date.
-2. Ask Redis for the key.
-3. On a hit, return the cached response and record a hit metric.
-4. On a miss, call Flight, store the result with a five-minute TTL, and return it.
-5. If Redis times out, log the cache failure and continue to the source of truth.
+### The Request Flow
+When a search request arrives:
+1. **Key Generation**: Build a deterministic cache key:
+   `search:{origin}:{destination}:{date}` (e.g. `search:BOM:SIN:2026-06-17`).
+2. **Cache Lookup**: Query Redis (`GET search:...`).
+   - **Cache HIT**: Return the cached JSON payload immediately. Add the HTTP response header `X-Cache: HIT`, and increment the Prometheus counter `cache_hits_total{service="search"}`.
+   - **Cache MISS**: Forward the request to `flight`. Store the response in Redis with a 5-minute Time-To-Live (`SETEX key 300 value`), add `X-Cache: MISS`, and increment `cache_misses_total`.
+3. **Graceful Degradation**:
+   If Redis crashes or fails to respond within 1 second, the `search` service logs a warning, falls back to querying `flight` directly, and serves the user. **A cache outage must never fail customer search requests!**
 
+---
+
+## 📈 2. Horizontal Pod Autoscaler (HPA v2)
+
+The **Horizontal Pod Autoscaler** continuously queries the Kubernetes Metrics API (`metrics.k8s.io` supplied by `metrics-server`) and adjusts the `.spec.replicas` field of a target Deployment.
+
+### The Autoscaling Formula
 ```text
-search:BOM:SIN:2026-06-17 -> {result} EX 300
+Desired Replicas = ceil(Current Replicas * (Current Metric Value / Target Metric Value))
 ```
 
-The key must include every input that changes the result. Omitting date could return an old day's availability. Including unbounded arbitrary query text can create a huge keyspace. A TTL bounds staleness but does not solve immediate invalidation after a seat change. In a real system, Flight events or explicit invalidation would be needed for stronger freshness.
+For example:
+- Current replicas = 2.
+- CPU request per pod = `100m`.
+- Target CPU utilization = `70%` (i.e. `70m` per pod).
+- If traffic surges and average CPU usage jumps to `140m` (140% utilization):
+```text
+Desired Replicas = ceil(2 * (140% / 70%)) = 4 replicas
+```
 
-Redis is an optimization in this stage, not the source of truth. That design choice determines failure behavior: cache loss is acceptable, losing PostgreSQL booking data is not. The application uses short timeouts and graceful degradation so a slow cache cannot consume every request goroutine.
+:::important Requests Are Mandatory for HPA!
+HPA calculates CPU utilization as a percentage of the container's **CPU `requests`**. If a Deployment does not declare `resources.requests.cpu`, HPA cannot compute utilization and will report `TARGETS: <unknown>`!
+:::
 
-### How HPA decides to scale
+### Dissecting `search-hpa.yaml`
 
-HPA periodically reads the current metric, compares it with the target, and computes a desired replica count. For CPU utilization, the percentage is relative to Pod CPU requests. A Pod with no request cannot provide a meaningful utilization percentage for the usual resource metric. HPA then changes the target Deployment's `.spec.replicas`; the Deployment/ReplicaSet controllers create or remove Pods.
+*Source: `stages/stage7/helm/apollo11/templates/autoscaling/search-hpa.yaml`*
 
 ```yaml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
+metadata:
+  name: search-hpa
+  namespace: apollo-airlines-apps
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -65,109 +126,191 @@ spec:
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+      selectPolicy: Max
     scaleDown:
       stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
 ```
 
-Scaling up quickly and scaling down slowly reduces the chance of oscillation. HPA cannot fix a slow database, a saturated external dependency, or an application with no useful parallelism. More replicas may amplify load against a downstream system.
+### The "Scale Fast, Contract Slow" Principle:
+- **`scaleUp`**:
+  `stabilizationWindowSeconds: 0`. When traffic spikes, scale immediately! The policy allows doubling replicas (`100%`) or adding `4` pods every 30 seconds.
+- **`scaleDown`**:
+  `stabilizationWindowSeconds: 300` (5 minutes). When traffic drops, the HPA waits 5 minutes before terminating pods. This prevents **flapping** (rapidly creating and destroying pods if traffic fluctuates intermittently).
 
-Conceptually, the HPA computes a desired replica estimate from current usage and target usage. If two replicas request 100m CPU each and average 140m, utilization is 70%; that is at target. If average usage rises to 210m, utilization is 105%, so the controller asks for more replicas subject to min/max and stabilization rules. This is an approximate control loop with delayed measurements, not an instantaneous autoscaling switch.
+---
 
-The target Deployment remains the owner of Pods. HPA only changes the replica field. If another system writes that same field—an imperative command, Helm upgrade, Kustomize apply, or Argo CD self-heal—the writers can fight. Decide which controller owns replicas for the experiment and inspect the owner/reference chain.
+## 📊 3. Vertical Pod Autoscaler (VPA) in `Off` Mode
 
-Metrics-server supplies resource metrics through the metrics API. Prometheus metrics do not automatically become HPA metrics; that requires the appropriate adapter and API. This distinction explains why Prometheus can show traffic while `kubectl top` or HPA has no CPU samples.
+While HPA adjusts the *number* of Pods (horizontal scaling), the **Vertical Pod Autoscaler (VPA)** adjusts the *size* of Pods (changing CPU/memory requests and limits).
 
-### HPA diagnosis
+### Why VPA and HPA Must Not Fight!
+If HPA is scaling Pod count based on CPU utilization, and VPA simultaneously changes the CPU request of those Pods, the two controllers enter an unstable feedback loop:
+1. VPA increases CPU request from `100m` to `200m`.
+2. This doubles the denominator in HPA's utilization formula!
+3. HPA sees utilization cut in half and immediately terminates replicas.
+4. The remaining replicas experience higher load, causing VPA to increase requests again!
+
+### The Solution: Recommendation Mode
+In Stage 7, VPA is deployed with:
+```yaml
+spec:
+  updateMode: "Off"
+```
+In `Off` mode, VPA monitors live container usage and publishes statistical recommendations (`Target`, `LowerBound`, `UpperBound`) without evicting or modifying Pods. It acts as an advisory tool for human capacity planning!
+
+---
+
+## 🧭 4. Advanced Scheduling: Taints, Tolerations & Affinity
+
+Kubernetes gives operators fine-grained control over which worker nodes execute specific workloads:
+
+```
+                  ┌────────────────────────────────────────────────────────┐
+                  │ Worker Node: apollo11-worker                           │
+                  │ Taint: workload=search:NoSchedule                      │
+                  │ Label: apollo11.io/search-pool=dedicated               │
+                  └────────────────────────────────────────────────────────┘
+                               ▲                               ▲
+                               │ REPELLED                      │ ATTRACTED
+                               │                               │
+                ┌──────────────┴──────────┐     ┌──────────────┴──────────┐
+                │ Pod: identity           │     │ Pod: search             │
+                │ (No Toleration)         │     │ Toleration: workload    │
+                │ Result: CANNOT SCHEDULE │     │ NodeAffinity: preferred │
+                └─────────────────────────┘     │ Result: PLACED ON NODE! │
+                                                └─────────────────────────┘
+```
+
+1. **Taints** (Node Property):
+   A taint tells the scheduler: *"Do not place any Pods here unless they explicitly tolerate this taint."*
+   Example: `workload=search:NoSchedule`.
+2. **Tolerations** (Pod Property):
+   A toleration tells the scheduler: *"This Pod is permitted to run on nodes with the matching taint."* (It does not *force* the Pod to go there; it simply unlocks the door).
+3. **Node Affinity** (Pod Property):
+   Tells the scheduler: *"Actively prefer or require nodes bearing specific labels."*
+   - `preferredDuringSchedulingIgnoredDuringExecution`: Soft preference (score matching nodes higher).
+   - `requiredDuringSchedulingIgnoredDuringExecution`: Hard requirement (fail scheduling if no matching node exists).
+
+---
+
+## 🧪 Hands-On Guided Exercises
+
+### Exercise 1: Deploy Stage 7 & Verify Redis Cache Hits
+
+- **Objective**: Deploy Stage 7 and verify `X-Cache` response headers.
+- **Starting Point**: Running `kind-apollo11` cluster.
+- **Instructions**:
 
 ```bash
-kubectl describe hpa search -n apollo-airlines-apps
-kubectl get --raw /apis/metrics.k8s.io/v1beta1/namespaces/apollo-airlines-apps/pods | head
+cd Apollo11
+
+# 1. Deploy Stage 7 in Helm dev mode
+bash stages/stage7/scripts/apply.sh --env dev
+
+# 2. Query search via Envoy Gateway (First call: Cache MISS)
+curl -i -H "Host: search.apollo.local" "http://172.18.0.50/api/search?origin=BOM&destination=DEL&date=2026-06-20" | grep "X-Cache"
+# Output: X-Cache: MISS
+
+# 3. Query the EXACT SAME route immediately (Second call: Cache HIT)
+curl -i -H "Host: search.apollo.local" "http://172.18.0.50/api/search?origin=BOM&destination=DEL&date=2026-06-20" | grep "X-Cache"
+# Output: X-Cache: HIT
+```
+
+- **What Concept This Reinforces**:
+  The first request queried `flight` and stored the payload in Redis (`MISS`). The second request returned the result in less than 2 milliseconds directly from Redis memory (`HIT`)!
+
+---
+
+### Exercise 2: Inspecting HPA and Metrics Server
+
+- **Objective**: Verify that `metrics-server` supplies live CPU metrics to HPA.
+- **Starting Point**: Stage 7 running.
+- **Instructions**:
+
+```bash
+# 1. Inspect top pod resource consumption
 kubectl top pods -n apollo-airlines-apps
-kubectl get deployment search -n apollo-airlines-apps \
-  -o jsonpath='{.spec.template.spec.containers[0].resources}{"\n"}'
+
+# 2. Inspect the search-hpa resource
+kubectl get hpa search-hpa -n apollo-airlines-apps
+
+# 3. Inspect HPA conditions
+kubectl describe hpa search-hpa -n apollo-airlines-apps | grep -A 5 Conditions:
 ```
 
-Read HPA conditions such as `AbleToScale`, `ScalingActive`, and `ScalingLimited`. A blank `TARGETS` value usually means the metric path is unavailable or the target has no usable requests. A stable replica count may be correct if load is below target or a stabilization window is active.
+- **Expected Result**:
+  `TARGETS` shows current CPU utilization (e.g. `1% / 70%`).
+  Conditions show `AbleToScale: True` and `ScalingActive: True`.
 
-### VPA recommendations are evidence
+---
 
-VPA observes historical usage and recommends target, lower-bound, and upper-bound resource values. `updateMode: Off` means it does not modify Pods. This is deliberate: automatic VPA updates can evict/recreate workloads and interact with HPA in confusing ways. Inspect recommendations over enough workload history before deciding whether requests are too high or too low.
+### Exercise 3: The Practical Scaling & Scheduling Lab
 
-The target recommendation is not “the amount of memory the application needs forever.” It is a statistical observation under the traffic and limits seen by the recommender. The lower and upper bounds express uncertainty. A recommendation made during an idle lab is not a production capacity plan. Compare recommendations against request/limit policy, node capacity, latency, and failure behavior.
-
-HPA and VPA can conflict when both adjust the same resource dimensions: HPA uses utilization relative to requests while VPA changes requests, changing the denominator that HPA observes. This stage keeps VPA in recommendation mode so the learner can reason about the data without introducing an automatic control-loop interaction.
-
-### Scheduling experiment semantics
-
-The scaling lab labels a worker, adds a reversible taint, applies a toleration and preferred affinity to Search, and generates traffic. The result demonstrates a policy under actual capacity, not merely YAML parsing. Remove labels and taints in teardown. If a Pod lands elsewhere, that may be correct: preferred affinity is a scoring hint, and topology spread balances eligible nodes rather than obeying a single-node command.
-
-### Scaling is not reliability by itself
-
-More replicas help only when the workload is horizontally scalable and its dependencies can handle the added concurrency. Stateful databases may need connection pooling, read replicas, or sharding instead. A cache can reduce source load but introduce stale data. A fast HPA can create a thundering herd against a recovering dependency. A slow scale-down can waste resources, while an aggressive scale-down can terminate useful warm caches.
-
-Always pair a scaling experiment with saturation and user signals: request rate, error rate, latency, CPU, memory, cache hit ratio, database connections, and queue depth. If CPU falls but latency rises, the bottleneck moved. If replicas grow while errors grow, scaling amplified a dependency failure.
-
-Scheduling policy has separate meanings: a **toleration** permits a Pod onto a tainted node; **affinity** prefers or requires nodes; **topology spread** balances replicas across domains. None of these alone guarantees placement.
-
-## Prove cache behavior
+- **Objective**: Run the comprehensive automated scheduling lab to observe taints, node affinity, and HPA scale-out under real load.
+- **Starting Point**: Healthy Stage 7 cluster.
+- **Instructions**:
 
 ```bash
-bash stages/stage7/scripts/trace-test.sh
-# Or query search twice using the in-cluster command documented by the source README.
-kubectl get pods -n apollo-airlines-apps -l app=search -o wide
-kubectl get hpa -A
-kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes | head
-kubectl get vpa -A
+# Run the verified scaling lab orchestrator
+bash stages/stage7/scripts/scaling-lab.sh run
 ```
 
-The first identical search should be a `MISS`, the second a `HIT`; inspect `cache_hits_total` and `cache_misses_total`. The key format is `search:{origin}:{destination}:{date}` and TTL is five minutes. Redis failure should degrade search rather than make the user request fail.
+- **What This Script Executes Under the Hood**:
+  1. Taints `apollo11-worker` with `workload=search:NoSchedule` and labels it `apollo11.io/search-pool=dedicated`.
+  2. Restarts `search` pods: observes that `search` pods successfully land on the dedicated tainted node due to their tolerations, while non-search pods are kept away!
+  3. Lowers the HPA CPU threshold to `10%` and launches in-cluster HTTP load client pods.
+  4. Watches `search` replicas **scale out from 1 to 3 replicas** across worker nodes!
+  5. Stops the load client and verifies that HPA cleanly **scales in back to baseline** after the stabilization window!
+  6. Restores original node labels, taints, and HPA thresholds.
 
-To interpret the result correctly, check all four layers: the response's `X-Cache` header, the Redis key/TTL, the application counters, and the trace attributes. A `HIT` header without a changing counter suggests instrumentation drift; a counter without a Redis key suggests the test is not exercising the expected code path.
+---
 
-## Break and recover
+### Exercise 4: Inspecting VPA Sizing Recommendations
 
-Run the reversible scheduling/load lab:
+- **Objective**: Read resource recommendations generated by Vertical Pod Autoscaler.
+- **Starting Point**: Cluster with VPA active (staging/prod mode).
+- **Instructions**:
 
 ```bash
-bash stages/stage7/scripts/scaling-lab.sh
+kubectl get vpa search-vpa -n apollo-airlines-apps -o yaml | grep -A 15 recommendation:
 ```
 
-Observe HPA scale-out under load, replica distribution across workers, and scale-in after load stops. If you manually stop Redis, compare search behavior and cache metrics, then restore Redis and verify hits return. A populated HPA `TARGETS` column is evidence that metrics-server and resource requests are working together.
+- **Expected Output**:
+  Displays `target`, `lowerBound`, and `uncappedTarget` memory/CPU estimations calculated by the VPA recommender engine!
 
-When HPA does not move, distinguish these cases: metrics-server has no samples; the HPA target has no CPU requests; load is below the target; the Deployment has reached a bound; or the controller is still within its stabilization window. `kubectl describe hpa` shows conditions and events. Do not manually scale the Deployment while trying to understand HPA—the controller will overwrite the experiment.
+---
 
-### Cache failure matrix
+## 🏁 What You Learned
 
-| Redis state | Expected search behavior | Evidence |
-| --- | --- | --- |
-| Healthy, key absent | Read Flight, return result, write key | `MISS`, miss counter, `cache.set` span |
-| Healthy, key present | Return cached result | `HIT`, hit counter, `cache.get` span |
-| Slow/unreachable | Read Flight or return bounded dependency error | timeout log, no hung request |
-| Restarted | Cold cache, then repopulation | miss spike followed by hits |
-| Stale key | Fast but old result | TTL/key policy; correctness test required |
+- How to implement the cache-aside pattern with Redis and observe `X-Cache` headers and Prometheus metrics.
+- How the Horizontal Pod Autoscaler calculates replica counts using CPU utilization percentages.
+- Why the "scale fast, contract slow" behavior prevents cluster flapping.
+- Why VPA in `Off` mode acts as a safe recommendation advisor without conflicting with HPA.
+- How taints repel Pods, tolerations grant permission, and node affinity attracts workloads.
 
-This matrix is the reason “Redis is Running” is not the cache lesson. The learner needs to observe the application contract under each state.
+---
 
-## Stage 7 checkpoint questions
+## ✈️ Before Continuing: Checkpoint
 
-1. Why is cache-aside different from making Redis the source of truth?
-2. What makes a cache key complete, bounded, and safe to expire?
-3. Which API supplies HPA CPU metrics, and why is Prometheus alone not enough?
-4. How do CPU requests affect HPA utilization?
-5. Why is VPA in `Off` mode for this lab?
-6. What is the difference between a toleration, affinity, and topology spread constraint?
-7. When can adding replicas make an outage worse?
+Before exploring the Cloud Appendix and advanced topics, test your understanding:
+1. If an application declares no CPU `requests`, can HPA autoscale it based on CPU utilization?
+2. Why is the `scaleDown` stabilization window set to 300 seconds instead of 0 seconds?
+3. What is the fundamental difference between a node taint and node affinity?
+4. What happens if both HPA and VPA actively mutate CPU on the same Deployment?
 
-## Gotchas
+Congratulations! You have completed the **Core Kubernetes Learning Path** (Ignition through Stage 7). You have built, hardened, packaged, observed, and scaled a complete microservices platform!
 
-- HPA needs metrics-server and meaningful resource requests; `kubectl get hpa` alone is not proof of scaling.
-- A cache hit is not always correct: define invalidation and bounded staleness before production.
-- VPA recommendations need history and are weak on a fresh local cluster.
-- A toleration is permission, not preference; affinity is preference/eligibility, not a capacity guarantee.
-- Teardown order matters because VPA webhooks can block deletion; use the source script.
+Now, explore how these concepts translate to real cloud providers like AWS EKS, and review our security and specialization roadmaps!
 
-```bash
-bash stages/stage7/scripts/teardown.sh
-```
-
-This completes the runnable spine. Read the [EKS appendix](./eks) only when you are ready to spend cloud resources.
+👉 **Continue to [Cloud Appendix: Amazon EKS Prototype](./eks)**

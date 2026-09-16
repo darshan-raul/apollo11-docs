@@ -1,43 +1,122 @@
 ---
-title: Stage 2 — Guidance, Navigation & Control
-description: Progress from internal DNS to external HTTP routing with Traefik, MetalLB, TLS, and Gateway API.
+title: "Stage 2 — Guidance: Networking & Edge Access"
+description: "Progress through the complete Kubernetes networking ladder from ClusterIP and CoreDNS to Envoy Gateway API on MetalLB."
+sidebar_label: "Stage 2: Guidance (Networking)"
 ---
 
-# Stage 2 — Guidance, Navigation & Control
+# Stage 2: Guidance — Networking & Edge Access
 
-Stage 2 is an access ladder. Do not jump straight to an Ingress: first understand how a ClusterIP Service works, then add host access, an HTTP router, an address allocator, and finally the canonical Envoy Gateway API path.
+In Stage 1, all 10 Apollo Airlines workloads ran inside a single namespace, exposed crudely via individual high NodePorts.
 
-## The ladder
+In **Stage 2 (Guidance)**, we organize our architecture into two production namespaces:
+- **`apollo-airlines-apps`**: Backend microservices (`identity`, `flight`, `booking`, `search`, `notification`), databases, and Redis.
+- **`apollo-airlines-ui`**: Frontend customer web tier (`frontend`).
 
-| Set | Mechanism | Question |
-| --- | --- | --- |
-| 1 | ClusterIP + CoreDNS | How does one Pod find another? |
-| 2 | NodePort | How does a host reach a Service port? |
-| 3 | Traefik Ingress + local TLS | How are host/path rules evaluated? |
-| 4 | MetalLB + LoadBalancer | Who allocates a local external IP? |
-| 5 | Envoy Gateway API | How are Gateway, HTTPRoute, and backend references separated? |
+More importantly, Stage 2 walks you through the **5-Substage Networking Ladder**. Rather than jumping straight to complex ingress controllers, you will master each networking layer progressively:
 
-## Build
-
-Use the full Stage 2 flow or one set at a time:
-
-```bash
-cd Apollo11
-bash stages/stage2/scripts/apply.sh
-bash stages/stage2/scripts/verify.sh
+```
+Substage 1                 Substage 2            Substage 3                Substage 4             Substage 5
+──────────                 ──────────            ──────────                ──────────             ──────────
+ClusterIP & DNS     ──►    NodePort       ──►    Traefik Ingress    ──►    MetalLB LoadBalancer ──► Envoy Gateway API
+Internal FQDN              High NodePorts        Host routing              L2 ARP real IP         Gateway API CRDs
+Endpoints & Slices         30080–30084           Local TLS termination     Port 80 / 443          Canonical Baseline
 ```
 
-For focused labs, use `stages/stage2/set1-baseline` through `set5-envoy-gateway`, each with its own `apply.sh`, `verify.sh`, and `teardown.sh`.
+| Substage | Mechanism | Protocol / Port | Core Learning Outcome |
+|---|---|---|---|
+| **01: Internal DNS** | `Service type: ClusterIP` | Virtual internal IPs | CoreDNS FQDN resolution, `Endpoints` vs `EndpointSlice`, selector binding |
+| **02: NodePort** | `Service type: NodePort` | `localhost:30080–30084` | L4 host-to-container forwarding via `kube-proxy`, port target mapping |
+| **03: Traefik Ingress** | Traefik v3 IngressController | `*.apollo.local:30088/30443` | L7 Host routing, Ingress resources, wildcard TLS termination with Secrets |
+| **04: MetalLB** | MetalLB L2 + `type: LoadBalancer` | `*.apollo.local` on real IP | ARP-based external IP allocation in local clusters, eliminating high NodePorts |
+| **05: Envoy Gateway** | Envoy Gateway v1.5.0 + MetalLB | `*.apollo.local` on MetalLB IP | **Canonical Baseline**: GatewayClass, Gateway, HTTPRoute, cross-namespace ReferenceGrant |
 
-## Concepts: the networking path
+:::important Canonical Access Stack
+**Envoy Gateway + MetalLB (Substage 5)** forms the **canonical access stack** that carries forward into Stage 3 and all subsequent stages. Traefik is a valuable transitional learning step, and NetworkPolicy enforcement is deferred to Stage 8 where Calico makes it observable.
+:::
 
-`ClusterIP` is a virtual Service IP; CoreDNS resolves `booking.apollo-airlines.svc.cluster.local` to it. `NodePort` adds a port on every node. `LoadBalancer` asks an implementation such as MetalLB to assign an external address; Kubernetes alone does not allocate one on kind. The request path is client → listener/controller → Service → EndpointSlice → ready Pod.
+---
 
-An Ingress is a routing API consumed by a controller. Gateway API separates infrastructure (`GatewayClass`, `Gateway`) from routes (`HTTPRoute`). A cross-namespace backend needs a `ReferenceGrant`; without it the route may be accepted syntactically but report `ResolvedRefs=False`. `Accepted=True` means the route was accepted, `Programmed=True` means the listener was configured, and `ResolvedRefs=True` means its backend references are valid. TLS also needs both a certificate/key Secret and a listener configured to use it.
+## 🪜 Substage 1: Internal Discovery & CoreDNS
 
-### Set 1: ClusterIP and DNS
+### How ClusterIP Works
+When you declare a Service with `type: ClusterIP`, Kubernetes assigns a virtual IP from the service CIDR (e.g. `10.96.0.0/16`). This IP does not correspond to any physical network interface; it exists solely as `iptables` or `IPVS` rules managed by `kube-proxy` on each node.
 
-Start with traffic that never leaves the cluster. A client Pod asks CoreDNS for `flight.apollo-airlines-apps.svc.cluster.local`. CoreDNS returns the Service ClusterIP. The Service dataplane chooses one ready EndpointSlice address, and the packet reaches a Pod. The client does not need to know which Pod is serving the request.
+```mermaid
+flowchart LR
+  Client["Client Pod\n(curl-client in apollo-airlines-ui)"]
+  CoreDNS["CoreDNS\n(10.96.0.10)"]
+  VIP["ClusterIP: flight\n(10.96.140.22 :8081)"]
+  EPS["EndpointSlice\n[10.244.1.4:8081, 10.244.2.7:8081]"]
+  Pod1["Pod: flight-xxx\n(10.244.1.4)"]
+  Pod2["Pod: flight-yyy\n(10.244.2.7)"]
+
+  Client -->|1. Resolves flight.apollo-airlines-apps| CoreDNS
+  CoreDNS -->|2. Returns 10.96.140.22| Client
+  Client -->|3. Sends TCP packet to 10.96.140.22| VIP
+  VIP -->|4. iptables packet rewrite via EndpointSlice| EPS
+  EPS --> Pod1
+  EPS --> Pod2
+```
+
+### DNS Search Domains & FQDNs
+Inside every container, `/etc/resolv.conf` is populated by the kubelet with search domains:
+```text
+search apollo-airlines-ui.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+```
+
+When `curl-client` in `apollo-airlines-ui` queries:
+- `identity`: Resolves to `identity.apollo-airlines-ui.svc.cluster.local` (FAILS because `identity` lives in `apollo-airlines-apps`).
+- `identity.apollo-airlines-apps`: Resolves to `identity.apollo-airlines-apps.svc.cluster.local` (SUCCEEDS).
+- Fully Qualified Domain Name (FQDN): `<service>.<namespace>.svc.cluster.local`.
+
+### Endpoints vs. EndpointSlices
+A Service does not talk to Pods directly. The control plane runs an **EndpointSlice controller**:
+1. When Pods matching `app: flight` transition to `Ready: True`, their IPs and ports are recorded in an `EndpointSlice` (`discovery.k8s.io/v1`).
+2. If a Pod fails its readiness probe, the controller removes its IP from the EndpointSlice within milliseconds, preventing dropped connections.
+
+#### Hands-On Lab: Substage 1 Discovery & Break Drill
+
+```bash
+# 1. Apply Substage 1
+./stages/stage2/scripts/apply.sh --substage 1 --skip-build
+
+# 2. Inspect Services and EndpointSlices
+kubectl get svc -n apollo-airlines-apps
+kubectl get endpointslices -n apollo-airlines-apps
+
+# 3. Test cross-namespace DNS from curl-client
+kubectl exec -n apollo-airlines-ui curl-client -- nslookup identity.apollo-airlines-apps.svc.cluster.local
+kubectl exec -n apollo-airlines-ui curl-client -- curl -s http://identity.apollo-airlines-apps.svc.cluster.local:8080/healthz
+```
+
+**Break Drill**: Break the selector on the `identity` Service:
+```bash
+kubectl patch svc identity -n apollo-airlines-apps -p '{"spec":{"selector":{"app":"identity-broken"}}}'
+
+# Observe that Endpoints immediately become <none>!
+kubectl get endpoints identity -n apollo-airlines-apps
+
+# Attempt curl from client pod (fails with timeout):
+kubectl exec -n apollo-airlines-ui curl-client -- curl -s --connect-timeout 3 http://identity.apollo-airlines-apps.svc.cluster.local:8080/healthz || echo "Connection failed as expected!"
+```
+
+**Recover**:
+```bash
+kubectl patch svc identity -n apollo-airlines-apps -p '{"spec":{"selector":{"app":"identity"}}}'
+kubectl get endpoints identity -n apollo-airlines-apps
+```
+
+---
+
+## 🚪 Substage 2: NodePort External Access
+
+A `ClusterIP` cannot be reached from outside the Kubernetes cluster.
+
+`type: NodePort` builds directly on top of `ClusterIP`. It allocates a dedicated port from the cluster's NodePort range (`30000–32767`) and opens that port on **every single node** in the cluster.
+
+*Source: `stages/stage2/k8s/substages/02-nodeport/flight-svc.yaml`*
 
 ```yaml
 apiVersion: v1
@@ -46,32 +125,123 @@ metadata:
   name: flight
   namespace: apollo-airlines-apps
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: flight
   ports:
     - name: http
       port: 8081
-      targetPort: http
+      targetPort: 8081
+      nodePort: 30081
 ```
 
-The named `targetPort: http` resolves to a named container port on matching Pods. Numeric ports are also valid. The important distinction is client-facing `port` versus workload-facing `targetPort`. The Service selects by labels, not by Deployment name.
+Because our `kind-config.yaml` in Ignition mapped host port `30081` to the control plane container port `30081`, you can now query the service directly from your laptop!
 
-### Set 2: NodePort
+```bash
+# Apply Substage 2
+./stages/stage2/scripts/apply.sh --substage 2 --skip-build
 
-NodePort adds a port from a configured range to every node. A request to a node's address and that port is forwarded to the Service's ready endpoints. In kind, the `extraPortMappings` in Ignition map host ports to node container ports. That is why the laptop can reach `127.0.0.1:30081` without knowing a Pod IP.
+# Query from host laptop
+curl -s http://localhost:30081/readyz
+curl -s http://localhost:30080/ # Frontend
+```
 
-NodePort is easy to understand but is not usually the final public edge: every node becomes an entry point, port management is manual, and TLS/routing concerns remain in the application or another proxy.
+### Why NodePort is insufficient for production:
+- Port numbers must be between `30000` and `32767` (unfriendly for users expecting port 80/443).
+- Every node opens the port, consuming node resources.
+- No Layer 7 features: No path routing, no hostname routing, no centralized TLS termination.
 
-### Set 3: Ingress and local TLS
+---
 
-An Ingress is a desired routing rule, not the router itself. Traefik watches Ingress objects and configures its data plane. The `host` field selects a hostname; `path` selects a URL path; `backend.service.name` and `backend.service.port` select the internal destination.
+## 🚦 Substage 3: Traefik Ingress & Wildcard TLS
 
-For local TLS, the client hostname must match the certificate and resolve to the local listener. `/etc/hosts` is a local mapping, not DNS for the cluster. A missing or wrong TLS Secret can produce a default certificate even while the Ingress object remains present.
+To provide user-friendly domain names (`http://booking.apollo.local`) and terminate HTTPS on standard ports, Kubernetes provides the **Ingress** API.
 
-### Set 4: MetalLB and LoadBalancer
+An **Ingress** is merely a configuration object describing routing rules. It requires an **Ingress Controller** (such as Traefik, NGINX, or Contour) to watch the API and configure a reverse proxy.
 
-Kubernetes defines the `LoadBalancer` Service type but does not know how to allocate an address on a bare-metal or kind network. MetalLB watches for LoadBalancer Services, chooses an address from an `IPAddressPool`, and advertises it using an `L2Advertisement`.
+*Source: `stages/stage2/k8s/substages/03-traefik-ingress-tls/03-ingress-apps.yaml`*
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apollo-apps-ingress
+  namespace: apollo-airlines-apps
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  tls:
+    - hosts:
+        - "*.apollo.local"
+      secretName: apollo-tls-secret
+  rules:
+    - host: identity.apollo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: identity
+                port:
+                  number: 8080
+    - host: booking.apollo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: booking
+                port:
+                  number: 8082
+```
+
+### Wildcard TLS with Secrets
+Substage 3 uses OpenSSL to generate a self-signed wildcard certificate for `*.apollo.local` stored in a Kubernetes Secret:
+
+```bash
+# Inspect the TLS Secret
+kubectl get secret apollo-tls-secret -n apollo-airlines-apps -o yaml
+```
+
+#### Hands-On Lab: Substage 3 Ingress & TLS Break Drill
+
+```bash
+# 1. Apply Substage 3
+./stages/stage2/scripts/apply.sh --substage 3 --skip-build
+
+# 2. Query over HTTPS through host-forwarded port 30443
+curl -k --resolve identity.apollo.local:30443:127.0.0.1 https://identity.apollo.local:30443/healthz
+```
+
+**Break Drill**: Delete the TLS Secret:
+```bash
+kubectl delete secret apollo-tls-secret -n apollo-airlines-apps
+
+# Re-inspect TLS certificate returned by Traefik:
+curl -kv --resolve identity.apollo.local:30443:127.0.0.1 https://identity.apollo.local:30443/healthz 2>&1 | grep "issuer"
+```
+Notice Traefik falls back to its default internal certificate: `CN=TRAEFIK DEFAULT CERT`!
+
+**Recover**:
+```bash
+./stages/stage2/k8s/substages/03-traefik-ingress-tls/generate-certs.sh
+curl -kv --resolve identity.apollo.local:30443:127.0.0.1 https://identity.apollo.local:30443/healthz 2>&1 | grep "issuer"
+```
+Issuer returns to `CN=*.apollo.local`.
+
+---
+
+## ⚡ Substage 4: MetalLB & LoadBalancer IP Provisioning
+
+In public clouds (AWS, GCP, Azure), setting `type: LoadBalancer` tells cloud controllers to automatically provision an AWS Network Load Balancer or GCP Cloud Load Balancer.
+
+In bare-metal or local `kind` clusters, there is no cloud provider. A `LoadBalancer` Service stays stuck in `<pending>` forever.
+
+**MetalLB** solves this problem by running an internal controller that assigns real IP addresses from a dedicated pool on your local Docker network using Layer 2 ARP:
+
+*Source: `stages/stage2/k8s/substages/04-metallb/01-ip-pool.yaml`*
 
 ```yaml
 apiVersion: metallb.io/v1beta1
@@ -82,94 +252,182 @@ metadata:
 spec:
   addresses:
     - 172.18.0.50-172.18.0.100
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: apollo-advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - apollo-pool
 ```
 
-The address range must be reachable on the kind Docker network and must not overlap another device. An allocated external IP proves MetalLB assigned an address; it does not prove the controller behind the Service is healthy.
+#### Hands-On Lab: Substage 4 MetalLB
 
-### Set 5: Gateway API ownership
+```bash
+# 1. Apply Substage 4
+./stages/stage2/scripts/apply.sh --substage 4 --skip-build
 
-Gateway API is intentionally split between platform and application concerns. A `GatewayClass` names the controller implementation. A `Gateway` asks that controller for listeners and addresses. An `HTTPRoute` attaches host/path rules to a listener and references backend Services. `ReferenceGrant` is an explicit permission for a cross-namespace reference.
+# 2. Inspect the Traefik LoadBalancer Service
+kubectl get svc traefik -n traefik
+```
+
+Notice `EXTERNAL-IP` is populated with an address like `172.18.0.50`!
+Now you can query standard port 80 and 443 directly on that IP without any high NodePort:
+
+```bash
+METALLB_IP=$(kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -H "Host: identity.apollo.local" "http://${METALLB_IP}/healthz"
+```
+
+---
+
+## 🌐 Substage 5: The Canonical Baseline — Envoy Gateway API
+
+While the Ingress API has served Kubernetes for years, it has severe limitations:
+1. **Monolithic & Un-typed**: Advanced features (canary, rate limiting, header rewriting) require vendor-specific annotations.
+2. **No Role Separation**: Infrastructure administrators (configuring IP addresses and TLS certificates) and application developers (defining URL paths) fight over the same Ingress YAML file.
+3. **Cross-Namespace Anti-Patterns**: Ingress has poor cross-namespace security boundaries.
+
+The **Gateway API** (`gateway.networking.k8s.io`) is the modern official Kubernetes standard, designed with role separation:
+
+```
+┌────────────────────────────────────────────────────────┐
+│ INFRASTRUCTURE ARCHITECT (Cluster-wide)                │
+│ GatewayClass: eg (Envoy Gateway)                       │
+└────────────────────────────────────────────────────────┘
+                           │
+┌────────────────────────────────────────────────────────┐
+│ PLATFORM / OPERATIONS TEAM (apollo-airlines-apps)      │
+│ Gateway: apollo-gateway (Listens on port 80/443)       │
+└────────────────────────────────────────────────────────┘
+                           │
+         ┌─────────────────┴─────────────────┐
+         ▼                                   ▼
+┌──────────────────────────────┐  ┌──────────────────────────────┐
+│ APP DEVELOPER (apps)         │  │ UI DEVELOPER (ui)            │
+│ HTTPRoute: booking           │  │ HTTPRoute: frontend          │
+│ host: booking.apollo.local   │  │ host: frontend.apollo.local  │
+│ backendRef: booking:8082     │  │ (Allowed by ReferenceGrant!) │
+└──────────────────────────────┘  └──────────────────────────────┘
+```
+
+### 1. The Gateway Resource
+
+*Source: `stages/stage2/k8s/substages/05-envoy-gateway/01-gateway.yaml`*
 
 ```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: apollo-gateway
+  namespace: apollo-airlines-apps
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: envoyproxy-lb-config
+  listeners:
+    - name: web
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+```
+
+### 2. The HTTPRoute Resource
+
+*Source: `stages/stage2/k8s/substages/05-envoy-gateway/04-httproute-booking.yaml`*
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
+metadata:
+  name: booking
+  namespace: apollo-airlines-apps
 spec:
   parentRefs:
     - name: apollo-gateway
-      namespace: apollo-airlines-gateway
-  hostnames: [identity.apollo.local]
+  hostnames: ["booking.apollo.local"]
   rules:
-    - matches:
-        - path: { type: PathPrefix, value: / }
-      backendRefs:
-        - name: identity
-          namespace: apollo-airlines-apps
-          port: 8080
+    - backendRefs:
+        - name: booking
+          port: 8082
 ```
 
-This route may be rejected if the parent listener does not allow the namespace, the backend namespace has no ReferenceGrant, the Service/port is wrong, or the GatewayClass controller is absent. Read status conditions rather than inferring success from object creation.
+### 3. Cross-Namespace Security: ReferenceGrant
 
-### Why NetworkPolicy is deferred
+In Gateway API, a route in namespace A cannot silently route traffic to a Service in namespace B unless namespace B explicitly permits it using a **`ReferenceGrant`**:
 
-NetworkPolicy objects describe allowed ingress and egress, but enforcement belongs to the network plugin. Apollo11's local kindnet configuration does not enforce the policy behavior required for a meaningful break/recover lab. Applying an inert policy and claiming traffic was blocked would teach the wrong lesson. The source roadmap defers the behavioral lab to the security rebuild with a capable CNI.
+*Source: `stages/stage2/k8s/substages/05-envoy-gateway/01a-referencegrant.yaml`*
 
-## Inspect, break, recover
+```yaml
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: apollo-gateway-grant
+  namespace: apollo-airlines-ui
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: apollo-airlines-apps
+  to:
+    - group: ""
+      kind: Service
+      name: frontend
+```
 
-Inside a temporary Pod, query the DNS name and inspect endpoints:
+#### Hands-On Lab: Substage 5 Envoy Gateway Verification
 
 ```bash
-kubectl get svc,endpointslice -A
-kubectl run dns-test --rm -it --restart=Never --image=busybox:1.36.1 -- nslookup identity.apollo-airlines-apps.svc.cluster.local
+# 1. Apply Substage 5 (Canonical Baseline)
+./stages/stage2/scripts/apply.sh --substage 5 --skip-build
+
+# 2. Inspect Gateway status
+kubectl get gateway -n apollo-airlines-apps
+
+# Check for Programmed=True condition:
+kubectl describe gateway apollo-gateway -n apollo-airlines-apps | grep -E "(Programmed|Accepted)"
+
+# 3. Inspect all HTTPRoutes
+kubectl get httproute -A
+
+# 4. Query services through Envoy Gateway via MetalLB IP
+GATEWAY_IP=$(kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.addresses[0].value}')
+
+curl -H "Host: booking.apollo.local" "http://${GATEWAY_IP}/readyz"
+curl -H "Host: flight.apollo.local" "http://${GATEWAY_IP}/readyz"
+curl -H "Host: identity.apollo.local" "http://${GATEWAY_IP}/readyz"
 ```
 
-Break a Service selector and observe `<none>` endpoints; restore the selector. In Set 2, change a `targetPort` to `9999`, observe connection failure, then restore it. In Set 3, delete the local TLS Secret and inspect the fallback certificate. In Set 4, delete `apollo-pool` and watch the LoadBalancer address become pending; reapply `01-ip-pool.yaml`.
+All return HTTP 200 `{"status":"ready"}`!
 
-For Set 5, inspect status conditions and deliberately break a route backend port:
+---
 
-```bash
-kubectl get gateway,httproute -A
-kubectl describe httproute -n apollo-airlines-ui frontend
-kubectl patch httproute frontend -n apollo-airlines-ui --type=json -p='[{"op":"replace","path":"/spec/rules/0/backendRefs/0/port","value":9999}]'
-kubectl get httproute frontend -n apollo-airlines-ui -o yaml
-```
+## 🏁 What You Learned
 
-Restore the port from the source manifest and prove the route with `curl`. Read `Accepted`, `Programmed`, and `ResolvedRefs`; an object existing is not proof that traffic works.
+- How CoreDNS resolves internal cluster names (`<svc>.<ns>.svc.cluster.local`) and why short names fail across namespaces.
+- The role of `Endpoints` and `EndpointSlices` in dynamically tracking ready Pod IPs.
+- How `type: NodePort` forwards host traffic into containers, and why high ports are clunky.
+- How Layer 7 Ingress controllers evaluate Host headers and terminate wildcard TLS.
+- How MetalLB provisions real Layer 2 IP addresses in local and bare-metal clusters.
+- Why the modern **Gateway API** (`GatewayClass`, `Gateway`, `HTTPRoute`, `ReferenceGrant`) provides cleaner role separation and cross-namespace security than legacy Ingress.
 
-### Network debugging ladder
+---
 
-When an external request fails, work inward:
+## ✈️ Before Continuing: Checkpoint
 
-1. Resolve the hostname from the client machine.
-2. Check the Gateway/Ingress listener and external address.
-3. Check route status conditions.
-4. Check the backend Service and its `port`/`targetPort`.
-5. Check EndpointSlices and ready Pod labels.
-6. Curl the backend directly with port-forward or from a debug Pod.
-7. Inspect controller logs and events only after identifying which boundary failed.
+Before moving to Stage 3, ensure you understand:
+1. What component maintains iptables rules on worker nodes for ClusterIP services?
+2. If an `HTTPRoute` attaches to a Service in another namespace without a `ReferenceGrant`, what status condition appears on the route?
+3. Why did we need MetalLB in kind before `type: LoadBalancer` would work?
+4. What happens to traffic when a Pod fails its readiness probe?
 
-This prevents treating every `502` as an application bug. A route with an unresolved backend, a Service with zero endpoints, and a Pod returning an HTTP error are three different failures with three different fixes.
+Now that our network routing and Gateway API access stack are rock solid, let's solve the persistent data problem we exposed in Stage 1!
 
-### Common Stage 2 failure table
-
-| Symptom | Check | Meaning |
-| --- | --- | --- |
-| DNS name not found | `nslookup`, CoreDNS Pods/logs | Name, namespace, or DNS system is wrong |
-| Service has no endpoints | Selector and Pod labels | Membership contract is broken or Pods are unready |
-| NodePort connection refused | Node mapping, Service port, endpoints | Host-to-node or Service path is absent |
-| LoadBalancer pending | MetalLB pool/controller/events | No address allocator or exhausted/invalid pool |
-| Route `ResolvedRefs=False` | Route condition + ReferenceGrant | Backend reference is invalid or unauthorized |
-| TLS default certificate | Secret name/data and listener | Controller is serving fallback certificate |
-| HTTP 502 | Route, Service, EndpointSlice, Pod logs | Proxy cannot reach a usable backend |
-
-## Gotchas
-
-- `localhost` from your laptop is not a Pod address; use port-forward, NodePort, or the external listener.
-- A Service selector is not an ownership relationship; it is a live membership query.
-- Hostnames such as `identity.apollo.local` need `/etc/hosts` entries or another resolver.
-- kindnet does not enforce NetworkPolicy. Stage 2 keeps policies reference-only and defers behavioral enforcement.
-- Gateway API CRDs and the controller must exist before Gateway resources can become programmed.
-
-```bash
-bash stages/stage2/scripts/teardown.sh
-```
-
-Continue to [Stage 3](./stage-3).
+👉 **Continue to [Stage 3: Mission Data (Persistent Storage & StatefulSets)](./stage-3)**
