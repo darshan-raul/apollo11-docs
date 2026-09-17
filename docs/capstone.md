@@ -6,6 +6,10 @@ sidebar_label: "Core Capstone"
 
 # Apollo11 Core Capstone: Operate What Exists
 
+Want to follow the story before running the lab? Begin with
+[A Passenger’s Booking](./learn/capstone/a-booking-through-kubernetes), then
+return here when you’re ready to take the controls.
+
 This capstone is not a larger verification checklist. It is one guided operator
 story: establish what the Stage 7 system claims, follow a passenger workflow,
 replace stateful and stateless pieces, observe how cache and autoscaling change

@@ -6,6 +6,12 @@ sidebar_label: "Stage 7: Scaling & Scheduling"
 
 # Stage 7: Orbital Maneuvering — Autoscaling & Scheduling
 
+:::note[Take the controls · Orbital Maneuvering lab]
+Bring more traffic to the airline and watch caching, scaling, and placement respond.
+For the explanation before the experiment, start with the
+[Orbital Maneuvering chapters](./learn/scaling/measurement-baseline). You can return to this lab whenever you’re ready.
+:::
+
 Stage 6 gave us signals for people to investigate. Stage 7 introduces two
 controllers that can react to resource measurements, while keeping the signals
 and decision boundaries explicit. Previous stages used a deliberate, static replica count. That makes the

@@ -6,6 +6,12 @@ sidebar_label: "Stage 4: Flight Control (Reliability)"
 
 # Stage 4: Flight Control — Reliability, Lifecycle & Governance
 
+:::note[Take the controls · Flight Control lab]
+Observe how the airline handles startup, unhealthy processes, and graceful departures.
+For the explanation before the experiment, start with the
+[Flight Control chapters](./learn/reliability/probes). You can return to this lab whenever you’re ready.
+:::
+
 Stages 1–3 taught the cluster to create workloads, route to ready endpoints,
 and reattach local persistent data. Those controls still leave a harder
 operational question: when a process is slow, unhealthy, overloaded, or being

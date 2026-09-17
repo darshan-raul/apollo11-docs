@@ -6,6 +6,12 @@ sidebar_label: "Stage 5: Packaging (Helm & GitOps)"
 
 # Stage 5: Payload Integration — Helm, Kustomize & GitOps
 
+:::note[Take the controls · Payload Integration lab]
+Package and deliver a change to the airline, then inspect the result.
+For the explanation before the experiment, start with the
+[Payload Integration chapters](./learn/delivery/rendering-and-helm). You can return to this lab whenever you’re ready.
+:::
+
 Stages 1–4 made the resource graph visible: Deployments refer to templates,
 Services refer to labels, and databases refer to claims. Copying that graph for
 each environment creates a new failure mode—two copies that look similar but

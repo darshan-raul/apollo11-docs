@@ -6,6 +6,12 @@ sidebar_label: "Ignition (First Cluster)"
 
 # Ignition: Your First Kubernetes Cluster
 
+:::note[Take the controls · Ignition lab]
+Start your first cluster and watch its components bring a Pod to life.
+For the explanation before the experiment, start with the
+[Ignition chapters](./learn/cluster/why-orchestration). You can return to this lab whenever you’re ready.
+:::
+
 In **Ignition**, you create a small real cluster on your workstation using
 **kind** (Kubernetes in Docker). The goal is not to memorise component names.
 It is to answer a practical question: after you ask Kubernetes for a Pod, which

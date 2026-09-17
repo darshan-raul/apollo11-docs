@@ -6,6 +6,12 @@ sidebar_label: "Stage 2: Guidance (Networking)"
 
 # Stage 2: Guidance — Networking & Edge Access
 
+:::note[Take the controls · Guidance lab]
+Trace the route from a passenger’s request to the service that answers it.
+For the explanation before the experiment, start with the
+[Guidance chapters](./learn/networking/pod-network-and-cni). You can return to this lab whenever you’re ready.
+:::
+
 Stage 1 gave every Apollo component a Service name, but it left two questions
 unanswered. First: when a booking Pod is replaced, how does another service find
 the replacement without discovering its new IP? Second: how does a browser reach

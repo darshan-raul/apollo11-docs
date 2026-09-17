@@ -6,6 +6,12 @@ sidebar_label: "Stage 3: Mission Data (Storage)"
 
 # Stage 3: Mission Data — Persistent Storage & StatefulSets
 
+:::note[Take the controls · Mission Data lab]
+Replace a database Pod and investigate which parts of the reservation survive.
+For the explanation before the experiment, start with the
+[Mission Data chapters](./learn/storage/volume-lifetimes). You can return to this lab whenever you’re ready.
+:::
+
 In Stage 1, deleting a database Pod proved two things at once: the Deployment
 could replace a process, and the replacement had nowhere durable to find the
 old database directory. Reconciliation fixed the replica count; it could not

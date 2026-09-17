@@ -6,6 +6,12 @@ sidebar_label: "Stage 1: Liftoff (Workloads)"
 
 # Stage 1: Liftoff — Workloads on Kubernetes
 
+:::note[Take the controls · Liftoff lab]
+Put the airline’s workloads in motion and investigate who brings them back after a failure.
+For the explanation before the experiment, start with the
+[Liftoff chapters](./learn/workloads/ownership-and-replicas). You can return to this lab whenever you’re ready.
+:::
+
 Ignition ended with an uncomfortable result: deleting `apollo-shell` destroyed
 the whole object, and nothing recreated it. That was not a broken cluster. It
 was an honest consequence of what we declared—a single Pod and no owner that

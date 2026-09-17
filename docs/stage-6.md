@@ -6,6 +6,12 @@ sidebar_label: "Stage 6: Mission Ops (Observability)"
 
 # Stage 6: Mission Operations — Observability & Tracing
 
+:::note[Take the controls · Mission Operations lab]
+Follow a booking through the signals the application leaves behind.
+For the explanation before the experiment, start with the
+[Mission Operations chapters](./learn/observability/signals-and-metrics). You can return to this lab whenever you’re ready.
+:::
+
 Stage 5 made the resource graph reproducible across environments. Earlier
 stages told us whether a Pod was ready and whether a rollout completed.
 Those are useful cluster facts, but they do not answer a passenger's report that

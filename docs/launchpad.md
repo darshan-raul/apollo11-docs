@@ -6,6 +6,12 @@ sidebar_label: "Launchpad (Docker Compose)"
 
 # Launchpad: Container Foundations with Docker Compose
 
+:::note[Take the controls · Launchpad lab]
+Build the airline’s first containers, then follow what happens when they start, connect, and fail.
+For the explanation before the experiment, start with the
+[Launchpad chapters](./learn/containers/process-image-container). You can return to this lab whenever you’re ready.
+:::
+
 Before Kubernetes can be useful, it helps to feel the problem it is going to
 solve. Start with Apollo Airlines on one laptop. The application is already
 distributed: `booking` needs other services and databases, but Docker Compose
