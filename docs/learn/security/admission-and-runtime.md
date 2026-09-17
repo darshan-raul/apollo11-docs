@@ -1,33 +1,85 @@
 ---
-title: Admission and runtime controls
+title: "Admission and runtime controls"
+description: "Understand the difference between pre-admission policy evaluation and post-startup runtime controls, and why a compliant manifest cannot guarantee secure container behavior."
 ---
 
 # Admission and runtime controls
 
-Admission policies inspect objects before persistence. Runtime controls constrain what a container may do after it starts: user identity, capabilities, filesystem permissions, and seccomp are different controls. A compliant manifest does not prove an application has no vulnerable behavior.
+*Stage 8 · Command Module (Planned Roadmap)*
 
-## In the Command Module
+A secure container image declared in YAML can still be exploited at runtime if the container runs as root, mounts a writable root filesystem, or retains unnecessary Linux kernel capabilities. 
 
-Admission policies inspect or change objects before persistence. Runtime controls
-constrain a container after startup: the user it runs as, granted capabilities,
-filesystem behaviour, and syscall profile solve different problems. A manifest
-that passes admission is still only a desired configuration; its running image
-and application behaviour deserve separate scrutiny.
+Kubernetes secures workloads across two separate enforcement boundaries: **pre-admission** (before objects are saved to etcd) and **runtime sandboxing** (after containers start).
 
-## Evidence and limit
+---
 
-Check policy decisions and the resulting Pod security context. Do not infer that
-an accepted object is vulnerability-free or that its process cannot misuse an
-authorised credential.
+## Pre-admission vs. Runtime enforcement
 
-## Before and after startup
+~~~mermaid
+flowchart LR
+  YAML["Pod Manifest\n(submitted by user/CI)"] --> Webhook["Admission Webhook\n(Kyverno / OPA Gatekeeper)"]
+  Webhook -->|Validates / Mutates| APIServer["kube-apiserver\n(committed to etcd)"]
+  APIServer --> Kubelet["Kubelet on Node"]
+  Kubelet --> Runtime["Runtime Sandbox\n- Linux Capabilities\n- readOnlyRootFilesystem\n- runAsNonRoot\n- seccomp profile"]
+~~~
 
-Admission policies inspect an object before persistence. Runtime controls apply
-after a container starts: user identity, Linux capabilities, filesystem
-permissions, and syscall profiles solve different problems. A policy-approved
-Pod can still run vulnerable application code.
+*Diagram SEC-01 — admission controls gate the API server, while runtime isolation parameters govern the Linux kernel sandbox.*
+
+- **1. Admission Controls (Pre-Persistence)**:
+  - Validating and mutating webhooks (e.g. Kyverno, OPA Gatekeeper).
+  - Evaluates objects *before* persistence in etcd.
+  - Rejects non-compliant declarations (e.g. blocking images from untrusted public registries).
+- **2. Runtime Sandboxing (Post-Startup)**:
+  - Enforced by container runtimes (containerd, CRI-O) via kernel cgroups and namespaces.
+  - Constrains process capabilities even if application code is breached.
+
+---
+
+## The four core Pod security parameters
+
+Stage 8's planned hardening baseline requires four explicit runtime controls:
+
+- **`runAsNonRoot: true`**:
+  - Prevents the container process from running with UID `0`.
+  - Blocks container-breakout attacks that rely on root filesystem privileges.
+- **`readOnlyRootFilesystem: true`**:
+  - Sets the root container image layers to read-only.
+  - Attackers cannot download toolkits (`curl | sh`), install malware, or overwrite binaries.
+  - Applications write temporary files strictly to dedicated in-memory `emptyDir` scratch volumes.
+- **`capabilities.drop: ["ALL"]`**:
+  - Strips default Linux kernel privileges (such as `CAP_NET_RAW`, `CAP_SYS_ADMIN`).
+  - Restricts processes to bare unprivileged execution.
+- **`seccompProfile.type: RuntimeDefault`**:
+  - Filters and restricts kernel system calls (syscalls) available to the container.
+
+~~~yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+~~~
+
+---
 
 ## Evidence and limits
 
-Check the policy decision and the resulting security context separately. Do not
-treat a valid manifest as evidence that the process can do no harm.
+- **1. Pod security violation events**: Review admission rejections:
+  ```bash
+  kubectl get events -n apollo-airlines-apps --field-selector reason=FailedCreate
+  ```
+- **2. Runtime security context check**: Confirm active security settings:
+  ```bash
+  kubectl get pod -l app=booking -n apollo-airlines-apps \
+    -o jsonpath='{.items[0].spec.containers[0].securityContext}'
+  ```
+- **3. Read-only filesystem verification**: Test that the container cannot write to root:
+  ```bash
+  kubectl exec -n apollo-airlines-apps deploy/booking -- touch /etc/testfile 2>&1
+  # Expected: Read-only file system
+  ```

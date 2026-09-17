@@ -1,31 +1,63 @@
 ---
-title: Measurement before optimization
+title: "Measurement before optimization"
+description: "Understand how to design a repeatable performance baseline, why a single faster response is not a result, and what a useful performance comparison requires."
 ---
 
 # Measurement before optimization
 
-Before changing cache policy, replicas, or resources, define a repeatable workload, baseline, success metric, environment, and comparison window. Record errors and saturation alongside latency. A single faster request or an X-Cache header does not establish a performance result.
+*Stage 7 · Orbital Maneuvering*
 
-## In the Orbital Maneuvering mission
+Before introducing Redis caching or enabling autoscalers to resolve latency issues in Apollo's search service, you must establish a repeatable, quantifiable performance baseline. 
 
-Before changing Apollo, choose a repeatable workload, environment, time window,
-and success measure. Capture errors, throughput, latency, and saturation
-alongside the metric you hope to improve. Then change one mechanism and compare
-like with like. This is how a performance observation becomes a useful result.
+An anecdote like *"it felt faster on my laptop"* is not engineering evidence.
 
-## Evidence and limit
+---
 
-A single faster response or an X-Cache header is an anecdote. It does not show
-the load shape, tail latency, error rate, or cost of the change.
+## The five pillars of an engineering baseline
 
-## Design the comparison
+~~~mermaid
+flowchart TD
+  subgraph Baseline["Baseline definition (before any change)"]
+    W["1. Workload shape\nRequest rate, concurrency, distribution\n(k6 load test: 50 VU, 2 min)"]
+    E["2. Environment\nCluster size, node type, other tenants\n(kind cluster, 2 workers, no competing load)"]
+    M["3. Success metrics\nWhat must improve?\n(p99 latency < 500ms at 50 RPS)"]
+    S["4. Saturation signals\nWhat might become the bottleneck?\n(CPU, memory, DB connections, network)"]
+    T["5. Time window\nWhen does the measurement apply?\n(2-minute steady-state window)"]
+  end
+~~~
 
-Choose one workload shape, environment, time window, and success measure. For
-Apollo search, record request rate, error rate, latency distribution, backend
-work, and resource saturation. Change one mechanism at a time so a faster result
-has an explanation attached to it.
+*Diagram SC-01 — a scientific baseline requires all five elements before comparing optimization results.*
 
-## Evidence and limits
+- **1. Workload profile**: Synthetic load generator (e.g. k6) running fixed virtual users (VUs) and arrival rates.
+- **2. Controlled environment**: Known worker node sizing, zero unmetered background processes.
+- **3. Quantitative success criteria**: Specific thresholds (e.g. `p99 < 500ms at 50 RPS`).
+- **4. Saturation signals**: Tracking secondary bottlenecks (database connection pools, node CPU saturation).
+- **5. Steady-state window**: Measuring across a sustained 2-to-5 minute window rather than transient bursts.
 
-An X-Cache header or one fast curl is a clue, not a performance result. Keep the
-load shape and comparison window so another person can repeat the observation.
+---
+
+## Why a single curl measurement is misleading
+
+Testing with `curl -o /dev/null -s -w '%{time_total}'` tests only a single happy-path packet. It fails to surface:
+- **Tail latency spikes**: What happens when 100 concurrent requests compete for database connections.
+- **Cold start delays**: Latency during initial cache warming or JVM JIT compilation.
+- **Error cascading**: Latencies that appear fast only because downstream calls failed immediately.
+
+---
+
+## Repeatable load testing with k6
+
+Execute a scripted benchmark and export summary metrics:
+
+```bash
+# 1. Capture un-optimized baseline
+k6 run stages/stage7/k6/search.js --summary-export baseline-summary.json
+
+# 2. Introduce optimization (e.g. Redis caching)
+
+# 3. Capture post-optimization benchmark
+k6 run stages/stage7/k6/search.js --summary-export optimized-summary.json
+
+# 4. Compare quantitative distributions
+diff <(jq '.metrics' baseline-summary.json) <(jq '.metrics' optimized-summary.json)
+```

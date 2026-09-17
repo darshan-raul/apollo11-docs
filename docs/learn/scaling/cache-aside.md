@@ -1,32 +1,68 @@
 ---
-title: Cache-aside
+title: "Cache-aside"
+description: "Understand how the cache-aside pattern works, what each branch in the decision tree requires, and why freshness and error handling must be designed explicitly."
 ---
 
 # Cache-aside
 
-Cache-aside reads the cache first, uses the authoritative store on a miss, then stores a result subject to expiry and invalidation policy. Define freshness and error behavior explicitly. A cache hit can reduce backend work, but stale data and invalidation are correctness tradeoffs.
+*Stage 7 · Orbital Maneuvering*
 
-## In the Orbital Maneuvering mission
+Apollo's search service queries flight schedules repeatedly. Because flight timetables change infrequently, repeatedly querying PostgreSQL wastes database CPU and saturates connection pools.
 
-With cache-aside, search checks Redis first. A hit can return a stored result; a
-miss fetches from the authoritative flight data, then stores a result according
-to expiry and invalidation policy. The cache reduces work for some requests, but
-it introduces a freshness decision that the passenger experience must tolerate.
+The **cache-aside** pattern introduces an in-memory key-value store (Redis) to absorb repetitive read traffic.
 
-## Evidence and limit
+---
 
-Define the hit, miss, stale, and cache-error branches before relying on the
-cache. An X-Cache response header can identify one branch; it does not prove a
-faster system or correct freshness under concurrent changes.
+## Decision tree: the 4 cache-aside branches
 
-## Follow a search request
+~~~mermaid
+flowchart TD
+  Request["Search request:\nJFK→LHR, 2024-10-01"] --> CacheCheck{"Redis: EXIST\nroute:JFK:LHR:2024-10-01"}
+  CacheCheck -->|HIT| CacheReturn["Return cached result\n(< 5ms)"]
+  CacheCheck -->|MISS| FlightDB["Query flight database\n(~200ms)"]
+  FlightDB -->|Success| Store["SET route:... result EX 300\nReturn result"]
+  FlightDB -->|Error| ErrorPolicy{"Error policy"}
+  ErrorPolicy -->|Fail open| Stale["Return stale cached value\n(if available)"]
+  ErrorPolicy -->|Fail closed| HTTP503["Return 503 to passenger"]
+  CacheCheck -->|CACHE ERROR| CacheErrorPolicy{"Redis unreachable\nError policy"}
+  CacheErrorPolicy -->|Bypass| FlightDB
+  CacheErrorPolicy -->|Fail closed| HTTP503
+~~~
 
-Cache-aside checks Redis before asking the authoritative flight data. A hit can
-return a stored result. A miss reads flight and then stores a result subject to
-expiry and invalidation. A cache error needs its own policy: fail the request,
-bypass the cache, or serve a bounded stale value.
+*Diagram SC-02 — the four observable branches of cache-aside: Cache Hit, Cache Miss, Database Error, and Cache Outage.*
+
+- **Branch 1: Cache Hit**:
+  - Key exists in Redis. Returns response immediately (&lt;5ms). Database is never queried.
+- **Branch 2: Cache Miss**:
+  - Key absent. Reads from PostgreSQL, writes result to Redis with a TTL (e.g. `EX 300`), and returns response.
+- **Branch 3: Database Failure on Miss**:
+  - If the database query times out, decide whether to serve stale data (fail-open) or return HTTP 503 (fail-closed).
+- **Branch 4: Cache Outage (Cache Stampede Hazard)**:
+  - If Redis crashes, bypassing the cache directs 100% of read queries directly onto PostgreSQL, potentially collapsing the database under a stampede.
+
+---
+
+## TTL policies by data volatility
+
+- **Static route data (Airport codes, flight numbers)**: Long TTL (24 hours).
+- **Flight schedules**: Moderate TTL (5 minutes).
+- **Seat inventory & live availability**: Zero cache (query database authoritative locks directly).
+
+---
 
 ## Evidence and limits
 
-A hit can reduce backend work while increasing freshness risk. Define the
-authoritative source and invalidation rule before calling the cache correct.
+- **1. Redis hit/miss ratio**:
+  ```bash
+  kubectl exec -n apollo-airlines-apps deploy/redis -- \
+    redis-cli INFO stats | grep -E "keyspace_hits|keyspace_misses"
+  ```
+- **2. Verify key TTL expiration**:
+  ```bash
+  kubectl exec -n apollo-airlines-apps deploy/redis -- \
+    redis-cli TTL "route:JFK:LHR:2024-10-01"
+  ```
+- **3. Header verification**: Confirm response headers indicate cache state:
+  ```bash
+  curl -v http://localhost:30083/api/search?departure=JFK&arrival=LHR 2>&1 | grep -i "x-cache"
+  ```

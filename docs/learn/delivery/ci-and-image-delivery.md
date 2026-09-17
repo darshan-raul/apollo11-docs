@@ -1,35 +1,58 @@
 ---
-title: CI and image delivery
+title: "CI and image delivery"
+description: "Trace the complete path from a source code commit to a running Pod: what each CI step proves, how an image digest differs from a tag, and how to connect an artifact back to the code that produced it."
 ---
 
 # CI and image delivery
 
-A delivery chain should trace source revision, validation, image build, image digest publication, and the desired manifest reference. A CI success proves its configured checks passed. It does not prove a cluster pulled the artifact, rolled it out, or served useful traffic.
+*Stage 5 · Payload Integration*
 
-## In the Payload Integration mission
+When an engineer asks "Is commit `abc1234` currently running in production?", the answer requires tracing an unbroken lineage from git history through container registries to running Pod specifications.
 
-A source change becomes a candidate release through several handoffs: validation,
-image build, artifact publication, and a manifest that names the chosen artifact.
-Keep the source revision and image digest connected so an operator can answer
-which code a booking Pod was asked to run.
+---
 
-## Evidence and limit
+## The delivery pipeline handoffs
 
-A green CI job proves its configured checks passed for a source revision. It does
-not prove that the cluster can pull the artifact or that the application serves
-correct traffic. A human-looking version tag is a label; it is immutable only
-when the registry and delivery policy make it so.
+~~~mermaid
+flowchart LR
+  Commit["Git commit\n(source revision: abc1234)"] -->|triggers| CI["CI pipeline\n(GitHub Actions / GitLab CI)"]
+  CI -->|runs| Tests["Unit tests\nLint / type check\nContainer build"]
+  CI -->|pushes| Registry["Container registry\nimage: apollo11/booking:abc1234\ndigest: sha256:..."]
+  Registry -->|referenced by| Manifest["Deployment manifest\nimage: apollo11/booking:abc1234"]
+  Manifest -->|applied by| Cluster["kube-apiserver\nnew Deployment revision"]
+  Cluster -->|kubelet pulls| Pod["booking Pod\nrunning sha256:..."]
+~~~
 
-## Follow the artifact, not just the job
+*Diagram DL-05 — four sequential handoffs: commit triggers CI, CI builds and pushes image, manifest references image, kubelet pulls and runs container.*
 
-A source change becomes a release through a chain: checks run, an image is built,
-the artifact is published, and desired configuration names what should run.
-Apollo can only explain a deployed booking when those handoffs remain connected
-to the source revision and, ideally, an image digest.
+- **1. Source revision**: Commit SHA guarantees the code snapshot tested.
+- **2. Artifact build**: Container image compiled and pushed to registry.
+- **3. Manifest reference**: Deployment updated to reference the new image artifact.
+- **4. Runtime execution**: Kubelet pulls the image digest and launches the container.
+
+---
+
+## Mutable tags vs. Immutable digests
+
+- **Image tags (e.g. `:v1.2.0` or `:latest`)**:
+  - Mutable pointers. Registries allow overwriting the same tag with a new binary.
+  - Nodes with cached images (`imagePullPolicy: IfNotPresent`) might run stale code despite tag updates.
+- **Image digests (e.g. `@sha256:e3b0c44...`)**:
+  - Cryptographically immutable hash of image content.
+  - Guarantees every node runs the exact binary compiled by CI.
+
+---
 
 ## Evidence and limits
 
-A green CI run is evidence for the checks that job actually performed. Inspect
-the published artifact and rendered reference before attributing code to a Pod.
-Then inspect image pull, rollout, and application behaviour. CI cannot prove a
-cluster pulled the image or that a passenger can complete a booking.
+- **1. Identify image running in Pod**:
+  ```bash
+  kubectl get pod -l app=booking -n apollo-airlines-apps \
+    -o jsonpath='{.items[0].spec.containers[0].image}'
+  ```
+- **2. Verify exact pulled digest**:
+  ```bash
+  kubectl get pod -l app=booking -n apollo-airlines-apps \
+    -o jsonpath='{.items[0].status.containerStatuses[0].imageID}'
+  ```
+- **3. Audit Git commit provenance**: Verify the container image short-SHA corresponds to an approved commit in git history.

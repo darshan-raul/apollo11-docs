@@ -1,33 +1,77 @@
 ---
-title: Horizontal Pod Autoscaling
+title: "Horizontal Pod Autoscaling"
+description: "Understand how the HPA controller chain works from metrics pipeline through replica recommendation to Deployment update, why resource requests determine what CPU utilization means, and what the autoscaler cannot create."
 ---
 
 # Horizontal Pod Autoscaling
 
-The metrics pipeline supplies observations; an HPA computes a desired replica recommendation and updates its target workload. CPU utilization is relative to requested CPU, so requests materially change its meaning. Missing metrics, readiness, limits, and available cluster capacity can prevent the expected result. Downscale stabilization considers recent recommendations, not a fixed sleep.
+*Stage 7 · Orbital Maneuvering*
 
-## In the Orbital Maneuvering mission
+When airline ticket sales launch, search traffic spikes tenfold. Manually adjusting replica counts is slow and reactive.
 
-The metrics pipeline supplies observations to an HPA, which computes a desired
-replica recommendation and updates its target workload. CPU utilisation is
-relative to the Pod’s requested CPU, so changing the request changes the meaning
-of the same observed use. More desired replicas still need schedulable capacity.
+A **HorizontalPodAutoscaler (HPA)** automatically adjusts Deployment replica counts based on observed CPU utilization or custom metric thresholds.
 
-## Evidence and limit
+---
 
-Inspect metrics availability, HPA conditions, recommendations, target replicas,
-and Pod scheduling. Downscale stabilization considers recent recommendations to
-avoid rapid shrinking; it is not a fixed sleep after demand falls.
+## The HPA controller feedback loop
 
-## Follow the controller chain
+~~~mermaid
+flowchart LR
+  Prom["Prometheus\ncollects CPU metrics\nvia cAdvisor + node-exporter"] --> MetricsAPI["metrics-server\nor Prometheus Adapter\nexposes metrics.k8s.io API"]
+  MetricsAPI --> HPA["HPA controller\nevaluates target utilization\ncomputes desired replicas"]
+  HPA -->|updates| Dep["Deployment\nspec.replicas = N"]
+  Dep --> RS["ReplicaSet\ncreates N Pods"]
+  RS -->|schedules on| Node["Worker node\n(must have capacity)"]
+~~~
 
-Metrics provide an observation. The HPA turns that observation into a desired
-replica recommendation and updates its target Deployment. CPU utilisation uses
-the requested CPU as its denominator, so resource requests change what the same
-usage means. New replicas still need schedulable node capacity.
+*Diagram SC-03 — the HPA reads metrics via the metrics API, evaluates target ratios, and writes updated replica targets to the Deployment.*
+
+- **1. Metrics Pipeline**: `metrics-server` aggregates container CPU and memory metrics from node kubelets.
+- **2. Recommendation Algorithm**: Evaluates current utilization against target ratio:
+  ```text
+  Desired Replicas = ceil( Current Replicas * ( Current Metric / Target Metric ) )
+  ```
+- **3. Deployment Scale**: Writes new replica values to the Deployment controller.
+
+---
+
+## Why resource requests determine autoscaling correctness
+
+HPA evaluates CPU utilization as a percentage of **requested CPU**:
+```text
+Utilization % = ( Actual CPU Usage / Requested CPU ) * 100
+```
+
+| Actual CPU | Requested CPU | Calculated Utilization | HPA reaction (Target: 80%) |
+|---|---|---|---|
+| **80m** | 100m | **80%** | Stable; no scale |
+| **80m** | 500m | **16%** | Erroneously scales *down* |
+| **80m** | 50m | **160%** | Rapidly scales *up* |
+
+> **Critical rule**: Resource requests are not optional decorations. Without accurate requests, HPA calculations are mathematically meaningless.
+
+---
+
+## Scale-down stabilization window
+
+- **Flapping hazard**: Rapidly alternating between adding and removing Pods when traffic fluctuates.
+- **Stabilization window (`stabilizationWindowSeconds: 300`)**:
+  - Remembers the highest recommended replica count over the preceding 5 minutes.
+  - Ensures Pods are not prematurely terminated during brief traffic dips.
+
+---
 
 ## Evidence and limits
 
-Inspect metric availability, HPA conditions, recommendation history, target
-replicas, Pod scheduling, and application behaviour. Downscale stabilization
-uses recent recommendations; it is not a simple timer.
+- **1. HPA operational status**: Inspect current vs. target metric values:
+  ```bash
+  kubectl get hpa search -n apollo-airlines-apps
+  ```
+- **2. Detailed evaluation events**: Review scaling decisions:
+  ```bash
+  kubectl describe hpa search -n apollo-airlines-apps
+  ```
+- **3. Watch real-time replica scaling**:
+  ```bash
+  kubectl get pods -n apollo-airlines-apps -l app=search -w
+  ```

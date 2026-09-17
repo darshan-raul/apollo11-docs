@@ -1,35 +1,80 @@
 ---
-title: Traces
+title: "Distributed traces"
+description: "Understand how a trace connects spans across Apollo's microservices, what W3C traceparent propagation requires, and why a trace is strong evidence for where time was spent but not proof of root cause."
 ---
 
-# Traces
+# Distributed traces
 
-A trace connects spans for one request across services. Propagation only works when callers pass context and receivers continue it. A conceptual booking trace must be labelled conceptual unless it uses Apollo’s actual booking calls and configured instrumentation.
+*Stage 6 · Mission Operations*
 
-## In the Mission Operations story
+A single passenger booking request cascades through multiple microservices: the frontend calls `booking`, `booking` verifies authentication with `identity`, checks seat locks in `flight`, and writes to `booking-db`. 
 
-A trace is a tree of spans for one request. Booking must pass trace context when
-it calls identity, flight, and notification, and those services must continue
-that context for the trace to connect. Without propagation, several local spans
-do not become an explanation of one passenger journey.
+When the entire call takes 8 seconds, **distributed tracing** visualizes the exact timeline of execution across all participating services.
 
-## Evidence and limit
+---
 
-A trace can show where time was observed and which calls happened in one context.
-It does not automatically establish that every dependency was represented or
-that a slow span caused the passenger-visible symptom; compare it with logs and
-metrics.
+## Anatomy of a trace: traces and spans
 
-## Carry one request across services
+~~~mermaid
+sequenceDiagram
+  participant B as booking (span)
+  participant I as identity (span)
+  participant F as flight (span)
+  participant DB as booking-db (span)
+  Note over B: Trace ID: abc123\nTotal: 680ms
+  B->>I: POST /api/auth/validate\ntrace parent: abc123-B
+  I-->>B: 200 OK (12ms)
+  B->>F: GET /api/flights?seat=14A\ntrace parent: abc123-B
+  F-->>B: 200 OK (340ms)
+  B->>DB: INSERT INTO bookings\ntrace parent: abc123-B
+  DB-->>B: OK (5ms)
+  Note over F: flight span: 340ms\nflight called flight-db: 290ms
+~~~
 
-A trace is a tree of spans for one request. When booking calls identity, flight,
-and notification, each caller must pass trace context and each receiver must
-continue it. Without that propagation, several timing records may exist without
-proving they belong to the same passenger journey.
+*Diagram OB-03 — a distributed trace correlates cross-service spans under a shared trace ID.*
+
+- **Trace**: A directed acyclic graph (DAG) representing the complete journey of a request. Identified by a unique `Trace ID`.
+- **Span**: A discrete block of time spent within one specific service or sub-operation:
+  - Carries a `Span ID`, `Parent Span ID`, start time, duration, and metadata tags (e.g. `http.status_code: 200`, `db.statement`).
+
+---
+
+## Context propagation: the W3C `traceparent` standard
+
+For spans across separate network boundaries to assemble into a single trace, services must forward HTTP context headers:
+
+- **The `traceparent` header format**:
+  ```text
+  traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+  ```
+  - `00`: Protocol version.
+  - `4bf92...`: Global Trace ID.
+  - `00f06...`: Calling Parent Span ID.
+  - `01`: Trace flags (sampling enabled).
+- **Silent failure modes**:
+  - If a service drops the header during an outgoing HTTP client call, downstream spans lose their parent link and appear as fragmented, unrelated root traces.
+
+---
+
+## The OpenTelemetry Collector architecture
+
+- **Applications**: Emit spans over OTLP (OpenTelemetry Protocol) via gRPC (`:4317`) or HTTP (`:4318`).
+- **OTel Collector DaemonSet**: Runs on each worker node to receive, batch, and compress telemetry data locally.
+- **Backend Store (Grafana Tempo)**: Receives batched traces for indexing and high-throughput query lookups.
+
+---
 
 ## Evidence and limits
 
-A trace shows where time was recorded and which instrumented calls participated.
-It does not automatically include every dependency, prove a causal root cause,
-or demonstrate that an uninstrumented error did not happen. Compare it with logs,
-metrics, and the request result.
+- **1. Extract trace ID from live request**:
+  ```bash
+  curl -v http://localhost:30082/api/bookings -d '{"flight_id":"F101"}' 2>&1 | grep -i "X-Trace-Id"
+  ```
+- **2. Query trace in Tempo API**:
+  ```bash
+  curl -s "http://localhost:3100/api/traces/<trace-id>" | jq .
+  ```
+- **3. Collector health**: Ensure OpenTelemetry collector is exporting spans:
+  ```bash
+  kubectl logs -n apollo-observability -l app=otel-collector | grep -E "Exporting|spans"
+  ```

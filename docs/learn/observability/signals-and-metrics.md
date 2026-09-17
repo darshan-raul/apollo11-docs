@@ -1,39 +1,69 @@
 ---
-title: Signals and metrics
+title: "Signals and metrics"
+description: "Understand why metrics, logs, and traces answer different questions, how counters and histograms differ, and what makes a metric actionable vs misleading."
 ---
 
 # Signals and metrics
 
-Metrics summarize numerical behavior; logs preserve discrete events; traces connect work across boundaries. Choose the signal based on the question. A counter is monotonic until reset, so rate over time is usually more meaningful than its raw value. Histograms support distributions; labels help slice data but high-cardinality labels can make storage and queries expensive.
+*Stage 6 · Mission Operations*
 
-## In the Mission Operations story
+When passengers report elevated booking latency, an average response time of 120ms hides the reality: 99% of passengers experience 50ms responses, while 1% suffer through 5-second timeouts. 
 
-Metrics answer questions about patterns: how many booking requests arrived, how
-long they took, and how often they failed. Logs preserve individual messages,
-while traces carry one request’s context across services. A counter is most
-useful as a rate over an interval because it can reset. A histogram records a
-distribution, which supports latency questions that one average would hide.
+Observability requires pairing the right signal with the right operational question.
 
-## Evidence and limit
+---
 
-Labels let you slice a metric by useful dimensions such as service or status.
-They also create series, so unbounded values such as booking IDs are dangerous
-labels. A chart is only as trustworthy as the collection and query behind it.
+## Three telemetry pillars
 
-## Start with the question
+~~~mermaid
+flowchart LR
+  Passenger["Passenger: 'My booking was slow'"] --> Metric["Metric\nIs this widespread?\nbooking_request_duration_seconds\np99 spike at 14:30"]
+  Metric --> Trace["Trace\nWhere did time go?\nflight span: 340ms"]
+  Trace --> Log["Log\nWhat happened in flight?\nERROR: db connect timeout 14:31:55"]
+  Log --> Root["Root cause:\nflight DB connection pool exhausted"]
+~~~
 
-If a passenger says booking is slow, a raw dashboard is not a diagnosis. Metrics
-help describe rate, errors, latency, and saturation across many requests. Logs
-preserve individual events. Traces connect spans for one request as it crosses
-booking, identity, flight, and notification.
+*Diagram OB-01 — metrics establish fleet scope, traces locate distributed bottlenecks, and logs surface root-cause event details.*
 
-Counters accumulate until they reset, so a rate over a window usually answers a
-traffic question better than the raw counter. Histograms retain buckets of
-observations, which makes tail latency visible in a way an average can hide.
+| Signal | Question it answers | Best used for |
+|---|---|---|
+| **Metrics** | Is the system experiencing a widespread issue? | Aggregating rates, errors, and latencies across millions of requests |
+| **Traces** | Where was latency incurred for one specific request? | Pinpointing slow microservice hops across distributed systems |
+| **Logs** | What exact error occurred in the process runtime? | Reading specific error messages, stack traces, and query failures |
+
+---
+
+## Counters vs. Histograms
+
+- **Counters (`booking_requests_total`)**:
+  - Monotonically increasing values starting from `0`.
+  - Resets to `0` when container restarts.
+  - Query as rates: `rate(booking_requests_total[5m])` (requests per second).
+- **Histograms (`booking_request_duration_seconds`)**:
+  - Samples durations into configurable buckets (`le="0.05"`, `le="0.5"`, `le="+Inf"`).
+  - Enables percentile calculations: `histogram_quantile(0.99, ...)` (p99 tail latency).
+
+---
+
+## High-cardinality label hazards
+
+- **Safe low-cardinality labels**: `status="200"`, `method="POST"`, `service="booking"`.
+- **Dangerous high-cardinality labels**: `user_id`, `booking_id`, `request_id`.
+  - *Why*: Multiplying hundreds of thousands of user IDs creates millions of distinct Prometheus time series, exhausting TSDB memory and crashing Prometheus. Put high-cardinality identifiers in logs and traces, never metric labels.
+
+---
 
 ## Evidence and limits
 
-Choose labels that describe bounded dimensions such as service or response class.
-A booking ID as a label can create an unbounded number of time series. A chart
-only supports a claim when its target was discovered, its scrape succeeded, and
-the query uses the intended time window.
+- **1. Target scrape health**: Ensure Prometheus is scraping metrics:
+  ```bash
+  kubectl get servicemonitor -n apollo-observability
+  ```
+- **2. Query live rates**: Test PromQL expressions via curl or Prometheus UI:
+  ```bash
+  rate(booking_requests_total{status="200"}[5m])
+  ```
+- **3. Check percentile latencies**: Inspect p99 latency distributions:
+  ```bash
+  histogram_quantile(0.99, sum by(le) (rate(booking_request_duration_seconds_bucket[5m])))
+  ```

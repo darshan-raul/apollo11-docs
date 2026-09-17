@@ -1,39 +1,59 @@
 ---
-title: Kustomize comparison
+title: "Kustomize and overlays"
+description: "Understand how Kustomize transforms a base object graph through overlays, how it compares to Helm's templating model, and what each approach is better suited for."
 ---
 
-# Kustomize comparison
+# Kustomize and overlays
 
-Kustomize transforms a base object graph through overlays; Helm renders parameterized templates. Compare the same object in both tools rather than making broad claims about capability. Both produce desired objects; neither observes runtime health by itself.
+*Stage 5 · Payload Integration*
 
-## In the Payload Integration mission
+Unlike Helm, which interpolates placeholders into template strings, **Kustomize** operates without templates. It starts with valid, standalone Kubernetes YAML as a base and merges environment-specific transformations through overlays.
 
-Kustomize begins with a base object graph and applies transformations for an
-environment. Helm begins with templates and values and renders an object graph.
-Both can express a booking Deployment with different image or configuration
-choices; the useful comparison is the same final object, not a broad claim that
-one tool replaces all the other’s uses.
+---
 
-## Evidence and limit
+## The Base and Overlay pattern
 
-Inspect the generated YAML and the live object after applying it. Rendering or
-transforming desired state does not reconcile drift on its own; that is the work
-of a controller such as a GitOps tool.
+~~~mermaid
+flowchart TD
+  Base["base/booking-dep.yaml\nreplicas: 1\nimage: apollo11/booking:latest"] --> KustEngine["kustomize build overlays/prod"]
+  Overlay["overlays/prod/kustomization.yaml\n+ replica-patch: replicas: 3\n+ image tag: v1.2.0"] --> KustEngine
+  KustEngine --> Result["Rendered output:\nreplicas: 3\nimage: apollo11/booking:v1.2.0"]
+  Result --> APIServer["kubectl apply -k overlays/prod"]
+~~~
 
-## Compare the same Apollo object
+*Diagram DL-02 — Kustomize merges the base manifests and overlay patches into pure YAML for the cluster.*
 
-Kustomize starts with a base object graph and applies overlays for an
-environment. Helm starts with templates and values and renders an object graph.
-For Apollo, compare the booking Deployment produced by each approach: what image,
-namespace, labels, replicas, and configuration does the final YAML request?
+- **The Base**: Contains the standard resource graph that can be directly applied without modification.
+- **The Overlays**: Target specific environments (e.g. `overlays/prod/`):
+  - Injects environment-specific replica counts.
+  - Updates container image tags.
+  - Adds common labels and namespace prefixes.
 
-This comparison keeps the focus on the object that reaches Kubernetes rather than
-on a tool’s marketing boundary. Both tools produce desired state. Neither tool
-watches the live cluster for health.
+---
+
+## Helm vs. Kustomize comparison
+
+| Architectural Aspect | Helm | Kustomize |
+|---|---|---|
+| **Underlying model** | Parameterized Go text templates | Pure YAML patch transformations |
+| **Base validity** | Chart templates are invalid standalone YAML | Base files are valid, runnable Kubernetes objects |
+| **Release tracking** | Built-in release state (`helm history`) | Relies on Git commits and GitOps controllers |
+| **Learning curve** | Higher (Go syntax, Sprig functions) | Lower (native Kubernetes patch syntax) |
+| **Ideal use case** | Reusable third-party packages | In-house microservice environment overlays |
+
+---
 
 ## Evidence and limits
 
-Save the generated output alongside the source revision used to produce it.
-Then compare it with the live object and its controller status. A clean
-transformation does not mean a rollout is safe, a referenced Secret exists, or a
-booking request works.
+- **1. Build overlay preview**: Inspect merged YAML locally:
+  ```bash
+  kubectl kustomize overlays/prod
+  ```
+- **2. Live cluster diff**: Check pending modifications before applying:
+  ```bash
+  kubectl diff -k overlays/prod -n apollo-airlines-apps
+  ```
+- **3. Apply overlay**:
+  ```bash
+  kubectl apply -k overlays/prod -n apollo-airlines-apps
+  ```

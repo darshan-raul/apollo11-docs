@@ -1,35 +1,80 @@
 ---
-title: Discovery and collection
+title: "Discovery and collection"
+description: "Understand how Prometheus discovers scrape targets through ServiceMonitors, what the collection chain looks like, and how to diagnose when a metric is missing."
 ---
 
 # Discovery and collection
 
-A ServiceMonitor describes which targets Prometheus should discover and how to scrape them. Prometheus performs the scrape. A target being discovered, a scrape succeeding, and an alert expression being meaningful are three separate pieces of evidence.
+*Stage 6 · Mission Operations*
 
-## In the Mission Operations story
+When a metric is missing from a Grafana dashboard, the failure may lie in the application code, the ServiceMonitor target definition, the Prometheus scrape loop, or the PromQL query syntax.
 
-A ServiceMonitor tells the Prometheus Operator which Services and endpoints are
-intended scrape targets and how to reach their metrics. Prometheus is the actor
-that actually performs a scrape and stores samples. This distinction makes a
-missing metric easier to investigate: discovery, target health, scrape result,
-and query are separate links.
+Investigate systematically across the four links in the collection chain.
 
-## Evidence and limit
+---
 
-Inspect selected ServiceMonitor labels, Prometheus targets, and scrape errors.
-A discovered target is not necessarily a successful scrape, and a successful
-scrape does not establish that the application emitted the metric you need.
+## The Prometheus collection pipeline
 
-## Follow the collection chain
+~~~mermaid
+flowchart LR
+  App["booking container\nExposes /metrics on :8082\nGo prometheus/client"] -->|HTTP scrape| Prom["Prometheus\n(scrapes every 30s)"]
+  SM["ServiceMonitor\nselects: app=booking\npath: /metrics\nport: http"] -->|configures| Prom
+  Prom -->|stores samples| TSDB["Prometheus TSDB\nbooking_requests_total{...}"]
+  TSDB -->|query| Grafana["Grafana dashboard\nbooking_requests_total"]
+~~~
 
-A ServiceMonitor is configuration that tells the Prometheus Operator which
-Services or endpoints should be discovered and how to scrape them. Prometheus
-then performs the scrape and stores samples. The operator describing a target
-does not mean Prometheus reached it, and a successful scrape does not mean the
-application emitted the metric an operator intended to use.
+*Diagram OB-02 — four sequential links: app exposes HTTP endpoint, ServiceMonitor targets service, Prometheus scrapes TSDB, Grafana queries.*
+
+- **1. Application exposure**: Container exposes an HTTP `/metrics` endpoint using standard Prometheus client formats.
+- **2. Target discovery**: `ServiceMonitor` custom resources match labels on the application's Kubernetes Service.
+- **3. Scrape execution**: Prometheus makes periodic HTTP requests to active endpoint IPs and commits samples to its local TSDB.
+- **4. Visualization**: Grafana executes PromQL queries against Prometheus APIs.
+
+---
+
+## ServiceMonitor anatomy and common pitfalls
+
+~~~yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: booking
+  namespace: apollo-observability
+  labels:
+    release: prometheus   # Must match Prometheus Operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: booking        # Must match labels on the booking Service
+  namespaceSelector:
+    matchNames:
+      - apollo-airlines-apps
+  endpoints:
+    - port: http          # Must match a named port in the Service spec
+      path: /metrics
+      interval: 30s
+~~~
+
+### The two most frequent configuration errors:
+- **Missing release label**: Omitting `release: prometheus` means the Prometheus Operator controller ignores the `ServiceMonitor` completely.
+- **Unmatched port name**: The `endpoints[].port` must reference the textual `name:` of the Service port (`http`), not an unmapped number.
+
+---
 
 ## Evidence and limits
 
-Check selector matching, generated target configuration, target health, scrape
-errors, and the resulting time series. Keep discovery, collection, query, and
-alert evaluation as separate steps in an incident explanation.
+Diagnose missing metrics from the inside out:
+
+- **1. Application endpoint**: Verify raw metrics output inside the Pod:
+  ```bash
+  kubectl exec -n apollo-airlines-apps deploy/booking -- curl -s http://localhost:8082/metrics | grep booking_requests_total
+  ```
+- **2. ServiceMonitor selector**: Confirm the ServiceMonitor matches the Service:
+  ```bash
+  kubectl describe servicemonitor booking -n apollo-observability
+  ```
+- **3. Prometheus Target status**: Open Prometheus UI (`kubectl port-forward -n apollo-observability svc/prometheus 9090:9090`) and check **Status → Targets** for scrape errors.
+- **4. Scrape error metrics**: Check if Prometheus is logging failures:
+  ```promql
+  up{job="booking"} == 0
+  ```

@@ -1,40 +1,71 @@
 ---
-title: GitOps and ownership
+title: "GitOps and ownership"
+description: "Understand how a GitOps controller compares Git with the live cluster, what sync and health mean independently, and why clear ownership boundaries prevent reconciliation conflicts."
 ---
 
 # GitOps and ownership
 
-A GitOps controller compares a declared source with live objects, renders as configured, computes a diff, and performs sync actions. In Argo CD, sync and health are distinct statuses. Ownership must be explicit: avoid having two controllers continuously reconcile the same fields without a defined boundary.
+*Stage 5 · Payload Integration*
 
-## In the Payload Integration mission
+Applying manual hotfixes via `kubectl set image` creates an immediate conflict with automated delivery systems. A GitOps controller will observe the divergence between Git and the live cluster and overwrite the manual hotfix on its next reconciliation cycle.
 
-A GitOps controller repeatedly compares a declared source with live cluster
-objects. It renders as configured, identifies differences, and can synchronize
-them. In Argo CD, sync tells you about that desired/live action while health
-reports a separate assessment of runtime resources. Give one controller a clear
-ownership boundary for a field or object.
+GitOps establishes **Git as the sole source of truth** for declarative cluster state.
 
-## Evidence and limit
+---
 
-Inspect the Application source, generated manifests, diff, sync status, and
-health status separately. A synced application can still be unhealthy; a healthy
-workload can still differ from a repository that has not yet been reconciled.
+## The GitOps reconciliation cycle
 
-## Who is allowed to keep changing the object?
+~~~mermaid
+flowchart LR
+  Git["Git repository\n(single source of truth)"] -->|Declares desired state| ArgoApp["Argo CD Application\nwatches the repo"]
+  ArgoApp -->|Renders| Manifests["Kubernetes manifests\n(Helm / Kustomize output)"]
+  ArgoApp -->|Computes diff| Cluster["Live cluster state"]
+  ArgoApp -->|Sync: applies diff| Cluster
+  Cluster -->|Reports health| ArgoApp
+~~~
 
-A GitOps controller repeatedly compares a declared source with live objects. It
-can render, calculate a diff, synchronize desired fields, and assess health.
-This creates a second important relationship: ownership of reconciliation. If a
-manual command, Helm, and Argo all keep writing the same fields, Apollo can
-oscillate between intentions.
+*Diagram DL-03 — Argo CD continuously reconciles Git declarations against live cluster resources.*
 
-In Argo CD, **sync** describes comparison and application of desired state;
-**health** describes the observed condition of resources. They are related and
-not interchangeable.
+- **1. Watch**: Argo CD monitors a specified Git branch for commit updates.
+- **2. Render**: Generates pure manifests using Helm or Kustomize.
+- **3. Compare**: Computes differences between desired Git YAML and live API resources.
+- **4. Synchronize**: Applies changes and reverts out-of-band cluster edits.
+
+---
+
+## Decoupling Sync Status from Health Status
+
+Argo CD separates desired-state alignment from runtime health:
+
+| Status combination | What it means | Action required |
+|---|---|---|
+| **`Synced` + `Healthy`** | Live cluster matches Git, and all workloads are green | None; normal operating state |
+| **`Synced` + `Degraded`** | Cluster matches Git, but a Pod is crashing (`CrashLoopBackOff`) | Debug the application; Git config is applied correctly |
+| **`OutOfSync` + `Healthy`** | Cluster is running healthy, but differs from Git | Merge Git changes or trigger manual sync |
+| **`OutOfSync` + `Degraded`** | Cluster differs from Git and resources are failing | Fix Git configuration and reconcile cluster |
+
+---
+
+## Resolving multi-controller ownership conflicts
+
+When multiple automation systems (e.g. HPA, manual scripts, and Argo CD) write to the same field, the cluster oscillates between intentions:
+
+- **HPA replica counts**: Use Argo CD's `ignoreDifferences` so GitOps does not override dynamic autoscaling replica values.
+- **Strict single authority**: Forbid direct cluster mutation rights; route all environment changes through Git pull requests.
+
+---
 
 ## Evidence and limits
 
-Inspect the Application source, rendered manifests, diff, sync result, health
-conditions, and the controller responsible for each object. A synced workload
-can still be unhealthy, and a healthy workload can still differ from a source
-that has not yet reconciled.
+- **1. Application sync and health check**:
+  ```bash
+  kubectl get application apollo-airlines -n argocd
+  ```
+- **2. Review live differences**:
+  ```bash
+  argocd app diff apollo-airlines
+  ```
+- **3. Trigger manual sync**:
+  ```bash
+  argocd app sync apollo-airlines
+  ```

@@ -1,34 +1,67 @@
 ---
-title: Identity and authorization
+title: "Identity and authorization"
+description: "Understand authentication, authorization, and admission as separate gates, what least-privilege RBAC requires, and why ServiceAccounts are identities rather than security guarantees."
 ---
 
 # Identity and authorization
 
-Authentication answers who made a request. Authorization decides whether that identity may perform an action. Admission runs after authentication and authorization to validate or mutate accepted requests. A ServiceAccount is a workload identity, not proof that it has least privilege. Apollo security labs remain planned; these examples are conceptual.
+*Stage 8 · Command Module (Planned Roadmap)*
 
-## In the Command Module
+When a request arrives at the Kubernetes API server, it is not evaluated by a single monolithic security check. It passes through three sequential security gates: **Authentication**, **Authorization**, and **Admission Control**.
 
-Authentication establishes which identity made a request. Authorization decides
-whether that identity may perform the requested action. Admission then evaluates
-an authorised API request before it becomes a stored object. A ServiceAccount is
-a workload identity that can be granted narrowly scoped permissions; it is not a
-statement that permissions are already minimal.
+---
 
-## Evidence and limit
+## The three API server access gates
 
-Use an identity, verb, resource, and namespace when describing an authorization
-decision. Passing one Kubernetes API permission test says nothing about network
-access, application credentials, or runtime container behaviour.
+~~~mermaid
+flowchart LR
+  Client["Client Request\n(kubectl / ServiceAccount)"] --> AuthN["1. Authentication\nWho are you?\n(x509 cert, Bearer token)"]
+  AuthN --> AuthZ["2. Authorization\nMay you do this?\n(RBAC: Role / ClusterRole)"]
+  AuthZ --> Admission["3. Admission\nIs the payload valid?\n(Validating & Mutating Webhooks)"]
+  Admission --> etcd["etcd\n(Object committed)"]
+~~~
 
-## Separate the security decisions
+*Diagram SEC-02 — three distinct checkpoints evaluate identity, permission, and object content in sequence.*
 
-Authentication identifies a caller. Authorization decides whether that identity
-may perform an action. Admission checks or mutates an API object before it is
-stored. A ServiceAccount is a workload identity that may receive permissions;
-its existence does not prove those permissions are narrow.
+- **1. Authentication (AuthN)**:
+  - Answers: *Who is making this call?*
+  - Mechanisms: X.509 client certificates, OIDC tokens, or ServiceAccount bearer tokens.
+- **2. Authorization (AuthZ)**:
+  - Answers: *Is this authenticated identity allowed to perform this verb on this resource?*
+  - Mechanisms: Role-Based Access Control (RBAC).
+- **3. Admission Control**:
+  - Answers: *Does the payload adhere to cluster-wide security policies?*
+  - Mechanisms: Pod Security Admission, Kyverno, OPA Gatekeeper.
+
+---
+
+## Least-Privilege RBAC architecture
+
+RBAC grants permissions using four core building blocks:
+
+| Scope | Permission Template | Identity Binding |
+|---|---|---|
+| **Namespaced** | **`Role`** (defines verbs + resources in namespace) | **`RoleBinding`** (attaches Role to ServiceAccount/User) |
+| **Cluster-wide** | **`ClusterRole`** (defines cluster-wide permissions) | **`ClusterRoleBinding`** (grants permissions across all namespaces) |
+
+### Anti-patterns to avoid:
+- **Binding `cluster-admin` to workloads**: Never bind full administrative rights to applications.
+- **Wildcard permissions (`verbs: ["*"]`)**: Always name explicit verbs (`["get", "list", "watch"]`).
+- **Default ServiceAccount reuse**: Each service must have its own isolated ServiceAccount so access can be granted or revoked independently.
+
+---
 
 ## Evidence and limits
 
-Name the identity, verb, resource, and namespace when explaining an authorization
-result. That result says nothing by itself about network access, application
-credentials, or runtime container behaviour.
+- **1. Test authorization rules (`kubectl auth can-i`)**:
+  ```bash
+  kubectl auth can-i create pods --as=system:serviceaccount:apollo-airlines-apps:booking -n apollo-airlines-apps
+  ```
+- **2. Inspect assigned RoleBindings**:
+  ```bash
+  kubectl get rolebindings,clusterrolebindings -n apollo-airlines-apps -o wide
+  ```
+- **3. Audit ServiceAccount permissions**:
+  ```bash
+  kubectl describe rolebinding <binding-name> -n apollo-airlines-apps
+  ```

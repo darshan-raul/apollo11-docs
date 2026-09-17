@@ -1,32 +1,72 @@
 ---
-title: NetworkPolicy
+title: "NetworkPolicy"
+description: "Understand how NetworkPolicy enforces traffic isolation, why a capable CNI is mandatory for enforcement, and how default-deny patterns secure microservice networks."
 ---
 
 # NetworkPolicy
 
-NetworkPolicy expresses allowed traffic selection. Its actual enforcement depends on a CNI that implements it. It is not an identity system, an edge firewall, or a substitute for application authorization. Test both allowed and denied paths and account for DNS and monitoring traffic.
+*Stage 8 · Command Module (Planned Roadmap)*
 
-## In the Command Module
+By default, Kubernetes networks are **flat and completely open**: any Pod in any namespace can open a TCP connection to any other Pod IP or Service across the cluster. If an attacker compromises the public-facing frontend, they can query internal databases directly.
 
-A NetworkPolicy selects Pods and declares which ingress or egress traffic is
-allowed. Enforcement depends on the CNI implementation in the cluster. It
-expresses network paths, not a user’s identity or an application’s authorization
-rules. DNS and observability traffic often need deliberate treatment too.
+A **NetworkPolicy** acts as an in-cluster packet filter, restricting network traffic between Pods based on label selectors, ports, and namespaces.
 
-## Evidence and limit
+---
 
-Test an allowed path and a denied path from the source namespace you care about.
-A policy object existing in the API does not prove that the installed CNI enforces
-it or that every indirect route is covered.
+## CNI dependency: the enforcement engine
 
-## Describe the path
+~~~mermaid
+flowchart LR
+  YAML["NetworkPolicy Object\n(Accepted by API)"] --> etcd["etcd"]
+  etcd --> CNI["CNI DaemonSet\n(Calico / Cilium / iptables / eBPF)"]
+  CNI --> Rules["Host Kernel Packet Filtering"]
+~~~
 
-A NetworkPolicy selects Pods and declares allowed ingress or egress. It is a
-network decision, not a user authorization system. DNS, metrics, and dependency
-traffic may need their own explicit paths.
+*Diagram SEC-03 — NetworkPolicy is declarative configuration stored in the API; enforcement happens only if the installed CNI contains a policy engine.*
+
+- **The CNI prerequisite**:
+  - Kubernetes provides the `networking.k8s.io/v1/NetworkPolicy` API object, but **does not enforce rules itself**.
+  - Standard `kindnet` ignores NetworkPolicies completely.
+  - A policy-capable CNI (such as **Calico** or **Cilium**) must be installed to translate policies into kernel iptables or eBPF bytecode.
+
+---
+
+## The Default-Deny security posture
+
+A hardened cluster implements zero-trust networking using a two-tier policy:
+
+- **1. Global Default-Deny**:
+  - Blocks all incoming (ingress) and outgoing (egress) traffic by default:
+  ```yaml
+  apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: default-deny-all
+    namespace: apollo-airlines-apps
+  spec:
+    podSelector: {} # Selects all Pods in namespace
+    policyTypes:
+      - Ingress
+      - Egress
+  ```
+- **2. Explicit Allow Whitelists**:
+  - Open only documented, required communication channels:
+  - *Booking $\rightarrow$ Flight*: Allow egress on port 8081.
+  - *CoreDNS*: Always explicitly permit egress to port 53 UDP/TCP on `kube-system` DNS Pods, otherwise name resolution breaks immediately.
+
+---
 
 ## Evidence and limits
 
-Enforcement depends on the installed CNI. Test an allowed request and a denied
-request from the relevant namespace; an object existing in the API is not proof
-that packets are being filtered.
+- **1. Verify CNI policy engine active**: Ensure Calico or Cilium is managing network rules:
+  ```bash
+  kubectl get pods -n calico-system
+  ```
+- **2. Test blocked path**: Attempt an unauthorized connection (should hang or reject):
+  ```bash
+  kubectl exec -n apollo-airlines-ui curl-client -- curl --connect-timeout 3 http://booking-db:5432
+  ```
+- **3. Test allowed path**: Verify authorized paths succeed:
+  ```bash
+  kubectl exec -n apollo-airlines-apps deploy/booking -- curl -s http://flight:8081/readyz
+  ```

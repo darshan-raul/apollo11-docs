@@ -1,41 +1,92 @@
 ---
-title: Rendering and Helm
+title: "Rendering and Helm"
+description: "Understand how Helm turns templates and values into the Kubernetes objects a cluster receives, what a release record is, and why reading rendered output before applying is an essential habit."
 ---
 
 # Rendering and Helm
 
-Helm renders templates and values into Kubernetes objects, then records release metadata. Rendered output is the object graph a cluster receives; a release record is Helm’s own history. A version-looking tag is not automatically immutable. Render and inspect the exact values before applying them.
+*Stage 5 · Payload Integration*
 
-## In the Payload Integration mission
+Managing duplicate Kubernetes YAML manifests across development, staging, and production environments leads to inevitable configuration drift. 
 
-Helm starts from templates and values, then renders ordinary Kubernetes objects.
-Those rendered objects are what the cluster receives. Helm also keeps a release
-record for its own history, which is useful but not the same thing as the
-resource graph itself. Read the render before apply: it reveals image references,
-names, selectors, and values that a chart abstraction can otherwise hide.
+**Helm** packages Kubernetes manifests into reusable charts, separating common structural templates from environment-specific configuration values.
 
-## Evidence and limit
+---
 
-A successful render proves templates can be expanded with those values. A
-successful release command proves Helm completed its configured action. Neither
-proves a node pulled the image, a rollout became ready, or a passenger can book.
+## Two outputs of a Helm operation
 
-## Follow one release toward the cluster
+~~~mermaid
+flowchart LR
+  Chart["Chart.yaml\n(name, version, dependencies)"] --> Helm
+  Templates["templates/booking-dep.yaml\n{{ .Values.image.tag }}\n{{ .Values.replicas }}"] --> Helm
+  ValDev["values-dev.yaml\nimage.tag: latest\nreplicas: 1"] --> Helm
+  ValProd["values-prod.yaml\nimage.tag: v1.2.0\nreplicas: 3"] --> Helm
+  Helm["Helm engine\nhelm install / upgrade"] --> RenderOutput["Rendered YAML\n(ordinary Kubernetes objects)"]
+  Helm --> ReleaseRecord["Release record\n(stored in Secret in the cluster)\nRevision: 3\nStatus: deployed"]
+  RenderOutput --> APIServer["kube-apiserver\n(receives the rendered objects)"]
+~~~
 
-Suppose Apollo changes the booking image and wants a different replica count in
-the development environment. Helm combines chart templates with values and
-renders ordinary Kubernetes objects. Those objects are the desired graph that
-the API server will receive. Helm may also store a release record describing its
-own operation; that history is useful, but it is not the running application.
+*Diagram DL-01 — Helm renders plain Kubernetes YAML for the API server and stores revision metadata in a cluster Secret.*
 
-Read rendered output before applying it. Find the image reference, names,
-selectors, namespaces, probes, and resource values. A small value change can
-alter the graph in ways a chart command hides.
+When running `helm install` or `helm upgrade`, Helm produces two distinct artifacts:
+- **1. Rendered Kubernetes manifests**: Standard YAML definitions (Deployments, Services, ConfigMaps). The Kubernetes API server accepts these objects without knowing Helm rendered them.
+- **2. Release record**: A compressed, base64-encoded Secret stored in the application namespace tracking release history, chart versions, and values for rollback auditing.
+
+---
+
+## The discipline of dry-run rendering
+
+Chart templates can generate unexpected YAML through misconfigured indentation or conditional evaluation. Always render and inspect manifests locally before applying to a live cluster:
+
+- **Render templates locally**:
+  ```bash
+  helm template apollo-dev ./stages/stage5/helm/apollo11 \
+    -f ./stages/stage5/helm/apollo11/values-dev.yaml
+  ```
+- **Audit image tags in output**:
+  ```bash
+  helm template apollo-dev ./stages/stage5/helm/apollo11 \
+    -f ./stages/stage5/helm/apollo11/values-dev.yaml | grep "image:"
+  ```
+
+---
+
+## Core template mechanics
+
+- **Value substitution**: Injecting values dynamically from values files:
+  ```yaml
+  replicas: {{ .Values.replicas }}
+  ```
+- **Conditional inclusion**: Enabling objects only in production environments:
+  ```yaml
+  {{- if .Values.pdb.enabled }}
+  apiVersion: policy/v1
+  kind: PodDisruptionBudget
+  {{- end }}
+  ```
+- **Whitespace control (`nindent`)**: Ensures multiline blocks format with valid YAML indentation:
+  ```yaml
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  ```
+
+---
 
 ## Evidence and limits
 
-A successful render proves that the templates and values produced YAML. A
-successful install or upgrade proves Helm completed its configured action.
-Deployment conditions, Pod readiness, and a passenger request are needed to
-show convergence and useful behaviour. A version-shaped image tag is not
-immutable simply because it looks like a release number.
+- **1. Template validation**: Confirm templates render without syntax errors:
+  ```bash
+  helm lint ./stages/stage5/helm/apollo11
+  ```
+- **2. Release revision history**: Inspect deployed release versions:
+  ```bash
+  helm history apollo-airlines -n apollo-airlines-apps
+  ```
+- **3. Active release status**:
+  ```bash
+  helm status apollo-airlines -n apollo-airlines-apps
+  ```
+- **4. Rollback execution**: Revert to a known good revision:
+  ```bash
+  helm rollback apollo-airlines 2 -n apollo-airlines-apps
+  ```

@@ -1,35 +1,83 @@
 ---
-title: Logs
+title: "Logs"
+description: "Understand what makes a log line useful for incident investigation, how Loki collects and indexes Apollo's structured logs, and what a log record can and cannot establish."
 ---
 
 # Logs
 
-Logs are event records emitted by applications and infrastructure. Include stable request or trace identifiers where possible, avoid secrets, and distinguish ingestion success from useful structured context. A log line can explain one event but cannot safely establish fleet-wide rate or latency.
+*Stage 6 · Mission Operations*
 
-## In the Mission Operations story
+While metrics indicate *that* an incident is occurring and traces pinpoint *where* latency is accumulating, **logs** surface the explicit application error messages, database exceptions, and contextual event details needed for root-cause diagnosis.
 
-Logs preserve individual events close to the application that observed them. A
-booking log can include a stable request or trace identifier, the operation, and
-a useful error context. Those details let an operator connect an event to a
-trace without copying credentials or personal data into a log stream.
+---
 
-## Evidence and limit
+## What distinguishes structured logs from unstructured strings
 
-A log record can explain one failure but cannot establish fleet-wide latency or
-error rate. Check that logs were collected, indexed, and connected to the
-relevant time window before drawing conclusions from their absence.
+- **Unstructured text (Hard to parse & query)**:
+  ```text
+  2024-09-18 14:32:01 ERROR booking failed for user 1234: duplicate key
+  ```
+- **Structured JSON (Queryable, indexed, and correlated)**:
+  ```json
+  {
+    "timestamp": "2024-09-18T14:32:01.423Z",
+    "level": "error",
+    "service": "booking",
+    "trace_id": "abc123traceidentifier",
+    "operation": "CreateBooking",
+    "booking_reference": "AA-2024-001234",
+    "error": "pq: duplicate key value violates unique constraint \"bookings_booking_reference_key\"",
+    "duration_ms": 45
+  }
+  ```
 
-## Give a booking event a useful shape
+### Key advantages of structured fields:
+- **Trace correlation**: Embedding `trace_id` enables jumping directly from a Tempo trace span into the exact matching log lines in Grafana.
+- **LogQL filtering**: Allows querying by specific operational codes without fragile regex matching.
 
-A booking log should help an operator locate one operation without exposing
-credentials or unnecessary passenger data. A timestamp, service, operation,
-outcome, and request or trace identifier can connect a local event to the rest of
-the investigation. Structured fields make that connection easier to query than
-a sentence that changes shape on every release.
+---
+
+## Apollo's log ingestion pipeline
+
+~~~mermaid
+flowchart LR
+  Booking["booking container\nstdout: JSON log lines"] -->|Container stdout| CRI["Container runtime\n(containerd writes to node log file)"]
+  CRI -->|Node filesystem| Alloy["Grafana Alloy\n(DaemonSet, one per node)\nDiscovery: Kubernetes pod labels"]
+  Alloy -->|Loki push API| Loki["Loki\n(log store, indexed by labels)"]
+  Loki -->|LogQL query| Grafana["Grafana Explore\napp=booking, error"]
+~~~
+
+*Diagram OB-04 — containers print to stdout; containerd captures logs to disk; Grafana Alloy discovers, annotates with Pod labels, and ships to Loki.*
+
+- **Stdout standard**: Applications print directly to standard output.
+- **Node agent**: Grafana Alloy runs as a DaemonSet, scraping container log paths on the host node.
+- **Metadata enrichment**: Alloy attaches Kubernetes metadata (`namespace`, `app`, `pod`) as stream labels before shipping to Loki.
+
+---
+
+## Log retention rules: what to log vs. what to redact
+
+- **Always include**:
+  - `trace_id` and `span_id`.
+  - Functional error reasons and exception types.
+  - Safe business identifiers (order numbers, flight codes).
+- **Never include (Security violations)**:
+  - Raw JWT tokens or passwords.
+  - Credit card numbers, CVVs, or passenger PII.
+
+---
 
 ## Evidence and limits
 
-One log line can explain what one process observed. It cannot establish fleet-wide
-error rate or prove that no other request failed. An empty search may mean the
-event never happened, collection is broken, indexing is delayed, or the query
-used the wrong identifier.
+- **1. Direct container output**: Check unbuffered application stdout:
+  ```bash
+  kubectl logs -n apollo-airlines-apps deploy/booking --tail=50
+  ```
+- **2. Query Loki via LogQL**: Filter errors in Grafana Explore:
+  ```logql
+  {app="booking", namespace="apollo-airlines-apps"} |= "error" | json | level="error"
+  ```
+- **3. Search by booking reference**:
+  ```logql
+  {app="booking"} |= "AA-2024-001234"
+  ```
