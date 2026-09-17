@@ -1,177 +1,126 @@
 ---
-title: "Cloud Appendix — Running Apollo11 on Amazon EKS"
-description: "Transition from local kind to production AWS cloud infrastructure using Terraform, Amazon EKS, AWS VPC CNI, Network Load Balancer, and EBS CSI storage."
-sidebar_label: "Cloud Appendix (Amazon EKS)"
+title: "Cloud Appendix — EKS Research Boundary"
+description: "Understand what the current EKS prototype contains, why it is not a supported lab, and how local Kubernetes concepts map to AWS."
+sidebar_label: "Cloud Appendix: EKS Boundary"
 ---
 
-# Cloud Appendix: Running Apollo11 on Amazon EKS
+# Cloud Appendix: EKS Research Boundary
 
-Everything you built and tested in **Stages 1–7** ran locally inside a `kind` cluster on your laptop.
-
-In this **Cloud Appendix**, you learn how those exact same Kubernetes manifests translate to a real public cloud provider: **Amazon Web Services (AWS)** using **Amazon Elastic Kubernetes Service (EKS)**.
-
-You will see that the application code, the 10 workloads, the StatefulSets, and the Gateway API HTTPRoutes remain **100% identical**. What changes is the underlying infrastructure platform: replacing local emulation with managed cloud services.
-
-```mermaid
-flowchart TD
-  subgraph LocalDev ["Local Development (kind)"]
-    KCluster["kind 3-Node Cluster (Docker)"]
-    KNet["kindnet CNI (Overlay Subnet)"]
-    KImages["kind load docker-image (Local Cache)"]
-    KMetalLB["MetalLB (Local L2 ARP IP)"]
-    KStorage["local-path StorageClass (Host Mount)"]
-  end
-
-  subgraph AWSCloud ["Production Cloud (Amazon EKS)"]
-    EKSCluster["EKS Managed Control Plane ($73/mo)"]
-    VPC_CNI["AWS VPC CNI (Direct VPC IP per Pod)"]
-    ECR["Amazon ECR (Private Container Registry)"]
-    NLB["AWS Network Load Balancer (Layer 4)"]
-    EBS["ebs-gp3 StorageClass (AWS EBS CSI Driver)"]
-  end
-
-  KCluster -.->|Translates to| EKSCluster
-  KNet -.->|Translates to| VPC_CNI
-  KImages -.->|Translates to| ECR
-  KMetalLB -.->|Translates to| NLB
-  KStorage -.->|Translates to| EBS
-```
-
----
-
-## ⚖️ The Translation: kind vs. AWS EKS
-
-| Component | Local Stack (`kind`) | AWS Cloud (`stages/eks`) | What Changes in Kubernetes? |
-|---|---|---|---|
-| **Control Plane** | Docker container (`kubeadm`) | Managed AWS EKS Control Plane | High availability across 3 AZs; automated etcd backups. |
-| **Worker Nodes** | Docker containers (`apollo11-worker`) | EC2 Auto Scaling Node Group (2 × `t3.small` Spot) | Real virtual machines running Amazon Linux with IAM instance profiles. |
-| **Container Images** | `docker build` + `kind load` | Amazon Elastic Container Registry (ECR) | Standard `docker tag` and `docker push` with IAM authentication. |
-| **Networking / CNI** | `kindnet` (overlay network) | **AWS VPC CNI** | Every Pod gets a **real IP address directly inside your AWS VPC subnet**! |
-| **Edge Routing** | MetalLB L2 IP (`172.18.0.50`) | **AWS Network Load Balancer (NLB)** | Provisioned automatically by the **AWS Load Balancer Controller (LBC)**. |
-| **Persistent Storage** | `local-path` StorageClass | **`ebs-gp3` StorageClass (EBS CSI Driver)** | Block storage backed by AWS Elastic Block Store (EBS). |
-
-:::important Look How Little Manifest Code Changes!
-Between Stage 3 and Stage EKS, **zero application code changes**.
-The GatewayClass, Gateway, 6 HTTPRoutes, ReferenceGrant, 4 StatefulSets, and 6 Deployments run completely unmodified!
-The only changes are:
-1. Five annotations on the `EnvoyProxy` configuration telling the AWS Load Balancer Controller to provision an NLB.
-2. Installing the `aws-ebs-csi-driver` add-on and declaring an `ebs-gp3` StorageClass.
+:::danger[Do not run the EKS scripts as a learner lab]
+The Apollo11 source repository classifies `stages/eks/` as **research input
+only**. Its README and the project roadmap record unresolved Terraform,
+routing, and teardown defects. Running it can create billable AWS resources,
+and its cleanup path is not accepted as ownership-safe. This guide therefore
+does not instruct you to execute `up.sh`, `apply-workloads.sh`, or `down.sh`.
 :::
 
----
+This boundary matters as much as any Kubernetes mechanism: an operational guide
+must distinguish checked-in code from a verified lifecycle. Launchpad through
+Stage 7 is the current runnable spine. Stage 9 will eventually rebuild the AWS
+lab from the latest hardened Helm baseline; the current prototype trails that
+baseline and ports Stage 3 workloads instead.
 
-## 💰 Cloud Economics & Cost Breakdown
+Sources:
 
-Running a cloud cluster costs real money. AWS charges for the EKS control plane by the hour regardless of cluster size.
+- `stages/eks/README.md`
+- `README.md` (the top-level current-stage status)
+- `ROADMAP.md` (Stage 9 and the migration/trust policy)
 
-*Pricing benchmarked in `us-east-1` (May 2026):*
+## What the prototype contains
 
-| Cloud Resource | Specification | Always-On Cost / Month | 2-Hour Dev Session |
-|---|---|---|---|
-| **EKS Control Plane** | Managed master nodes | $73.00 | $0.20 |
-| **Worker Nodes** | 2 × `t3.small` Spot instances | $18.25 | $0.05 |
-| **NAT Gateway** | 1 × NAT Gateway (Single AZ) | $32.85 | $0.09 |
-| **Elastic IP (EIP)** | 1 × EIP for NAT Gateway | $3.65 | $0.01 |
-| **Network Load Balancer** | 1 × Internet-facing NLB | $16.43 | $0.05 |
-| **Public IPv4 Addresses** | 2 × IPv4 for NLB interfaces | $7.20 | $0.02 |
-| **Node Root Volumes** | 2 × 20 GB gp3 root disks | $3.20 | $0.01 |
-| **StatefulSet Volumes** | 4 × 1 GB gp3 EBS volumes | $0.32 | &lt;$0.01 |
-| **Total Cost** | — | **~$156.00 / month** | **~$0.44 per 2 hours** |
+Read-only inspection of `stages/eks/` shows the intended cloud translation:
 
-:::tip The Golden Rule of Cloud Labs: Teardown Hygiene!
-Never leave an EKS cluster running overnight unless your company is paying the bill.
-The Apollo11 EKS module is engineered for **fast, reproducible lifecycle**:
-- **Spin up**: `bash scripts/up.sh` (~10 minutes).
-- **Tear down**: `bash scripts/down.sh` (~6 minutes, destroying all billable resources).
-:::
+| Local learning mechanism | EKS prototype counterpart | Source path |
+|---|---|---|
+| kind control plane and workers | Amazon EKS and managed node groups | `stages/eks/terraform/cluster/eks.tf`, `node-groups.tf` |
+| Local Docker images | Amazon ECR repositories | `stages/eks/terraform/ecr.tf` |
+| kind Docker network | AWS VPC and subnets | `stages/eks/terraform/network/vpc.tf` |
+| local-path volumes | EBS CSI-backed storage | `stages/eks/terraform/storage/storageclass.tf` |
+| MetalLB address | AWS Network Load Balancer integration | `stages/eks/terraform/gateway/` |
+| local identity | EKS Pod Identity and IAM policies | `stages/eks/terraform/cluster/pod-identity.tf`, `iam-policies.tf` |
 
----
+This table says what files attempt to model; it does **not** certify that the
+combined deployment is correct or safe to run.
 
-## ⚠️ Critical Cloud Gotchas: EBS and Availability Zones
+## General Kubernetes context: what changes in a cloud
 
-When moving from local storage to cloud storage, one critical operational difference will bite every unprepared engineer: **EBS Volumes Are Zonal!**
+The Kubernetes resource relationships remain familiar: a Deployment still
+creates ReplicaSets and Pods; a Service still selects ready Pods; a StatefulSet
+still creates PVCs. The provider implementations beneath those abstractions
+change:
 
-### The Zonal Volume Constraint
-An AWS Elastic Block Store (EBS) volume exists in **one specific Availability Zone** (e.g. `us-east-1a`).
-- It **cannot** be mounted by an EC2 instance or worker node in `us-east-1b`.
-- If Kubernetes schedules `identity-db-0` on a worker node in `us-east-1b`, but its EBS disk was provisioned in `us-east-1a`, the Pod will be stuck in `ContainerCreating` forever with the error:
-  `FailedAttachVolume: Volume is in us-east-1a, node is in us-east-1b`!
+- A `LoadBalancer` Service can ask an AWS controller to provision a real cloud
+  load balancer instead of receiving an address from MetalLB.
+- A PVC can be dynamically backed by EBS instead of kind node-local storage.
+- Pods and controllers can use AWS workload identity rather than long-lived
+  access keys.
+- Nodes, load balancers, NAT gateways, EBS volumes, and registry storage can all
+  incur cost and can outlive a failed command.
 
-### The Solution: `volumeBindingMode: WaitForFirstConsumer`
-In `stages/eks/terraform/storage/storageclass.tf`, the StorageClass is configured with:
+EBS volumes are zonal. A Pod using a bound EBS volume must run where that volume
+can attach. `volumeBindingMode: WaitForFirstConsumer` lets scheduling influence
+volume provisioning, but it does not create database replication or regional
+resilience.
 
-```yaml
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: ebs-gp3
-provisioner: ebs.csi.aws.com
-volumeBindingMode: WaitForFirstConsumer
-allowVolumeExpansion: true
-parameters:
-  type: gp3
-  encrypted: "true"
-```
+## A safe read-only investigation
 
-### Why `WaitForFirstConsumer` is vital:
-- Under the default `Immediate` binding mode, the StorageClass provisions the EBS volume as soon as the PVC is created, before the Pod is scheduled. It randomly guesses an AZ (e.g. `us-east-1a`). If the scheduler later places the Pod on a node in `us-east-1b`, the Pod deadlocks!
-- Under **`WaitForFirstConsumer`**, the StorageClass **delays volume creation** until the scheduler picks a node for the Pod. It then creates the EBS volume in the **exact same Availability Zone** where the worker node lives!
+### Objective
 
----
+Trace how the prototype expresses cluster, storage, and edge concerns without
+creating cloud resources.
 
-## 🚀 The End-to-End EKS Lifecycle
+### Starting point
 
-### Prerequisites
-Before running the cloud lab, ensure you have:
-1. An active AWS account with administrative IAM privileges.
-2. `awscli` configured with valid credentials (`aws configure`).
-3. `terraform`, `kubectl`, and `helm` installed (available automatically inside `devbox shell`).
+Use a local clone of Apollo11. AWS credentials are neither needed nor wanted
+for this investigation.
 
-### Step-by-Step Walkthrough
+### Instructions
 
 ```bash
-cd stages/eks
+cd Apollo11
 
-# 1. Verify AWS caller identity
-aws sts get-caller-identity
-
-# 2. Spin up AWS infrastructure (~10 minutes)
-# Runs Terraform to provision VPC, Subnets, NAT, EKS, NodeGroups, ECR, IAM, and Add-ons
-bash scripts/up.sh
-
-# 3. Build container images and push to Amazon ECR
-# Builds 6 images, authenticates via aws ecr get-login-password, and pushes tags
-bash scripts/apply-workloads.sh
-
-# 4. Run the comprehensive verification suite
-# Verifies NLB provisioning, Gateway routing, EBS volume binding, and app readiness
-bash scripts/verify.sh
-
-# 5. TEST USER TRAFFIC ON THE INTERNET!
-# Retrieve public DNS of the AWS Network Load Balancer
-NLB_HOSTNAME=$(kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.addresses[0].value}')
-echo "Public Gateway: ${NLB_HOSTNAME}"
-
-curl -H "Host: booking.apollo.local" "http://${NLB_HOSTNAME}/readyz"
+sed -n '1,220p' stages/eks/README.md
+sed -n '1,220p' stages/eks/terraform/storage/storageclass.tf
+sed -n '1,220p' stages/eks/terraform/cluster/pod-identity.tf
+sed -n '1,220p' stages/eks/scripts/down.sh
 ```
 
-### Clean Teardown (Stop Billing)
+### Expected result
+
+You can identify which resources would be cluster-scoped, AWS-managed, stateful,
+or billable, and you can explain why a cleanup script needs ownership-scoped
+discovery rather than broad regional deletion.
+
+### Verification
+
+Confirm the trust boundary directly:
 
 ```bash
-# 6. Destroy all cloud resources (~6 minutes)
-bash scripts/down.sh
+grep -n "research input only" stages/stage9/README.md
+grep -n "do not promote prototype scripts" ROADMAP.md
 ```
 
-`scripts/down.sh` deletes workloads first (releasing EBS volumes and load balancers), then runs `terraform destroy` to eliminate all VPCs, NAT gateways, and EC2 instances, leaving **zero billable residue**.
+### Troubleshooting
 
----
+If either phrase is absent, stop: the application repository has changed since
+this page was verified. Re-read its top-level `README.md`, `ROADMAP.md`,
+`stages/eks/README.md`, and `stages/stage9/README.md` before relying on this
+appendix.
 
-## 🏁 What You Learned
+### Concept reinforced
 
-- How local Kubernetes concepts (`kindnet`, MetalLB, `local-path`) map directly to cloud equivalents (AWS VPC CNI, NLB, EBS CSI).
-- The cost economics of managed cloud Kubernetes ($156/month vs $0.44 for a 2-hour lab).
-- Why `volumeBindingMode: WaitForFirstConsumer` is required for zonal cloud block storage like EBS.
-- How the AWS Load Balancer Controller provisions Network Load Balancers automatically based on Kubernetes Gateway API configurations.
-- The discipline of automated cloud teardown hygiene.
+Infrastructure code is evidence of intent, not evidence of a successful,
+reversible cloud lifecycle. Verification must cover provisioning, application
+behavior, failure recovery, teardown, and residual-cost auditing.
 
-👉 **Continue to [Stage 8: Command Module Hardening (Security Roadmap)](./stage-8)**
+## Before continuing
+
+You should be able to answer:
+
+1. Which Kubernetes abstractions stay the same between kind and EKS?
+2. Which provider components implement networking, storage, and identity?
+3. Why does Pod-replacement persistence not prove availability-zone recovery?
+4. Why is the current `stages/eks/` tree reference-only despite having scripts?
+
+Continue to [Stage 8: Security Enforcement Roadmap](./stage-8) for the next
+planned curriculum boundary, or return to the runnable [Stage 7 lab](./stage-7).

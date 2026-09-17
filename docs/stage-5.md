@@ -6,12 +6,21 @@ sidebar_label: "Stage 5: Packaging (Helm & GitOps)"
 
 # Stage 5: Payload Integration — Helm, Kustomize & GitOps
 
-In Stages 1–4, we authored dozens of individual Kubernetes YAML files. But in real-world engineering, maintaining raw manifests becomes unmanageable:
-- How do you deploy the exact same application to `dev` (1 replica, minimal memory), `staging` (2 replicas), and `production` (3 replicas, strict PDBs, production images) without copy-pasting hundreds of lines of YAML?
-- How do you version releases and execute instant rollbacks if a deployment fails?
-- How do you guarantee that cluster state matches what is committed to Git?
+Stages 1–4 made the resource graph visible: Deployments refer to templates,
+Services refer to labels, and databases refer to claims. Copying that graph for
+each environment creates a new failure mode—two copies that look similar but
+quietly drift apart. Stage 5 asks how the same intent can be rendered and
+tracked without hiding what Kubernetes will actually receive.
 
-In **Stage 5 (Payload Integration)**, we solve this by packaging Apollo Airlines into a **production-ready Helm chart**, contrasting it with **Kustomize overlays**, automating image delivery with **GitHub Actions CI**, and reconciling state with **Argo CD GitOps**.
+The practical questions are:
+- How do you deploy the exact same application to `dev` (1 replica, minimal memory), `staging` (2 replicas), and `production` (3 replicas, strict PDBs, production images) without copy-pasting hundreds of lines of YAML?
+- How do you version releases and restore a prior revision if an upgrade fails?
+- How do you detect and reconcile drift between cluster state and Git?
+
+In **Stage 5 (Payload Integration)**, we package Apollo Airlines into a Helm
+chart, contrast it with Kustomize overlays, inspect the repository's GitHub
+Actions CI, and reconcile state with Argo CD GitOps. These are delivery
+building blocks; the chart alone does not make the platform production-ready.
 
 ```mermaid
 flowchart TD
@@ -28,9 +37,9 @@ flowchart TD
     ArgoEng["Argo CD Controller\n(GitOps Reconciliation & Self-Healing)"]
   end
 
-  subgraph Environments ["Kubernetes Cluster Namespaces"]
-    DevNS["apollo-airlines (Dev)\n- 1 Replica per app\n- Tag: :latest\n- PDBs disabled"]
-    ProdNS["apollo-airlines (Prod)\n- 3 Replicas per app\n- Tag: :v1.0.0\n- Strict PDBs enabled"]
+  subgraph Environments ["Rendered Environment Configuration"]
+    DevNS["Dev values\n- 1 Replica per app\n- Tag: :latest\n- PDBs disabled"]
+    ProdNS["Prod values\n- 3 Replicas per app\n- Tag: :v1.0.0\n- PDBs enabled"]
   end
 
   HC --> HelmEng
@@ -58,9 +67,14 @@ By the end of this stage, you will be able to:
 
 ---
 
-## 📦 Helm: The Package Manager for Kubernetes
+## 📦 Helm has two outputs: YAML and a release record
 
-**Helm** treats a collection of related Kubernetes resources as a single versioned unit called a **Chart**.
+A **Chart** is source material: templates plus values. `helm template` renders
+that source into ordinary Kubernetes YAML without contacting the cluster.
+`helm install` or `helm upgrade` additionally sends the rendered objects to the
+API server and records a release revision. Do not collapse those two actions
+into “Helm deploys YAML”; Exercise 1 and Exercise 2 deliberately let you inspect
+the boundary.
 
 ### Chart Anatomy
 
@@ -84,13 +98,14 @@ helm/apollo11/
     └── pdb/                # PodDisruptionBudgets
 ```
 
-### Go Template Mechanics & `nindent`
+### A template is a program that emits YAML
 
 In Helm, YAML files inside `templates/` are Go-template programs evaluated against values.
 
 Let's examine how the `booking` Deployment is templated:
 
-*Source: `stages/stage5/helm/apollo11/templates/apps/booking.yaml`*
+*Source: `stages/stage5/helm/apollo11/templates/apps/booking.yaml`; abridged
+template with environment and probe blocks explicitly omitted.*
 
 ```yaml
 {{- $name := "booking" -}}
@@ -119,6 +134,7 @@ spec:
         - name: {{ $name }}
           image: "{{ .Values.image.repository }}/{{ $name }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # ...ports, environment variables, and probes omitted...
           resources:
             requests:
               cpu: {{ $tier.cpu }}
@@ -128,7 +144,12 @@ spec:
               memory: {{ $tier.memory }}
 ```
 
-### Critical Syntax Rules:
+### Trace one value to a rendered field
+
+Start with the dev value for `apps.booking.replicas`, then find
+`$appCfg.replicas` in the template, then inspect `spec.replicas` in the rendered
+Deployment. That three-step trace is more reliable than trying to mentally
+evaluate a chart from braces alone.
 
 1. **`{{-` and `-}}` (Whitespace Trimming)**:
    The hyphen strips leading or trailing whitespace. In YAML, unintended extra spaces or newlines can corrupt the indentation structure.
@@ -147,9 +168,12 @@ spec:
 
 ---
 
-## 🔧 Kustomize: Template-Free Declarative Overlays
+## 🔧 Kustomize changes an object graph after reading it
 
-While Helm uses string templating, **Kustomize** uses pure declarative composition. It starts with a base of raw Kubernetes YAML and applies structured patches.
+While Helm evaluates templates before objects exist, **Kustomize** starts from
+objects and composes transformations over them. It still produces Kubernetes
+YAML; it simply moves the variation mechanism from template expressions to an
+overlay declaration.
 
 *Source: `stages/stage5/overlays/dev/kustomization.yaml`*
 
@@ -190,9 +214,13 @@ images:
 
 ---
 
-## 🐙 GitOps with Argo CD
+## 🐙 GitOps moves reconciliation from your terminal into the cluster
 
-**GitOps** is an operational framework where **Git is the single source of truth** for your cluster's desired state.
+In earlier stages, you ran `kubectl` or Helm and then inspected the result.
+GitOps keeps the desired configuration in Git and gives a controller the job of
+performing the same desired-versus-observed comparison continuously. This is the
+same reconciliation idea from ReplicaSets at a larger scope: compare, report
+drift, and—when configured—act.
 
 Instead of human engineers running `helm install` or `kubectl apply` from their laptops, an in-cluster controller (**Argo CD**) continuously synchronizes the live cluster with Git:
 
@@ -214,13 +242,25 @@ Instead of human engineers running `helm install` or `kubectl apply` from their 
 └────────────────────────────────────────────────────────┘
 ```
 
-In `stages/stage5/argocd/`, Apollo11 defines an Argo CD `Application` that monitors the Git repository. If an engineer manually deletes a Deployment via `kubectl delete deployment booking`, Argo CD detects the drift within seconds and **automatically recreates it**!
+In `stages/stage5/argocd/`, Apollo11 defines separate Argo CD Applications.
+Dev and staging enable automated sync and self-heal with a documented drift
+window of up to three minutes; prod intentionally requires manual sync. A
+deletion in a self-healing environment is reconciled, but the same claim must
+not be made for prod.
 
 ---
 
-## 🧪 Hands-On Guided Exercises
+## 🧪 Investigations: inspect the generated request before trusting the tool
+
+Package tooling can make a large application feel like one command. Keep asking
+what that command generated, which revision it recorded, and whether a later
+controller is authorised to change live state.
 
 ### Exercise 1: Local Template Rendering with Helm
+
+**Prediction:** rendering changes files in `/tmp`, not the cluster. The booking
+Deployment in each rendered file should reveal exactly how a values file affects
+the desired replica count.
 
 - **Objective**: Inspect the rendered Kubernetes YAML generated by Helm without applying it to the cluster.
 - **Starting Point**: Terminal in the Apollo11 repository.
@@ -251,10 +291,21 @@ grep -A 10 "name: booking" /tmp/rendered-prod.yaml | grep "replicas:"
 
 - **What Concept This Reinforces**:
   `helm template` is client-side rendering. It lets you inspect every generated line of YAML before it ever touches the API server.
+- **Expected result**: Both renders succeed; booking is 1 replica in dev and 3
+  in prod.
+- **Verification command**: `helm lint` exits zero and the two grep commands
+  show their environment-specific counts.
+- **Troubleshooting hints**: If grep is ambiguous, inspect the rendered
+  Deployment by kind/name with a YAML-aware tool; text proximity is only a
+  convenient lab check.
 
 ---
 
 ### Exercise 2: Deploying Apollo Airlines with Helm
+
+**Prediction:** the API server receives normal Kubernetes objects, while Helm
+adds a release history that `kubectl apply` alone would not create. Inspect both
+the Deployment and `helm history` to see the difference.
 
 - **Objective**: Install Apollo Airlines as a Helm release and inspect its revision history.
 - **Starting Point**: Running `kind-apollo11` cluster.
@@ -274,12 +325,24 @@ helm history apollo11 -n apollo-airlines-apps
 - **Expected Result**:
   `helm list` shows `apollo11` with `STATUS: deployed` at revision `1`.
   All 10 workloads, 2 namespaces, Gateway, and MetalLB resources are active!
+- **Verification command**: `bash stages/stage5/scripts/verify.sh --mode helm`
+  runs the Helm-path contract.
+- **Troubleshooting hints**: If the release is `failed` or `pending-*`, inspect
+  `helm status`, release history, Pod events, and hook Jobs before retrying.
+- **Concept reinforced**: Helm stores a release revision that groups many
+  rendered Kubernetes resources into one upgrade/rollback unit.
 
 ---
 
-### Exercise 3: Upgrades and Automated Rollbacks
+### Exercise 3: Upgrades and Rollbacks
 
-- **Objective**: Upgrade the Helm release, trigger a simulated failure, and execute an instant rollback.
+**Prediction:** rollback does not travel back in time or undo unrelated objects.
+It renders and applies the selected recorded release configuration as a new
+revision, then the Deployment controller carries out the resulting replica
+change.
+
+- **Objective**: Upgrade the Helm release, inspect its revision history, and
+  roll back to a known prior revision.
 - **Starting Point**: Healthy Helm release from Exercise 2.
 - **Instructions**:
 
@@ -303,12 +366,24 @@ helm rollback apollo11 1 -n apollo-airlines-apps
 kubectl get deployment booking -n apollo-airlines-apps
 ```
 
-- **Expected Result**:
-  `helm rollback` instantly restores revision 1 without modifying any unrelated services!
+- **Expected Result**: Helm creates an upgrade revision and then a rollback
+  revision. The booking Deployment returns to the replica count stored in the
+  selected prior release revision; unrelated releases are unchanged.
+- **Verification command**: Wait for `deployment/booking` rollout completion and
+  confirm one Ready replica after rollback.
+- **Troubleshooting hints**: Revision numbers are release-specific. Read `helm
+  history` and roll back to the actual prior good revision rather than assuming
+  it is always `1` in a reused cluster.
+- **Concept reinforced**: Rollback creates a new release revision from stored
+  prior configuration; it does not rewind unrelated cluster state.
 
 ---
 
 ### Exercise 4: Kustomize Inspection
+
+**Prediction:** the overlay changes the rendered object graph without creating
+a Helm release. Compare the label and image in its output with the base rather
+than treating Kustomize as a second deployment controller.
 
 - **Objective**: Render and inspect Kustomize overlays.
 - **Starting Point**: Stage 5 directory.
@@ -323,6 +398,15 @@ grep -B 2 -A 5 "image: apollo11/booking:latest" /tmp/kustomize-dev.yaml
 ```
 
 Notice that Kustomize injected `labels: environment: dev` into all resources without needing a single Go template curly brace!
+
+- **Expected result**: Rendering succeeds, the booking image uses `latest`, and
+  environment labels appear in the output.
+- **Verification command**: `kubectl kustomize stages/stage5/overlays/dev >/dev/null`
+  exits zero without mutating the cluster.
+- **Troubleshooting hints**: Inspect `overlays/dev/kustomization.yaml` and its
+  referenced base if a resource or patch cannot be resolved.
+- **Concept reinforced**: Kustomize composes and patches Kubernetes objects;
+  Helm evaluates templates and records releases.
 
 ---
 

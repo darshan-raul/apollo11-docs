@@ -99,7 +99,7 @@ kubectl rollout history deployment/booking -n apollo-airlines-apps
 # Undo a failed rollout (rollback to previous stable revision)
 kubectl rollout undo deployment/booking -n apollo-airlines-apps
 
-# Trigger a zero-downtime rolling restart of all replicas
+# Request a rolling restart (availability depends on replicas, readiness, and strategy)
 kubectl rollout restart deployment/booking -n apollo-airlines-apps
 
 # Scale replicas imperatively

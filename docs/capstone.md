@@ -1,237 +1,322 @@
 ---
-title: "The Apollo11 Capstone Challenge"
-description: "A comprehensive, multi-phase operational mission testing your end-to-end Kubernetes skills grounded in Apollo Airlines."
-sidebar_label: "Capstone Challenge"
+title: "Apollo11 Core Capstone"
+description: "Deploy, inspect, stress, recover, and audit the verified Stage 7 Apollo Airlines platform."
+sidebar_label: "Core Capstone"
 ---
 
-# The Apollo11 Capstone Challenge: Flight Operations Certification
+# Apollo11 Core Capstone: Operate What Exists
 
-Congratulations on reaching the capstone! Throughout this curriculum, you built, inspected, broke, recovered, and explained individual Kubernetes concepts stage by stage.
+This capstone is not a larger verification checklist. It is one guided operator
+story: establish what the Stage 7 system claims, follow a passenger workflow,
+replace stateful and stateless pieces, observe how cache and autoscaling change
+different decisions, and finish by naming the claims the local lab cannot make.
 
-The **Apollo11 Capstone Challenge** puts everything together into a **single, continuous operational mission**. You are the Lead Platform Reliability Engineer for Apollo Airlines on launch day. You will deploy the fleet, verify its health, recover from unexpected outages, absorb traffic spikes, execute a zero-downtime rolling upgrade, and audit cluster security.
+It combines the currently verified local path: Ignition through Stage 7. It
+deliberately does not require the unimplemented security or cloud stages. Your
+final task is not to declare the platform “production-ready”; it is to explain
+which Kubernetes object or controller produced each observed outcome and to
+identify the remaining gaps.
 
----
+All commands are grounded in `stages/ignition/`, `stages/stage3/`, and
+`stages/stage7/`. Run them from the Apollo11 repository root.
 
-## 🎯 Capstone Mission Objectives
+## Mission 1: establish the system you intend to investigate
 
-```mermaid
-flowchart LR
-  M1["Phase 1: Zero-to-Live Fleet Deployment"] --> M2["Phase 2: The Flagship Booking Verification"]
-  M2 --> M3["Phase 3: Database Outage & Recovery Drill"]
-  M3 --> M4["Phase 4: Holiday Traffic Surge (HPA & Caching)"]
-  M4 --> M5["Phase 5: Zero-Downtime Rolling Upgrade"]
-  M5 --> M6["Phase 6: Security & Governance Audit"]
-```
+Before testing a failure, establish the declared baseline. The apply script
+creates desired state; it does not itself prove controllers, endpoints, or
+telemetry have converged. Treat the verifier as a broad contract check, then
+retain the live status as the baseline for later comparisons.
 
-1. **Phase 1: Zero-to-Live Fleet Deployment**: Deploy the verified, hardened Stage 7 platform on a clean kind cluster.
-2. **Phase 2: Flagship Booking Verification**: Execute an end-to-end flight booking and trace its distributed span waterfall in Grafana Tempo.
-3. **Phase 3: Database Outage & Recovery Drill**: Simulate catastrophic database pod deletion and prove persistent data survival without data loss.
-4. **Phase 4: Holiday Traffic Surge**: Generate synthetic load on flight search, verify Redis cache hits, and observe HPA scale out from 1 to 3 replicas.
-5. **Phase 5: Zero-Downtime Rolling Upgrade**: Perform a live rolling update while running background traffic, verifying zero dropped requests via PDBs and `preStop` hooks.
-6. **Phase 6: Security & Governance Audit**: Verify non-root containers, read-only root filesystems, Guaranteed QoS, and tokenless ServiceAccounts.
-
----
-
-## 🚀 Phase 1: Zero-to-Live Fleet Deployment
-
-### Objective
-Start with a clean local cluster and bring all 10 Apollo Airlines workloads, Envoy Gateway, MetalLB, and the observability stack online.
-
-### Instructions
+- **Objective**: Create the expected three-node kind cluster and deploy Stage 7
+  in its workstation-sized dev configuration.
+- **Starting point**: Docker is running; `kind`, `kubectl`, Helm, and the other
+  repository prerequisites are installed. Remove or deliberately reuse any
+  existing `apollo11` cluster before starting.
+- **Instructions**:
 
 ```bash
-cd /home/darshan/projects/Apollo11
+cd Apollo11
 
-# 1. Ensure your kind cluster is running with proper port mappings
-kind get clusters | grep -q apollo11 || kind create cluster --config stages/ignition/kind-config.yaml
+kind get clusters | grep -qx apollo11 || \
+  kind create cluster --config stages/ignition/kind-config.yaml
 kubectl config use-context kind-apollo11
 
-# 2. Deploy Stage 7 in Helm dev mode
-bash stages/stage7/scripts/apply.sh --env dev
-
-# 3. Wait for all pods across apps and observability namespaces to become Ready
-kubectl wait --for=condition=Ready pods --all -n apollo-airlines-apps --timeout=180s
-kubectl wait --for=condition=Ready pods --all -n apollo-observability --timeout=180s
+bash stages/stage7/scripts/apply.sh --mode helm --env dev
 ```
 
-### Verification Command
+- **Expected result**: Application, UI, access-stack, and observability
+  resources become ready. Dev uses one replica for each application initially,
+  HPA range 1–3 for `search`, no VPA, and no PDBs.
+- **Verification**:
 
 ```bash
-# Run the automated verification suite
-bash stages/stage7/scripts/verify.sh
+bash stages/stage7/scripts/verify.sh --mode helm --env dev
 ```
 
-**Passing Criteria**: All 211 automated checks pass with 0 failures.
+  The current source records **211/211** checks for this mode. Treat the script's
+  own final total as authoritative if that number changes.
+- **Troubleshooting**: Start with `kubectl get pods -A`, then events,
+  `describe`, logs, and endpoint behavior in that order. See the
+  [troubleshooting guide](./troubleshooting).
+- **Concept reinforced**: A successful apply starts verification; it does not
+  replace it.
 
----
+## Mission 2: follow one passenger workflow through the system
 
-## 🛫 Phase 2: Flagship Booking Verification
+The next command creates and cancels a booking. Predict the distinction between
+its two success claims: an HTTP transaction proves application behaviour, while
+the Tempo check proves that the same request context crossed service boundaries.
 
-### Objective
-Execute the multi-service reservation workflow and inspect its distributed trace.
-
-### Instructions
+- **Objective**: Execute booking and cancellation and prove that one trace
+  crosses `booking`, `identity`, `flight`, and `notification`.
+- **Starting point**: Mission 1 passes, including the observability stack.
+- **Instructions**:
 
 ```bash
-# 1. Run the end-to-end trace test script
-bash stages/stage6/scripts/trace-test.sh
+bash stages/stage7/scripts/trace-test.sh
 ```
 
-### Expected Output
-The script outputs:
-```text
-==> Authenticating user against identity service...
-==> Querying flights from flight service...
-==> Creating booking reservation...
-==> Booking successfully confirmed! Booking ID: bkg-...
-==> Trace ID: 4bf92f3577b34da6a3ce929d0e0e4736
-```
-
-### Verification in Grafana Tempo
-1. Open Grafana (`http://localhost:3000` via `kubectl port-forward svc/grafana 3000:3000 -n apollo-observability`).
-2. Navigate to **Explore** -> select **Tempo**.
-3. Search for the printed `Trace ID`.
-4. **Passing Criteria**: You observe a single unified trace containing spans from `booking` -> `identity`, `flight`, and `notification`.
-
----
-
-## 💥 Phase 3: Database Outage & Recovery Drill
-
-### Objective
-Prove that relational database state survives abrupt Pod termination.
-
-### Instructions
+- **Expected result**: The script prints progress for an in-cluster client,
+  authentication, booking, Tempo lookup, and cancellation. Its final line
+  confirms that the seat was restored and the four service names occur in one
+  trace. The script intentionally cleans up its client Pod and cancels the
+  booking; do not expect an active reservation afterward.
+- **Verification**: Record the `trace_id=... services=...` line. Optionally
+  port-forward Grafana and locate the same trace:
 
 ```bash
-# 1. Query the newly created booking from PostgreSQL
+kubectl port-forward -n apollo-observability svc/grafana 3000:3000
+```
+
+  The chart enables anonymous Viewer access for this local lab.
+- **Troubleshooting**: Inspect the temporary client error, then logs for the
+  four services, OpenTelemetry Collector, and Tempo. A trace can arrive shortly
+  after the HTTP response because export is asynchronous.
+- **Concept reinforced**: Logs describe one process; a trace preserves causal
+  context across service boundaries.
+
+## Mission 3: replace a database Pod without replacing its claim
+
+Stage 1 taught that a controller can restore a missing Pod. Stage 3 taught that
+a StatefulSet can reconnect its ordinal Pod to a PVC. This mission asks you to
+collect both pieces of evidence at once: a different Pod lifecycle and the same
+named claim.
+
+This is a minimal adaptation of the Stage 3 persistence exercise using the
+current booking schema from
+`stages/stage7/helm/apollo11/values.yaml`. The UUIDs and booking reference below
+are lab-only data, not repository seed records.
+
+- **Objective**: Prove that a Stage 7 PostgreSQL row survives database Pod
+  replacement, then remove the lab row.
+- **Starting point**: `booking-db-0` is Ready.
+- **Instructions**:
+
+```bash
+# Insert and observe a unique lab row.
 kubectl exec -n apollo-airlines-apps booking-db-0 -- \
-  psql -U postgres -d booking -c "SELECT id, status, total_price FROM bookings ORDER BY created_at DESC LIMIT 1;"
+  psql -U postgres -d booking -c "
+    INSERT INTO bookings
+      (id, booking_reference, user_id, flight_id, seat_number, status)
+    VALUES
+      ('88888888-8888-4888-8888-888888888888', 'CAPSTONE-PERSIST-1',
+       'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'LAB-1B', 'CONFIRMED');"
 
-# Record the booking ID!
-
-# 2. Kill the database Pod abruptly
-kubectl delete pod booking-db-0 -n apollo-airlines-apps --now
-
-# 3. Wait for StatefulSet self-healing
-kubectl wait --for=condition=Ready pod/booking-db-0 -n apollo-airlines-apps --timeout=60s
-
-# 4. Re-query the database for the booking ID
 kubectl exec -n apollo-airlines-apps booking-db-0 -- \
-  psql -U postgres -d booking -c "SELECT id, status, total_price FROM bookings ORDER BY created_at DESC LIMIT 1;"
+  psql -U postgres -d booking -c \
+  "SELECT booking_reference, status FROM bookings WHERE booking_reference='CAPSTONE-PERSIST-1';"
+
+# Replace only the Pod; do not delete its PVC.
+kubectl delete pod booking-db-0 -n apollo-airlines-apps
+kubectl wait --for=condition=Ready pod/booking-db-0 \
+  -n apollo-airlines-apps --timeout=120s
+
+kubectl exec -n apollo-airlines-apps booking-db-0 -- \
+  psql -U postgres -d booking -c \
+  "SELECT booking_reference, status FROM bookings WHERE booking_reference='CAPSTONE-PERSIST-1';"
+
+# Restore the seeded baseline.
+kubectl exec -n apollo-airlines-apps booking-db-0 -- \
+  psql -U postgres -d booking -c \
+  "DELETE FROM bookings WHERE booking_reference='CAPSTONE-PERSIST-1';"
 ```
 
-**Passing Criteria**: The reservation record is 100% intact, proving that the `pg-data-booking-db-0` PersistentVolumeClaim reattached seamlessly.
-
----
-
-## 📈 Phase 4: Holiday Traffic Surge (Autoscaling & Caching)
-
-### Objective
-Trigger horizontal pod autoscaling under load and verify Redis cache acceleration.
-
-### Instructions
+- **Expected result**: The row appears before and after Pod replacement, and
+  the cleanup reports one deleted row.
+- **Verification**:
 
 ```bash
-# 1. Test cache-aside headers on search
-GATEWAY_IP=$(kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.addresses[0].value}')
+kubectl get pvc pg-data-booking-db-0 -n apollo-airlines-apps
+```
 
-# First query: Cache MISS
-curl -i -H "Host: search.apollo.local" "http://${GATEWAY_IP}/api/search?origin=BOM&destination=DEL&date=2026-06-25" | grep "X-Cache"
-# Expected: X-Cache: MISS
+  The claim remains `Bound` through Pod replacement.
+- **Troubleshooting**: If PostgreSQL says the relation is absent, inspect the
+  StatefulSet, mounted PVC, and database logs before rerunning initialization.
+  Do not delete the PVC as a recovery shortcut.
+- **Concept reinforced**: This proves persistence across Pod replacement on
+  kind's node-local provisioner. It does not prove node-loss recovery, backup,
+  replication, or database high availability.
 
-# Second query: Cache HIT
-curl -i -H "Host: search.apollo.local" "http://${GATEWAY_IP}/api/search?origin=BOM&destination=DEL&date=2026-06-25" | grep "X-Cache"
-# Expected: X-Cache: HIT
+## Mission 4: separate a cache decision from a scaling decision
 
-# 2. Execute the practical scaling lab
+The first two requests ask the application whether it used Redis or `flight`.
+The scheduling lab asks controllers to react to measured CPU and node rules.
+They may occur in one platform, but they are separate mechanisms; interpret
+their evidence separately.
+
+- **Objective**: Prove cache MISS→HIT behavior, then run the repository's
+  reversible HPA and scheduling lab.
+- **Starting point**: Stage 7 is healthy and metrics-server returns `kubectl
+  top nodes` data.
+- **Instructions**:
+
+```bash
+GATEWAY_IP=$(kubectl get gateway apollo-gateway \
+  -n apollo-airlines-apps -o jsonpath='{.status.addresses[0].value}')
+CACHE_DATE=$(date -u +%F)
+SEARCH_URL="http://${GATEWAY_IP}/api/search?origin=BOM&destination=SIN&date=${CACHE_DATE}"
+
+curl -i -H "Host: search.apollo.local" "$SEARCH_URL" | grep -i x-cache
+curl -i -H "Host: search.apollo.local" "$SEARCH_URL" | grep -i x-cache
+
 bash stages/stage7/scripts/scaling-lab.sh run
 ```
 
-**Passing Criteria**:
-- `search` service scales from 1 replica up to 3 replicas under load.
-- Replicas are distributed across `apollo11-worker` and `apollo11-worker2` according to `topologySpreadConstraints`.
-- Replicas cleanly contract back to baseline after traffic ceases.
-
----
-
-## 🔄 Phase 5: Zero-Downtime Rolling Upgrade
-
-### Objective
-Upgrade the `booking` service to a simulated new release without dropping a single user request.
-
-### Instructions
+- **Expected result**: The repeated request changes from `MISS` to `HIT`. The
+  script temporarily lowers the HPA threshold, produces real HTTP load, proves
+  scale-out above the dev minimum, observes placement across at least two
+  workers, returns to the minimum, and restores its changes.
+- **Verification**:
 
 ```bash
-# 1. In Terminal 1, launch a continuous traffic loop
-while true; do
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: booking.apollo.local" "http://${GATEWAY_IP}/readyz")
-  if [ "$STATUS" -ne 200 ]; then
-    echo "OUTAGE DETECTED! HTTP Status: $STATUS"
-    exit 1
-  fi
-  sleep 0.2
-done
+kubectl get hpa search-hpa -n apollo-airlines-apps
+kubectl get nodes --show-labels | grep 'apollo11.io/search-pool' || \
+  echo "temporary search-pool label removed"
+```
 
-# 2. In Terminal 2, trigger a rolling update with restart
+- **Troubleshooting**: If load fails to scale, inspect `kubectl top pods`, HPA
+  conditions, and `FailedGetResourceMetric` events. If interrupted, run
+  `bash stages/stage7/scripts/scaling-lab.sh cleanup`.
+- **Concept reinforced**: Caching changes work per request; HPA changes replica
+  count from measured load; scheduling policy decides placement. They solve
+  different problems.
+
+## Mission 5: observe a rollout without overclaiming availability
+
+Dev starts `booking` with one replica and no PDB. Scale it to two for this
+experiment, and remember that PDBs govern voluntary evictions—not Deployment
+rolling-update availability.
+
+This is an observation, not a “zero downtime” proof. The request sampler gives
+you a bounded local result. Its timestamps become useful only when compared with
+the Deployment, endpoint, Gateway, and application evidence if a request fails.
+
+- **Objective**: Observe a Deployment rolling restart under bounded traffic and
+  record whether the local run returns any non-200 readiness responses.
+- **Starting point**: `GATEWAY_IP` is still set from Mission 4.
+- **Instructions**:
+
+In terminal 1:
+
+```bash
+failures=0
+for request in $(seq 1 150); do
+  status=$(curl -sS -o /dev/null -w '%{http_code}' \
+    -H 'Host: booking.apollo.local' \
+    "http://${GATEWAY_IP}/healthz/ready" || true)
+  if [ "$status" != 200 ]; then
+    failures=$((failures + 1))
+    printf 'request=%s status=%s\n' "$request" "${status:-curl-error}"
+  fi
+  sleep 0.1
+done
+printf 'non_200=%s\n' "$failures"
+```
+
+In terminal 2, while that loop runs:
+
+```bash
+kubectl scale deployment/booking -n apollo-airlines-apps --replicas=2
+kubectl rollout status deployment/booking -n apollo-airlines-apps --timeout=120s
 kubectl rollout restart deployment/booking -n apollo-airlines-apps
+kubectl rollout status deployment/booking -n apollo-airlines-apps --timeout=120s
+kubectl get pods -n apollo-airlines-apps -l app=booking -o wide
 
-# 3. Watch rollout status
-kubectl rollout status deployment/booking -n apollo-airlines-apps
+# Restore the dev value after the observation.
+kubectl scale deployment/booking -n apollo-airlines-apps --replicas=1
 ```
 
-**Passing Criteria**:
-The continuous curl loop in Terminal 1 experiences **zero non-200 responses**!
-This proves that:
-1. `lifecycle.preStop` (`sleep 5`) allowed Envoy Gateway to deregister retiring pods.
-2. `srv.Shutdown()` drained in-flight requests cleanly.
-3. `readinessProbe` prevented new pods from receiving traffic before they were fully initialized.
-4. `booking-pdb` guaranteed at least 1 healthy replica was online at all times.
+- **Expected result**: The Deployment replaces Pods gradually and returns to
+  Available. A zero value is the desired local observation, not a universal
+  guarantee.
+- **Verification**: Keep the `non_200` count and rollout output as evidence.
+- **Troubleshooting**: For any failure, correlate its timestamp with Pod
+  readiness, events, Envoy logs, and booking logs. Do not hide failures with
+  `|| true` outside the request sampler.
+- **Concept reinforced**: Readiness and rolling strategy protect traffic during
+  updates. The dev environment has no PDB, and the Stage 7 chart does not define
+  the Stage 4 `preStop` hook, so neither may be credited for this result.
 
----
+## Mission 6: distinguish demonstrated controls from planned controls
 
-## 🛡️ Phase 6: Security & Governance Audit
+The final audit is part of operating a real system. A resource setting is not a
+property you inherit forever from an earlier stage. Inspect the Stage 7 rendered
+workload, state exactly what it proves, and leave planned Stage 8 controls as
+gaps rather than assumptions.
 
-### Objective
-Verify that the cluster adheres to production security and governance baselines.
-
-### Instructions
+- **Objective**: Verify what Stage 7 actually configures and explicitly record
+  what remains for Stage 8.
+- **Starting point**: The cluster is healthy after Mission 5.
+- **Instructions and verification**:
 
 ```bash
-# 1. Verify Guaranteed QoS on all application pods
-kubectl get pods -n apollo-airlines-apps -o custom-columns='NAME:.metadata.name,QOS:.status.qosClass'
+# The Stage 7 verifier checks equal CPU/memory requests and limits on the
+# ten application/data workloads. Inspect their live Pod QoS classes.
+kubectl get pods -n apollo-airlines-apps -l 'tier in (public,data)' \
+  -o custom-columns='NAME:.metadata.name,QOS:.status.qosClass'
+kubectl get pods -n apollo-airlines-ui \
+  -o custom-columns='NAME:.metadata.name,QOS:.status.qosClass'
 
-# 2. Verify all ServiceAccounts have token automount disabled
-for sa in $(kubectl get sa -n apollo-airlines-apps -o jsonpath='{.items[*].metadata.name}'); do
-  AUTOMOUNT=$(kubectl get sa "$sa" -n apollo-airlines-apps -o jsonpath='{.automountServiceAccountToken}')
-  if [ "$AUTOMOUNT" != "false" ]; then
-    echo "SECURITY VIOLATION: SA $sa has automount enabled!"
-  fi
-done
-echo "ServiceAccount audit complete: All tokens disabled."
+# Dev intentionally has no application PDBs.
+kubectl get pdb -A
 
-# 3. Verify read-only filesystem enforcement
-kubectl exec -n apollo-airlines-apps deploy/booking -- touch /hacked.txt 2>&1 | grep "Read-only file system"
+# Audit the ServiceAccount and Pod template fields instead of assuming them.
+kubectl get serviceaccount booking -n apollo-airlines-apps -o yaml
+kubectl get deployment booking -n apollo-airlines-apps -o yaml | \
+  grep -E 'automountServiceAccountToken|runAsNonRoot|readOnlyRootFilesystem|seccompProfile' || \
+  echo 'planned Stage 8 hardening fields are not present on this Deployment'
 ```
 
-**Passing Criteria**:
-- Every pod reports `QOS: Guaranteed`.
-- All ServiceAccounts report `automountServiceAccountToken: false`.
-- Touch attempt on `/hacked.txt` fails with `Read-only file system`.
+- **Expected result**: The ten charted workloads use equal requests and limits,
+  but the Stage 7 snapshot does not prove the planned Stage 8 token, security
+  context, NetworkPolicy enforcement, external-secret, or admission controls.
+- **Troubleshooting**: Avoid broad statements such as “all Pods are
+  Guaranteed”; add-on and temporary Pods can have different QoS. Always state
+  the selector and workload set you inspected.
+- **Concept reinforced**: An audit reports both controls and gaps. Security
+  properties do not automatically carry forward from an earlier stage.
 
----
+## Cleanup and final explanation
 
-## 🎓 Certification Complete!
+Teardown is another desired-state change. The script removes the Stage 7
+release and its generated resources; the final namespace query is evidence of
+what remains. Before you run it, preserve any observations you want to explain.
 
-If you completed all 6 phases and passed every verification check:
-You have earned your **Apollo11 Kubernetes Flight Certification**!
+```bash
+bash stages/stage7/scripts/teardown.sh --mode helm --env dev --purge
+kubectl get namespace apollo-airlines-apps apollo-airlines-ui apollo-observability
+```
 
-You have demonstrated mastery over:
-- Deployments, ReplicaSets, and Pod lifecycle.
-- CoreDNS, EndpointSlices, and Envoy Gateway API.
-- StatefulSets, PersistentVolumeClaims, and StorageClasses.
-- Liveness/Readiness probes, Guaranteed QoS, and graceful SIGTERM drains.
-- Helm packaging, multi-environment values, and Kustomize.
-- Prometheus metrics, PromQL SLOs, and OpenTelemetry distributed tracing.
-- HPA v2 autoscaling, Redis cache-aside, and node scheduling governance.
+The namespace query should return `NotFound`. Before calling the capstone
+complete, explain:
 
-Refer back to the [Command Reference](./command-reference), [Troubleshooting Guide](./troubleshooting), and [Glossary](./glossary) whenever you deploy Kubernetes in your future missions!
+1. Which controller recreated each deleted Pod?
+2. Which resource kept database bytes across Pod replacement?
+3. How did Service readiness, cache state, and HPA metrics affect different
+   runtime decisions?
+4. Which Stage 7 security claims were proven, and which were absent?
+5. Why is the platform production-shaped but not production-ready?
+
+Keep the [command reference](./command-reference),
+[troubleshooting guide](./troubleshooting), and [glossary](./glossary) nearby.

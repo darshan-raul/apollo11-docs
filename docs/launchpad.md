@@ -6,9 +6,17 @@ sidebar_label: "Launchpad (Docker Compose)"
 
 # Launchpad: Container Foundations with Docker Compose
 
-Before introducing Kubernetes and its complex control plane abstractions, you must build a solid, concrete mental model of what a container actually is.
+Before Kubernetes can be useful, it helps to feel the problem it is going to
+solve. Start with Apollo Airlines on one laptop. The application is already
+distributed: `booking` needs other services and databases, but Docker Compose
+still gives us one machine, one network boundary, and one operator at a
+terminal.
 
-In **Launchpad**, you deploy the complete 10-component Apollo Airlines application on your laptop using **Docker** and **Docker Compose**. You will inspect container namespaces, trace DNS calls across a private bridge network, watch how database failures propagate through readiness checks, and prove volume persistence.
+In this chapter you will not yet “learn Kubernetes commands.” You will learn
+what a running application is made of: a process, an image filesystem, a network
+identity, dependencies, and data. Those facts remain true when the process
+later lives in a Pod. Kubernetes adds a way to declare and coordinate them; it
+does not make them disappear.
 
 ---
 
@@ -25,11 +33,15 @@ By the end of this stage, you will be able to:
 
 ---
 
-## 📦 Concepts: Images, Containers, and Linux Primitives
+## 📦 First question: what are we actually running?
 
 ### What Is a Container? (Containers vs. Virtual Machines)
 
-A common misconception is that *"a container is a lightweight virtual machine."* It is not.
+A browser can open Apollo Airlines, but the browser is not talking to “a
+container” in the abstract. It is ultimately talking to a normal process. The
+useful question is what makes that process feel separate from the host and from
+the other nine processes. A common misconception is that a container is a
+lightweight virtual machine. It is not.
 
 In a **Virtual Machine (VM)**:
 - A hypervisor (such as KVM, VMware, or Hyper-V) slices physical hardware into virtualized CPU, memory, disks, and network cards.
@@ -82,7 +94,11 @@ In a **Container**:
 └────────────────────────────────────────────────────────┘
 ```
 
-Because containers share the host kernel, they start in milliseconds and incur virtually zero CPU or memory virtualization overhead.
+Because containers share the host kernel, they usually start with less overhead
+than a full VM. The important practical consequence for this guide is simpler:
+a container is replaceable process state. If it needs durable data, stable
+network reachability, or supervision, those needs must be provided explicitly.
+You will watch all three needs surface in Apollo Airlines.
 
 ---
 
@@ -111,7 +127,12 @@ EXPOSE 8082
 ENTRYPOINT ["/app/booking"]
 ```
 
-### Key Engineering Principles Observed Here:
+### Read this Dockerfile as a story of two environments
+
+The first image is a workshop: it contains a compiler and source code so Docker
+can produce `booking`. The second image is the thing that will actually run.
+That separation answers two different questions: *how do we build it?* and
+*what must be present when it serves a request?*
 
 1. **Multi-Stage Builds**:
    - The build stage uses `golang:1.22-alpine` containing the Go compiler, SDK, and Git (~300 MB).
@@ -120,21 +141,28 @@ ENTRYPOINT ["/app/booking"]
 2. **Layer Caching Optimization**:
    - `COPY go.mod go.sum ./` is executed **before** `COPY . .`.
    - Docker caches image layers. If you edit Go source code in `main.go`, Docker reuses the cached layer from `go mod download`. It only re-runs dependency downloads when dependencies change.
-3. **Non-Root Execution (`USER appuser`)**:
-   - By default, containers run as `root` (UID 0). If an attacker escapes a container running as root, they are root on the host machine.
-   - Apollo11 creates `appuser` (UID 1000) and switches to it before launching the process.
+3. **Non-root execution (`USER appuser`)**:
+   - The runtime process has UID 1000 inside the container rather than UID 0.
+     That reduces what a compromised process can do *inside that container*.
+   - It is one layer of defense, not a promise that a container escape grants or
+     prevents host access. Launchpad later adds a read-only root filesystem and
+     dropped Linux capabilities around the same process.
 
 ---
 
 ## 📜 Docker Compose: Multi-Container Coordination
 
-Running 10 containers individually with `docker run` commands would require pages of manual shell commands, port mappings, volume attachments, and IP arguments.
-
-**Docker Compose** is a declarative tool that lets you describe a multi-container application in a single YAML file (`docker-compose.yml`).
+Running ten containers one by one would make the relationships easy to lose:
+which database belongs to which service, which port is public, and which data
+must outlive a container. **Docker Compose** records those relationships in one
+file. It is our first example of configuration that describes a desired local
+arrangement rather than a sequence of shell commands.
 
 Let's examine how the `booking` service and its database are defined:
 
-*Source: `stages/launchpad/docker-compose.yml`*
+*Source: `stages/launchpad/docker-compose.yml`; exact `booking`, `booking-db`,
+network, and volume excerpts are assembled below, with unrelated services
+omitted.*
 
 ```yaml
 services:
@@ -197,6 +225,8 @@ services:
     networks:
       - apollo-airlines
 
+# ...other Apollo Airlines services and named volumes are omitted...
+
 networks:
   apollo-airlines:
     driver: bridge
@@ -205,27 +235,37 @@ volumes:
   booking-db-data:
 ```
 
-### Deep Dive into the Compose Fields:
+### Follow the relationships, not the YAML order
+
+The `booking` section does not run “before” `booking-db` because it appears
+above it. Instead, it declares several relationships Docker must honor when it
+creates containers. Read the fields with one request in mind: what does booking
+need in order to turn an HTTP request into a reservation?
 
 - **`networks: [apollo-airlines]`**:
   Docker creates an isolated software bridge network. Inside this network, Docker runs an internal DNS resolver at `127.0.0.11`. Any container can resolve peer containers by their service name (e.g. `booking` resolves `booking-db`, `flight`, `identity`, and `notification`).
 - **`ports: ["8082:8082"]`**:
   Host port forwarding (`host_port:container_port`). It binds port `8082` on your laptop's network interface and forwards incoming packets through `iptables` / Docker proxy into the container's private port `8082`.
-  :::important Host Ports vs Internal DNS
-  `booking` calls `http://flight:8081` using internal Docker DNS. It must **never** call `http://localhost:8081`, because `localhost` inside a container resolves to that container's own network namespace!
-  :::
+:::important[Host Ports vs Internal DNS]
+`booking` calls `http://flight:8081` using internal Docker DNS. It must **never** call `http://localhost:8081`, because `localhost` inside a container resolves to that container's own network namespace!
+:::
 - **`read_only: true` and `tmpfs: [/tmp]`**:
   The container root filesystem is mounted as read-only. Even if an attacker compromises the process, they cannot overwrite system binaries or install malware on the filesystem. Any temporary file creation (such as buffering or PID files) is restricted to an in-memory `tmpfs` mounted at `/tmp`.
 - **`cap_drop: [ALL]` and `no-new-privileges:true`**:
   Drops all default Linux kernel capabilities (such as `CAP_NET_RAW`, `CAP_SYS_ADMIN`), and prevents child processes from elevating privileges using setuid binaries.
 - **`depends_on: { condition: service_healthy }`**:
-  Ensures `booking` will not start until `booking-db`, `flight`, `identity`, and `notification` pass their healthchecks.
+  Controls Compose startup ordering: it waits for the listed dependencies to
+  report healthy before starting `booking`. It does not keep checking those
+  dependencies for the lifetime of `booking`. Exercise 3 makes that limitation
+  visible: a later database failure can make a running process unready.
 
 ---
 
 ## 🌐 Network Boundaries: Browser vs. Backend Microservices
 
 Notice how the `frontend` service is configured in `docker-compose.yml`:
+
+*Source: `stages/launchpad/docker-compose.yml` (abridged `frontend` service)*
 
 ```yaml
 frontend:
@@ -279,15 +319,22 @@ frontend:
 1. **Frontend JavaScript runs inside your browser**, which executes on your laptop's host operating system. Your browser cannot resolve Docker's private bridge network DNS (`http://booking`). It must access APIs via published host ports (`http://localhost:8082`).
 2. **Backend microservices run inside Docker containers**. When `booking` wants to talk to `flight`, it sends packets directly across the `apollo-airlines` bridge network using Docker's internal DNS resolver: `http://flight:8081`.
 
-:::warning Vite Environment Variables are Public
+:::warning[Vite Environment Variables are Public]
 Vite environment variables starting with `VITE_*` are compiled directly into the frontend static JavaScript bundle at build time. Anyone who opens the browser's Developer Tools can inspect them. Never put passwords, database connection strings, or signing keys into `VITE_*` variables!
 :::
 
 ---
 
-## 🩺 Health vs. Readiness: The Two Invariants
+## 🩺 A process can be alive and still be unable to help
 
-Apollo Airlines microservices implement three standardized HTTP endpoints:
+Now imagine that `flight-db` stops after `flight` has started. The `flight`
+process may still accept TCP connections and answer a simple “are you alive?”
+request, yet it cannot answer a customer asking for flights. Treating both
+states as one boolean causes bad recovery decisions. Apollo Airlines exposes
+separate endpoints so an operator can tell the difference.
+
+*Sources: the service implementations under `stages/launchpad/code/` and
+`stages/launchpad/docker-compose.yml`.*
 
 1. **`/healthz` (Vitality / Liveness)**:
    - *"Is the container process alive, responsive, and not deadlocked?"*
@@ -303,11 +350,18 @@ Apollo Airlines microservices implement three standardized HTTP endpoints:
 
 ---
 
-## 🧪 Hands-On Guided Exercises
+## 🧪 Investigations
 
-Let's start the application and put our mental model to the test.
+Each investigation asks one question. Read that question before running the
+commands; make a prediction first. Dynamic details such as container IDs, IPs,
+and timing will differ on your machine. The relationship being tested should
+not.
 
 ### Exercise 1: Build and Launch Apollo Airlines
+
+**Question:** When Compose says the stack is up, which evidence tells us that
+the application processes and their declared health checks have actually
+settled?
 
 - **Objective**: Build all images, launch the multi-container network, and verify running services.
 - **Starting Point**: Terminal inside the Apollo11 repository.
@@ -341,10 +395,16 @@ Expected output for each:
 
 - **Troubleshooting Hints**:
   If a container exits immediately with `variable not set`, ensure you copied `.env.example` to `.env`. Compose uses bash-style parameter expansion (`${VAR:?error}`) to prevent running with empty credentials.
+- **Concept reinforced**: An image is the build artifact; a container is one
+  runtime instance wired to ports, environment, networks, and storage.
 
 ---
 
 ### Exercise 2: Inspecting Bridge Networking and DNS
+
+**Prediction:** `booking` can resolve `flight` because both containers belong
+to Docker's bridge network, while your host shell cannot use that same short
+name. Test that difference rather than taking it on faith.
 
 - **Objective**: Prove how containers resolve peer services and inspect Docker's network namespace.
 - **Starting Point**: Apollo Airlines containers running from Exercise 1.
@@ -363,12 +423,21 @@ docker compose exec booking wget -qO- http://flight:8081/healthz
 
 - **Expected Result**:
   `getent hosts` prints private bridge IPs (e.g. `172.x.x.x`) for each service name. `wget` to `http://flight:8081/healthz` returns `{"status":"ok"}`.
+- **Verification command**: `docker compose exec booking getent hosts
+  booking-db` must return an address attached to the inspected Compose network.
+- **Troubleshooting hints**: Compose derives the default network prefix from
+  the directory/project name. If `launchpad_apollo-airlines` is absent, run
+  `docker network ls` and inspect the network reported by `docker compose ps`.
 - **What Concept This Reinforces**:
   Service discovery in Docker Compose is handled entirely by embedded DNS on the bridge network. No external discovery service or Consul agent is needed.
 
 ---
 
 ### Exercise 3: Dependency Cascading & Readiness Propagation
+
+**Prediction:** stopping `flight-db` should not necessarily kill the `flight`
+container. Instead, the useful signal is that `flight` cannot perform its job,
+and services that depend on it may report the same problem.
 
 - **Objective**: Break a database dependency and observe how readiness fails without crashing the application process.
 - **Starting Point**: Healthy running cluster.
@@ -401,12 +470,22 @@ docker compose start flight-db
 curl --retry 10 --retry-all-errors --fail -i http://localhost:8081/readyz
 ```
 
+- **Verification command**: Repeat all three `/readyz` calls and confirm they
+  return to HTTP 200 after `flight-db` is healthy.
+- **Troubleshooting hints**: If readiness stays down, inspect `docker compose
+  ps` and `docker compose logs flight-db flight search booking`; database
+  recovery and downstream retry loops can take several probe intervals.
+
 - **What Concept This Reinforces**:
   Readiness is separate from liveness. Killing a service because its database went offline causes a "thundering herd" of restart loops. Proper readiness allows the service to pause traffic ingestion and automatically recover the moment the dependency is restored.
 
 ---
 
 ### Exercise 4: Testing Volume Persistence vs. Container Deletion
+
+**Prediction:** a named volume belongs to Docker, not to the short-lived
+`identity-db` container. Removing containers without `-v` therefore differs
+from deleting the volume itself.
 
 - **Objective**: Prove the difference between container memory/disk and Docker named volumes.
 - **Starting Point**: Database initialized and seeded.
@@ -428,12 +507,23 @@ docker compose exec identity-db psql -U postgres -d identity -c "SELECT email FR
 
 - **Expected Result**:
   The user record is preserved! The named volume `launchpad_identity-db-data` was untouched.
+- **Verification command**: `docker volume inspect
+  launchpad_identity-db-data` should succeed before and after `docker compose
+  down`.
+- **Troubleshooting hints**: If the volume name differs, inspect `docker volume
+  ls`; a custom Compose project name changes the generated prefix.
+- **Concept reinforced**: Removing containers does not remove named volumes
+  unless cleanup explicitly requests volume deletion.
 - **Destructive Test**:
   If you run `docker compose down -v`, the `-v` flag instructs Docker to **destroy all attached named volumes**. Subsequent startup would recreate clean, empty databases.
 
 ---
 
 ### Exercise 5: Security Context & Read-Only Root Filesystem
+
+**Prediction:** the `booking` process needs a place for temporary writes but
+does not need to change its application binary. The result should show that
+these are different filesystem locations with different rules.
 
 - **Objective**: Verify that application containers cannot write to their root filesystem.
 - **Starting Point**: Running containers.
@@ -450,12 +540,17 @@ docker compose exec booking touch /tmp/valid-scratch.txt && echo "Success in /tm
 - **Expected Result**:
   Command 1 fails with `touch: /app/hacked.txt: Read-only file system`.
   Command 2 succeeds because `/tmp` is mounted as a writable `tmpfs`.
+- **Verification command**: `docker compose exec booking ls -l
+  /tmp/valid-scratch.txt` shows the allowed scratch file.
+- **Troubleshooting hints**: If writing `/app` succeeds, inspect the resolved
+  model with `docker compose config` and confirm `read_only: true` belongs to
+  the `booking` service.
 - **What Concept This Reinforces**:
   Immutable, read-only root filesystems protect workloads against accidental file pollution and attackers attempting to drop binaries or modify configuration files at runtime.
 
 ---
 
-## 🛑 Why Docker Compose Is Not Enough for Production
+## 🛑 The question Compose leaves open
 
 You have seen Docker Compose run all 10 services cleanly on one computer. So why do we need Kubernetes?
 

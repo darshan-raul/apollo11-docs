@@ -6,15 +6,23 @@ sidebar_label: "Troubleshooting Bible"
 
 # The Apollo11 Kubernetes Troubleshooting Bible
 
-When something breaks in a Kubernetes cluster, beginners often waste hours randomly deleting pods, editing YAML files without understanding, or rebuilding images.
+When something breaks, begin with the question you are trying to answer—not a
+favoured command. A `Pending` Pod is a scheduling question; an empty
+EndpointSlice is a selector or readiness question; a returned `503` can be an
+edge, Service, or application question. Deleting a Pod before knowing which one
+it is can erase the evidence that distinguishes them.
 
-This guide provides a **systematic, evidence-first diagnostic methodology** grounded in real issues encountered while operating Apollo Airlines.
+This guide helps you turn a symptom into a testable explanation using the
+objects and runtime signals that Apollo Airlines actually exposes.
 
 ---
 
 ## 🪜 The Golden Rule: The 5-Rung Evidence Ladder
 
-Whenever you observe an anomaly, **stop and climb the evidence ladder in order**:
+Use these scopes to choose the next useful observation. They are not mandatory
+steps to run blindly: skip directly to the rung that can answer your current
+question, but do not use a later rung as a substitute for earlier missing
+evidence.
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐

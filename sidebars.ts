@@ -32,7 +32,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Cloud & Future Missions',
+      label: 'Research Boundaries & Roadmap',
       collapsed: true,
       items: [
         'eks',

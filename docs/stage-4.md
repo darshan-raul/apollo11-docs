@@ -6,9 +6,15 @@ sidebar_label: "Stage 4: Flight Control (Reliability)"
 
 # Stage 4: Flight Control — Reliability, Lifecycle & Governance
 
-In Stages 1–3, we established running workloads, edge networking via Envoy Gateway, and persistent database storage with StatefulSets.
+Stages 1–3 taught the cluster to create workloads, route to ready endpoints,
+and reattach local persistent data. Those controls still leave a harder
+operational question: when a process is slow, unhealthy, overloaded, or being
+replaced, what action is safe? Restarting a Pod can repair one failure and make
+another worse.
 
-In **Stage 4 (Flight Control)**, we transform our cluster into a production-grade, highly reliable, and self-healing platform. We teach Kubernetes how to manage the complete lifecycle of our containers:
+Stage 4 gives the cluster more precise signals and limits. These controls make
+the local platform more resilient, but they are not a production-availability
+guarantee:
 - Knowing when an application is booting (`startupProbe`), when it has deadlocked (`livenessProbe`), and when downstream failures should pause traffic (`readinessProbe`).
 - Preventing dropped in-flight user requests during rollouts using **graceful SIGTERM drains and `preStop` hooks**.
 - Guaranteeing node resources using **Guaranteed Quality of Service (QoS)**.
@@ -47,13 +53,17 @@ By the end of this stage, you will be able to:
 3. Understand Kubernetes **resource requests and limits**, and why setting `requests == limits` achieves **Guaranteed QoS**.
 4. Use **`PriorityClass`** to ensure mission-critical services survive node resource starvation.
 5. Distribute replicas evenly across physical nodes using **`topologySpreadConstraints`**.
-6. Enforce zero-downtime cluster maintenance using **`PodDisruptionBudget`** and the Kubernetes Eviction API.
+6. Constrain voluntary disruptions using **`PodDisruptionBudget`** and the Kubernetes Eviction API.
 
 ---
 
-## 🩺 The Three Health Probes
+## 🩺 Three questions that must not share one answer
 
-In Launchpad, we learned that a running process is not necessarily a healthy process. In Kubernetes, the node's **kubelet** uses three distinct probes to govern container lifecycle:
+Launchpad showed that a process can remain alive while its database dependency
+is unusable. Kubernetes makes the distinction actionable, but only when we ask
+the kubelet the right question. A probe is not a general “health score”: each
+one grants the kubelet different authority over the container and Service
+endpoint.
 
 | Probe Type | Question It Answers | What Kubelet Does on Failure | Apollo11 Endpoint |
 |---|---|---|---|
@@ -61,27 +71,38 @@ In Launchpad, we learned that a running process is not necessarily a healthy pro
 | **`livenessProbe`** | *"Is the application process deadlocked or broken internally?"* | **Kills and restarts the container** (increments `restartCount`). | `/healthz/live` |
 | **`readinessProbe`** | *"Can the application serve user traffic and talk to its database?"* | **Removes Pod IP from Service Endpoints** (process is NOT killed). | `/healthz/ready` |
 
-### The Startup vs. Liveness Trap
+### What the kubelet changes after each answer
 Imagine a Java or Python application that takes 45 seconds to compile caches and initialize database connection pools on startup.
 - If you only configure a `livenessProbe` with a 15-second initial delay, the kubelet will check the app at second 15, see a timeout, conclude the app is deadlocked, and **kill the container**!
 - The container restarts, begins booting, gets killed again at second 15, and enters `CrashLoopBackOff`.
 - **The Solution**: Configure a `startupProbe` with `failureThreshold: 6` and `periodSeconds: 5` (a 30-second window). The kubelet disables liveness checks until the startup probe succeeds!
 
-### Why Readiness Failures Must Not Restart Containers
+### Why readiness failure is a routing signal, not a repair command
 If `booking-db` goes down, `booking`'s `/healthz/ready` probe fails.
 - If you made this a *liveness* check, Kubernetes would reboot `booking` repeatedly. Rebooting `booking` will not fix `booking-db`! It only causes CPU churn and destroys connection state.
-- Because it is a *readiness* probe, the kubelet leaves the `booking` process running, but immediately removes its IP from Envoy Gateway. As soon as `booking-db` returns, the readiness probe passes and traffic resumes instantly!
+- Because it is a *readiness* probe, the kubelet leaves the `booking` process
+  running. Kubernetes marks the Pod unready, and its endpoint becomes
+  ineligible for ordinary Service traffic after that state propagates. When
+  `booking-db` returns and the probe passes again, the endpoint becomes eligible
+  without restarting the application.
 
 ---
 
-## ⏱️ Graceful Termination: SIGTERM, Drains & `preStop`
+## ⏱️ Termination is a race between routing and work already in flight
 
-When a Pod is terminated (during a deployment, rolling update, or node drain), what actually happens?
+When a Pod is terminated during a rollout or voluntary eviction, multiple actors
+react asynchronously. Kubernetes starts withdrawing the endpoint, the kubelet
+runs lifecycle hooks, and the application decides what to do when it receives
+SIGTERM. No single line of YAML produces a seamless request; the mechanism is a
+coordinated attempt to reduce the race window.
 
 ### The Race Condition
 1. The API server marks the Pod `Terminating` and informs the EndpointSlice controller to remove its IP address.
 2. At the exact same moment, the kubelet sends a `SIGTERM` signal to the container process.
-3. **The Problem**: Propagating the endpoint removal to every node's `kube-proxy` (iptables) and Envoy Gateway takes 1 to 3 seconds across a cluster. If the application process catches `SIGTERM` and immediately closes its TCP port, incoming requests that were already in flight or routed by Envoy will receive `502 Bad Gateway` or `Connection Refused`!
+3. **The Problem**: Endpoint readiness and routing updates are asynchronous.
+   During propagation, an in-flight or newly routed request can still reach a
+   terminating Pod. Closing the listener too early can therefore produce a
+   failed request; no fixed propagation time is guaranteed by these manifests.
 
 ### The Solution: `preStop` Hook + Graceful Shutdown
 In `booking-dep.yaml`, we solve this with two coordinated mechanisms:
@@ -100,7 +121,9 @@ In `booking-dep.yaml`, we solve this with two coordinated mechanisms:
 ```
 
 1. **`lifecycle.preStop` (`sleep 5`)**:
-   The kubelet runs this hook *before* sending `SIGTERM`. While the container sleeps for 5 seconds, Envoy Gateway removes the Pod from its active load-balancing pool. No new user requests are sent to this Pod.
+   The kubelet runs this hook *before* sending `SIGTERM`. The delay gives
+   endpoint and proxy updates time to propagate; it reduces, rather than proves
+   the elimination of, new traffic to this Pod.
 2. **`SIGTERM` Handling in Application Code**:
    In `stages/stage4/code/booking/main.go`, the Go application listens for `syscall.SIGTERM`:
    ```go
@@ -118,9 +141,11 @@ In `booking-dep.yaml`, we solve this with two coordinated mechanisms:
 
 ---
 
-## ⚖️ Resource Governance: Requests, Limits & Guaranteed QoS
+## ⚖️ Scheduling intent and runtime limits are different promises
 
-In Kubernetes, you govern hardware resources (CPU and Memory) by specifying **requests** and **limits**:
+The scheduler needs to decide whether a Pod can fit before the container starts.
+The kernel needs rules after it starts. Requests and limits serve those distinct
+moments, even when Stage 4 deliberately makes their values equal.
 - **`requests`**: The amount of CPU and memory that the kube-scheduler **guarantees** to reserve on a node for that Pod. If a node does not have enough unallocated requests, the Pod cannot be scheduled there.
 - **`limits`**: The maximum ceiling the container is allowed to consume.
   - **CPU (Compressible)**: If a container exceeds its CPU limit, the Linux kernel cgroup **throttles** its CPU shares. The container runs slower, but is not killed.
@@ -166,7 +191,7 @@ In Stage 4, **all 10 Apollo Airlines workloads are configured for Guaranteed QoS
 
 ---
 
-## 🎯 PriorityClasses & Topology Spread
+## 🎯 When there is not enough room, state the trade-offs
 
 ### 1. `PriorityClass`
 Under extreme cluster load, if high-priority pods must be scheduled on a full node, Kubernetes can **preempt** (evict) lower-priority pods.
@@ -180,7 +205,7 @@ metadata:
   name: apollo-airlines-app-critical
 value: 1000000
 globalDefault: false
-description: "Mission-critical revenue services: booking and search"
+description: "Apollo Airlines app-critical pods (booking, search)."
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -188,15 +213,21 @@ metadata:
   name: apollo-airlines-app-low
 value: -100000
 globalDefault: false
-description: "Background non-blocking services: notification"
+description: "Apollo Airlines app-low pods (notification)."
 ```
 
-In `booking-dep.yaml`, we set `priorityClassName: apollo-airlines-app-critical`. If the cluster runs out of resources, background notification workers will be preempted before revenue-generating booking APIs are touched!
+In `booking-dep.yaml`, `booking` uses
+`priorityClassName: apollo-airlines-app-critical`, while notification uses the
+low class. If a high-priority Pod is pending and no node has enough resources,
+the scheduler may preempt eligible lower-priority Pods to make room. Priority
+does not prevent every form of disruption or guarantee booking availability.
 
 ### 2. `topologySpreadConstraints`
 In a multi-node cluster, what happens if the scheduler accidentally places both replicas of `booking` on `apollo11-worker`? If that single physical worker machine fails, the entire booking API is offline!
 
 In Stage 4, Deployments enforce multi-node distribution:
+
+*Source: `stages/stage4/k8s/apps/booking/booking-dep.yaml` (Pod-spec excerpt)*
 
 ```yaml
       topologySpreadConstraints:
@@ -209,13 +240,19 @@ In Stage 4, Deployments enforce multi-node distribution:
 ```
 
 - **`topologyKey: kubernetes.io/hostname`**: Evaluates spreading across individual worker nodes.
-- **`maxSkew: 1`**: The difference in replica count between any two nodes cannot exceed 1. This guarantees our 2 booking replicas are placed on separate worker nodes (`apollo11-worker` and `apollo11-worker2`)!
+- **`maxSkew: 1`**: The scheduler prefers a difference of no more than one
+  replica across eligible hostnames. Because `whenUnsatisfiable` is
+  `ScheduleAnyway`, this is a soft availability preference, not a guarantee;
+  inspect the `NODE` column to see the placement your cluster achieved.
 
 ---
 
-## 🛡️ PodDisruptionBudgets (PDB) & The Eviction API
+## 🛡️ A PDB limits one category of disruption
 
-When an administrator runs `kubectl drain <node>` to perform a node OS upgrade, Kubernetes calls the **Eviction API** (`/api/v1/namespaces/.../pods/.../eviction`).
+When an administrator uses the Eviction API—for example through `kubectl drain`
+in a maintenance workflow—the API server can consult a
+**PodDisruptionBudget**. This is different from a node crash or a container
+OOMKill: a PDB only constrains voluntary eviction.
 
 A **`PodDisruptionBudget`** (PDB) sets a binding contract on how many voluntary disruptions can occur simultaneously:
 
@@ -240,9 +277,18 @@ With 2 replicas and `minAvailable: 1`:
 
 ---
 
-## 🧪 Hands-On Guided Exercises
+## 🧪 Investigations: ask which component has authority to act
+
+For each experiment, name the actor before you run it. Probe results are acted
+on by the kubelet; scheduling rules are considered by the scheduler; PDBs are
+considered by the Eviction API. Seeing a Pod change state is useful only after
+you know which mechanism was allowed to cause that change.
 
 ### Exercise 1: Deploy Stage 4 & Inspect Governance
+
+**Prediction:** equal CPU and memory requests/limits explain the QoS class, but
+they do not force the scheduler to place replicas on separate nodes. The
+topology rule is a separate, soft preference in this stage.
 
 - **Objective**: Apply Stage 4 and verify probes, QoS classes, and topology distribution.
 - **Starting Point**: Running `kind-apollo11` cluster.
@@ -265,11 +311,24 @@ kubectl get pods -n apollo-airlines-apps -l app=booking -o jsonpath='{.items[*].
 kubectl get pods -n apollo-airlines-apps -l app=booking -o wide
 ```
 
-Notice the `NODE` column: one replica is on `apollo11-worker`, and the other is on `apollo11-worker2`!
+- **Expected result**: Probe fields and Guaranteed QoS are visible. With the
+  normal three-node lab, the scheduler will usually spread booking replicas;
+  record the actual `NODE` column because `ScheduleAnyway` makes this a soft
+  preference.
+- **Verification command**: Run `bash stages/stage4/scripts/verify.sh`; the
+  current source records 148 checks.
+- **Troubleshooting hints**: If Pods co-locate, inspect scheduler events and
+  eligible-node resources before assuming the topology rule is broken.
+- **Concept reinforced**: Probes, resources, priority, and topology are separate
+  inputs to kubelet and scheduler decisions.
 
 ---
 
 ### Exercise 2: Graceful SIGTERM Shutdown & Log Observation
+
+**Prediction:** the Pod replacement proves Deployment reconciliation; the
+termination log helps explain the old process's shutdown path. Neither signal by
+itself proves that no request could have failed during the transition.
 
 - **Objective**: Terminate a Pod and observe graceful drain in action.
 - **Starting Point**: Stage 4 running.
@@ -294,9 +353,24 @@ kubectl delete pod -n apollo-airlines-apps "$BOOKING_POD" --wait=false
   ```
   The process cleanly closes database connections and drains in-flight requests before exiting. Kill the log stream with `kill $LOG_PID`.
 
+- **Verification command**: Confirm the Deployment returns to two Ready
+  replicas with `kubectl rollout status deployment/booking -n
+  apollo-airlines-apps`.
+- **Troubleshooting hints**: If the log follower ends before showing the signal
+  message, use `kubectl logs -n apollo-airlines-apps "$BOOKING_POD"` while the
+  terminated Pod still exists, and inspect termination state and events.
+- **Concept reinforced**: `preStop`, SIGTERM handling, the grace period, and
+  readiness propagation cooperate during termination; none alone proves
+  zero-downtime behavior.
+
 ---
 
 ### Exercise 3: Testing the Eviction API & PDB Violations
+
+**Prediction:** the second eviction is rejected only while the PDB observes too
+few available booking Pods. If the first replacement becomes Ready quickly, the
+same request can become allowed—this is a live availability calculation, not a
+permanent lock.
 
 - **Objective**: Use the raw Kubernetes Eviction API to verify that `booking-pdb` blocks concurrent disruptions.
 - **Starting Point**: Two healthy `booking` pods running.
@@ -325,17 +399,27 @@ EOF
 - **Expected Result for Step 3**:
   `Error from server (TooManyRequests): Cannot evict pod as it would violate the pod disruption budget.`
 - **What Concept This Reinforces**:
-  `PodDisruptionBudgets` strictly enforce application availability contracts during voluntary operations (like cluster upgrades and node drains), preventing engineers from accidentally taking down a production fleet.
+  `PodDisruptionBudgets` constrain voluntary disruptions such as eviction and
+  node drain. They do not prevent crashes, guarantee capacity, or repair an
+  unhealthy workload.
+- **Verification command**: Watch `kubectl get pdb booking-pdb -n
+  apollo-airlines-apps -w` until `ALLOWED DISRUPTIONS` returns to 1.
+- **Troubleshooting hints**: This experiment is timing-sensitive. If the
+  replacement becomes Ready before the second request, the second eviction may
+  be allowed; repeat only after restoring two healthy replicas and watching the
+  budget transition.
 
 ---
 
 ## 🏁 What You Learned
 
 - How `startupProbe`, `livenessProbe`, and `readinessProbe` fulfill distinct operational roles.
-- Why combining `lifecycle.preStop` hooks with graceful SIGTERM signal handling eliminates dropped requests during rollouts.
+- How `lifecycle.preStop` hooks and graceful SIGTERM handling reduce the risk of
+  dropped requests during termination.
 - How setting equal CPU and memory requests/limits grants Pods **Guaranteed QoS** and maximum eviction resistance.
 - How `PriorityClass` protects mission-critical workloads under node starvation.
-- How `topologySpreadConstraints` eliminates single-node failure risks.
+- How `topologySpreadConstraints` express placement preferences or requirements;
+  Stage 4 uses the soft `ScheduleAnyway` form.
 - How `PodDisruptionBudget` prevents node drains and upgrades from violating availability SLOs.
 
 ---
@@ -348,6 +432,7 @@ Before moving to Stage 5, verify:
 3. What combination of resource settings gives a Pod `Guaranteed` QoS?
 4. What error does `kubectl` return when an eviction violates a `PodDisruptionBudget`?
 
-Now that our workloads are hardened, resilient, and governed, let's learn how to package and manage them across environments using Helm, Kustomize, and GitOps!
+Now that the reliability and governance mechanisms are observable, learn how
+to package and manage them across environments with Helm, Kustomize, and GitOps.
 
 👉 **Continue to [Stage 5: Payload Integration (Helm, Kustomize & GitOps)](./stage-5)**

@@ -6,9 +6,16 @@ sidebar_label: "Flight Plan & Overview"
 
 # Apollo11: The Learner's Flight Plan
 
-Welcome to **Apollo11**, a hands-on, progressive curriculum designed to take you from *"what is a container?"* to operating a resilient, observable, multi-service platform on Kubernetes.
+Welcome to **Apollo11**. You are going to operate one application—Apollo
+Airlines—and use the questions it raises to learn Kubernetes. We begin where a
+developer normally begins: with containers that work on one machine. Each later
+stage exists because that earlier arrangement has a specific limitation.
 
-Rather than teaching Kubernetes through isolated, toy examples ("hello-world" nginx pods or single-file guestbooks), this entire guide is grounded in a real-world, cloud-native microservice application: **Apollo Airlines**.
+This is deliberately not a tour of Kubernetes nouns. When you meet a
+Deployment, Service, PVC, or HPA, you will first meet the Apollo Airlines
+problem that makes it necessary. Then you will inspect the object, watch the
+cluster act on it, and learn what evidence to gather when the result is not what
+you expected.
 
 ---
 
@@ -33,7 +40,12 @@ You only need:
 
 ## 🛫 The Application: Apollo Airlines
 
-**Apollo Airlines** is a complete, distributed flight reservation platform. It consists of **6 application microservices** and **4 backing infrastructure components**:
+**Apollo Airlines** is a distributed flight reservation platform. Its ten
+application and data workloads are small enough to inspect, yet connected enough
+that changing one component has visible consequences elsewhere.
+
+*Sources: `stages/launchpad/docker-compose.yml` and the service directories
+under `stages/launchpad/code/`.*
 
 ```mermaid
 flowchart TD
@@ -102,9 +114,12 @@ flowchart TD
 > [!NOTE]
 > Launchpad also includes **Dozzle** (`:8085`), a lightweight container log viewer. It is diagnostic tooling for the local Docker Compose environment, not an application microservice.
 
-### The Flagship Booking Workflow
+### Start with one passenger action
 
-To understand distributed microservices and tracing, follow the **Flagship Workflow**: creating a flight booking. A single click in the browser triggers a sequence spanning four backend services and multiple datastores:
+The booking workflow is our running thread. A passenger does not see its
+internal hops; they see either a confirmation or an error. You will learn to
+follow the hidden route below, first through Docker Compose and later through
+Kubernetes networking, health checks, storage, and traces.
 
 ```
 [Browser Frontend]
@@ -121,25 +136,47 @@ To understand distributed microservices and tracing, follow the **Flagship Workf
         └──(5) POST /api/notifications (Publish Event)──► [Notification Service] ──► [Redis]
 ```
 
-When something breaks along this path (such as `flight-db` failing or network latency spiking), you will observe how readiness checks propagate, how probes react, how distributed traces isolate the bottleneck, and how Kubernetes maintains system stability.
+At this point, do not try to memorise every arrow. Notice one important fact:
+`booking` depends on `identity`, `flight`, `booking-db`, and `notification` to
+complete one request. That dependency chain is why a process being *alive* is
+not enough to say that it is ready for traffic. Launchpad lets you see that
+distinction before Kubernetes adds its own readiness and routing machinery.
 
 ---
 
 ## 🎯 Why Kubernetes? The Problem Space
 
-In [Launchpad](./launchpad), you run all 10 containers on your laptop using Docker Compose. Docker Compose is fantastic for local development, but consider what happens when running in production:
+In [Launchpad](./launchpad), Compose gives every component a name, a network,
+and—where configured—a local restart policy. That is useful, and it is not a
+failure of Compose. The question changes when the application needs to live
+across several machines and remain understandable while pieces are replaced.
 
-1. **Self-Healing & Supervised Restarts**: If a service crashes or deadlocks, who restarts it? What if the whole machine dies? Docker Compose on a single VM dies with the VM. Kubernetes supervises processes across a fleet of physical or virtual worker nodes.
-2. **Reconciliation vs. Scripting**: In Docker Compose, you run an imperative command (`docker compose up`). If a container terminates 3 hours later, Compose doesn't automatically reconcile your cluster back to desired state. Kubernetes constantly compares **observed state** with **desired state** in an infinite reconciliation control loop.
-3. **Traffic Gating via Readiness**: If `flight` is starting up and loading schemas, Docker will blindly route traffic to its published port as soon as the container process starts, returning `502 Bad Gateway` to users. Kubernetes **Readiness Probes** prevent traffic from hitting a Pod until the application explicitly confirms it is ready to serve.
-4. **Zero-Downtime Rolling Updates**: How do you deploy version 2 without dropping customer requests? Kubernetes Deployments orchestrate rolling updates with configurable surge and unavailability limits (`maxSurge`, `maxUnavailable`).
-5. **Stateful vs. Stateless Workloads**: Stateless web servers can be created and destroyed freely. Databases need stable network names, ordered deployment, and sticky persistent disks that reattach after crashes. Kubernetes provides `StatefulSets` and `PersistentVolumeClaims` to solve this exact problem.
+Kubernetes adds a shared API for declaring the state you want. Controllers read
+that declaration and continually create, replace, or update objects to move the
+cluster toward it. That model gives us several new questions to investigate:
+
+1. If `booking` disappears, where is the desired replica count recorded, and
+   which controller notices the gap?
+2. If a replacement Pod has a different address, how can `search` still find
+   `flight` without learning that address?
+3. If `flight` starts before its database is usable, how can routing wait for
+   real application readiness rather than merely an open process?
+4. If a database Pod is replaced, which data follows the Pod and which data is
+   lost with it?
+5. If demand changes, which measurements may safely influence replica count?
+
+The stages answer these questions in order. They also make the boundary clear:
+a three-node kind cluster is a learning lab, not proof of production
+availability.
 
 ---
 
 ## 🗺️ Curriculum Structure & Navigation
 
-The curriculum is structured into **13 progressive stages**, plus comprehensive appendices and reference guides:
+The curriculum describes **13 named phases**, but only Launchpad through Stage
+7 are currently implemented and verified as the runnable local path. The cloud
+appendix and Stages 8–11 document explicit research or roadmap boundaries; they
+are not extra hands-on stages to run after Stage 7.
 
 ```mermaid
 flowchart TD
@@ -189,35 +226,29 @@ flowchart TD
 | [**Stage 5**](./stage-5) | Payload Integration | Helm charts (`values.yaml`, templates), Kustomize overlays (dev/prod), GitHub Actions CI, Argo CD GitOps | `stages/stage5/` |
 | [**Stage 6**](./stage-6) | Mission Operations | Prometheus Operator, `ServiceMonitor`, PromQL, OpenTelemetry distributed tracing, Tempo, Loki, Grafana | `stages/stage6/` |
 | [**Stage 7**](./stage-7) | Orbital Maneuvering | Redis cache-aside (`X-Cache`), Horizontal Pod Autoscaler (HPA v2), Vertical Pod Autoscaler (VPA), Taints/Affinity | `stages/stage7/` |
-| [**Cloud EKS**](./eks) | AWS EKS Prototype | Terraform IaC, AWS VPC, NLB, EBS CSI driver, IAM Pod Identity, cloud cost hygiene | `stages/eks/` |
-| [**Stage 8**](./stage-8) | Security Hardening | *Roadmap*: Least-privilege RBAC, Pod Security Admission (PSA), Calico NetworkPolicies, Vault / ESO | `stages/stage8/` |
+| [**Cloud EKS**](./eks) | EKS Research Boundary | *Reference only*: inspect the untrusted prototype and cloud translation without provisioning it | `stages/eks/` |
+| [**Stage 8**](./stage-8) | Security Hardening | *Planned; no current implementation*: least-privilege RBAC, Pod Security Admission, Calico NetworkPolicies, Vault / ESO | `ROADMAP.md` |
 | [**Stage 9**](./stage-9) | Lunar Orbit: Cloud | *Roadmap*: Multi-AZ EKS lifecycle, automated cert-manager TLS, Velero backup/restore, zero-downtime upgrades | `stages/stage9/` |
 | [**Stage 10**](./stage-10) | Mission Extensions | *Optional*: Linkerd Service Mesh, Argo Rollouts progressive canary, Ephemeral debug containers, Chaos Mesh | `stages/stage10/` |
 | [**Stage 11**](./stage-11) | Towards Mars | *Optional*: Custom Resource Definitions (CRD) & Controllers, KEDA event autoscaling, k3s homelab, Backstage | `stages/stage11/` |
-| [**Capstone**](./capstone) | Capstone Challenge | End-to-end mission synthesizing deployment, scaling, failure recovery, and observability | `docs/capstone.md` |
+| [**Capstone**](./capstone) | Core Capstone | Verified Stage 7 deployment, tracing, persistence, scaling, rollout observation, gap audit, and cleanup | `docs/capstone.md` |
 | [**Troubleshooting**](./troubleshooting) | Diagnostic Bible | Systematic diagnostic trees for `CrashLoopBackOff`, `ImagePullBackOff`, `Pending PVC`, and network issues | `docs/troubleshooting.md` |
 | [**Command Cheat Sheet**](./command-reference) | Command Reference | Curated `kubectl`, `kind`, `helm`, and `docker` commands organized by task | `docs/command-reference.md` |
 | [**Glossary**](./glossary) | Kubernetes Glossary | Plain-language, technically precise definitions of all Kubernetes terminology used in Apollo11 | `docs/glossary.md` |
 
 ---
 
-## 🔬 The 5-Step Learner Loop
+## 🔬 How to work through this guide
 
-Every stage in this guide follows the **Learner Contract**:
+Treat the commands as instruments, not incantations. Before a command changes
+anything, the text will tell you the question it is meant to answer. Pause and
+predict the result. Afterwards, compare what you saw with the explanation—then
+consider what a different result would mean.
 
-```
- ┌───────────┐      ┌─────────────┐      ┌───────────┐      ┌─────────────┐      ┌─────────────┐
- │  1. BUILD │ ───► │ 2. INSPECT  │ ───► │  3. BREAK │ ───► │ 4. RECOVER  │ ───► │ 5. EXPLAIN  │
- └───────────┘      └─────────────┘      └───────────┘      └─────────────┘      └─────────────┘
-  Apply the next     Gather proof         Break one key      Diagnose and fix     Articulate the
-  capability         it works             dependency         using evidence       exact mechanism
-```
-
-1. **BUILD**: Apply the stage's manifests or run the automated deployment script (`apply.sh`).
-2. **INSPECT**: Collect hard evidence that the resource was created and is behaving as intended. Do not assume success just because the CLI returned exit code 0.
-3. **BREAK**: Intentionally inject a real-world failure (kill a database, break a label selector, exhaust CPU limits, trigger an invalid image tag).
-4. **RECOVER**: Use the diagnostic evidence ladder to pinpoint the failure and restore system operation.
-5. **EXPLAIN**: Articulate in plain English *why* Kubernetes reacted the way it did.
+Some investigations deliberately break a safe, local part of the system. Those
+experiments are always followed by recovery steps. The point is not to prove
+that a command has an expected output; it is to see which Kubernetes component
+noticed a mismatch, what it changed, and what it could not protect.
 
 ---
 
@@ -245,26 +276,33 @@ When something goes wrong in a Kubernetes cluster, beginners often resort to ran
 
 ---
 
-## 📖 The 4-Pass YAML Reading Habit
+## 📖 Read a manifest as a set of relationships
 
-Kubernetes manifests can be intimidatingly long. Never read a YAML manifest from top to bottom like a novel. Always inspect it in **Four Deliberate Passes**:
+Kubernetes YAML is not a script that runs from top to bottom. It is a request
+to the API server: “make this named object true.” Read it by asking what it
+claims, who acts on that claim, and what other objects must agree with it:
 
-1. **Pass 1 — Identity**:
+1. **Identity**:
    - What API group and version is this? (`apiVersion: apps/v1`)
    - What kind of object is it? (`kind: Deployment`)
    - What is its name and namespace? (`metadata.name: booking`, `metadata.namespace: apollo-airlines-apps`)
-2. **Pass 2 — Ownership & Contracts**:
+2. **Ownership and contracts**:
    - What labels are attached? (`metadata.labels: app=booking`)
    - What selector does the controller use? (`spec.selector.matchLabels: app=booking`)
    - Does the selector match the Pod template label?
-3. **Pass 3 — Runtime Specification**:
+3. **Runtime specification**:
    - What container images and ports are declared?
    - What environment variables are injected?
    - What probes (`startupProbe`, `livenessProbe`, `readinessProbe`) and resource limits are configured?
-4. **Pass 4 — Relationships & Dependencies**:
+4. **Relationships and dependencies**:
    - Which ServiceAccount does it use?
    - Which ConfigMaps or Secrets are referenced?
    - What PersistentVolumeClaims or Volumes are mounted?
+
+For example, a Deployment selector and its Pod-template labels are not two
+unrelated fields: together they tell the Deployment which Pods it owns. A
+Service selector is another contract over labels, this time deciding which ready
+Pods may receive traffic. We will trace those contracts in Stage 1 and Stage 2.
 
 ---
 
@@ -310,15 +348,22 @@ Once inside `devbox shell`, `docker`, `kind`, `kubectl`, `helm`, and all CLI uti
 
 ## 📌 Ground Rules & Source of Truth
 
-:::important Source of Truth
-The **Apollo11 application repository** (`/home/darshan/projects/Apollo11`) is the sole source of truth for all application code, service names, container ports, environment variables, and Kubernetes manifests.
+:::important[Source of Truth]
+The sibling **Apollo11 application repository** is the sole source of truth for
+all application code, service names, container ports, environment variables,
+and Kubernetes manifests. In the authoring workspace used to verify this guide,
+it is checked out at `/home/darshan/projects/Apollo11`; learners may clone it
+elsewhere.
 
 Every YAML snippet and command in this guide identifies its relative source path in the Apollo11 repository:
 `Source: stages/stage1/k8s/apps/booking/booking-dep.yaml`
 :::
 
-:::warning Security Notice
-All passwords and secrets shown in manifests (such as `POSTGRES_PASSWORD: "postgres"` or `JWT_SECRET: "apollo-airlines-dev-secret-change-in-production"`) are development placeholders for local experimentation. Never use these values in production clusters. In Stage 8, we explore external secrets management with Vault and the External Secrets Operator.
+:::warning[Security Notice]
+Repository excerpts in this guide redact Secret values. The application
+repository contains development-only lab defaults; do not reuse them in another
+cluster. External secret management is planned for Stage 8 but is not yet a
+verified Apollo11 lab.
 :::
 
 ---

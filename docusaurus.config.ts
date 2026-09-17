@@ -18,7 +18,13 @@ const config: Config = {
   projectName: 'apollo11-docs',
 
   onBrokenLinks: 'warn',
-  onBrokenMarkdownLinks: 'warn',
+  markdown: {
+    mermaid: true,
+    hooks: {
+      onBrokenMarkdownLinks: 'warn',
+      onBrokenMarkdownImages: 'warn',
+    },
+  },
 
   i18n: {
     defaultLocale: 'en',
@@ -26,13 +32,6 @@ const config: Config = {
   },
 
   themes: ['@docusaurus/theme-mermaid'],
-
-  markdown: {
-    mermaid: true,
-    hooks: {
-      onBrokenMarkdownImages: 'warn',
-    },
-  },
 
   presets: [
     [
