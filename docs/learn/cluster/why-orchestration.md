@@ -75,27 +75,3 @@ The next chapter introduces the API objects that hold these requests. Then we
 will meet the components that turn an accepted object into a running Pod. Only
 after those concepts are established does the Ignition lab ask you to observe
 them in a local cluster.
-
-## The problem Apollo has outgrown
-
-Launchpad can restart a container, but a person must notice the failure and know
-which machine should receive the replacement. With several machines and several
-copies of booking, that manual list becomes a second system to maintain.
-
-Kubernetes lets Apollo describe the result it wants: a chosen number of booking
-copies, a Pod template for those copies, and relationships that let other
-objects
-find them. The API stores that intent. Controllers repeatedly compare it with
-what exists and take actions that reduce the gap.
-
-## What orchestration can and cannot repair
-
-A ReplicaSet can create a replacement Pod. A scheduler can find a feasible node.
-A kubelet can start a container and report its state. None of them can recreate
-bytes that lived only in process memory, decide whether a database migration was
-safe, or prove a passenger’s whole booking succeeded.
-
-Use orchestration as a way to make recovery repeatable and inspectable. It gives
-the airline participants that keep working toward a declared state; it does not
-turn every application guarantee into a Kubernetes guarantee.
-

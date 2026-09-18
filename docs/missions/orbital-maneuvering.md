@@ -22,9 +22,10 @@ appear together, but they solve different parts of the problem.
 3. [Horizontal Pod Autoscaling](../learn/scaling/hpa)
 4. [VPA and capacity](../learn/scaling/vpa-and-capacity)
 
-HPA CPU utilisation is measured relative to requested CPU. Downscale
-stabilization considers recent recommendations. In recommendation-only mode,
-VPA uses `spec.updatePolicy.updateMode: Off`.
+As you read, ask what each mechanism measures, which value it changes, and what
+must already exist for that change to help. The chapters introduce the precise
+autoscaling calculations and configuration only after the performance question
+is clear.
 
 ## When to take the controls
 
@@ -32,5 +33,4 @@ Open the [Orbital Maneuvering lab](../stage-7) once you can state the baseline
 and predict whether a cache, extra replicas, or a resource recommendation is
 the relevant response. Then use the local experiment to collect evidence rather
 than just watch numbers move.
-
 

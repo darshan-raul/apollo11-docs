@@ -45,6 +45,91 @@ flowchart LR
 *Diagram CT-02 — the image determines the starting package; runtime inputs shape
 one running copy of that package.*
 
+## Dissecting a Dockerfile: Layers and Multi-Stage Builds
+
+Every service in Apollo Airlines has a `Dockerfile` that defines how to turn source code into an image. Consider the Go-based `booking` service Dockerfile:
+
+```dockerfile title="stages/launchpad/code/booking/Dockerfile"
+# Stage 1: Build binary using official Go toolchain
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o booking .
+
+# Stage 2: Minimal runtime image
+FROM alpine:3.19
+RUN adduser -D -u 1000 appuser
+WORKDIR /app
+COPY --from=builder --chown=appuser:appuser /app/booking .
+USER appuser
+EXPOSE 8082
+ENTRYPOINT ["/app/booking"]
+```
+
+### Key Dockerfile Concepts Every Learner Needs:
+
+1. **Multi-Stage Builds (`FROM ... AS builder`):**
+   - The first stage uses `golang:1.22-alpine` containing the Go compiler, SDK, and build tools (~300 MB).
+   - The second stage starts fresh with a minimal `alpine:3.19` base (~5 MB) and copies **only** the compiled static binary (`COPY --from=builder`).
+   - *Result:* The final production image is ~15 MB instead of 300+ MB, has zero compiler tools for attackers to exploit, and pulls rapidly across the network.
+2. **Layer Caching (`COPY go.mod` before `COPY . .`):**
+   - Docker executes instructions in order and caches the filesystem diff of each layer.
+   - By copying `go.mod` and running `go mod download` *before* copying application source code (`COPY . .`), Docker caches your downloaded dependencies. When you edit code in `main.go`, Docker skips re-downloading dependencies and rebuilds in seconds!
+3. **Non-Root Execution (`USER appuser`):**
+   - By default, containers run as `root` (UID 0). If a vulnerability exists in your HTTP handler, the attacker runs as root inside that container.
+   - `RUN adduser -D -u 1000 appuser` and `USER appuser` drop process privileges to an unprivileged user (UID 1000), enforcing defense-in-depth.
+
+---
+
+## Multi-Container Coordination with Docker Compose
+
+Running Apollo's 10 services manually with ten separate `docker run` commands would be error-prone and tedious. **Docker Compose** records those relationships declaratively in `docker-compose.yml`:
+
+```yaml title="stages/launchpad/docker-compose.yml (Excerpt)"
+services:
+  booking:
+    build:
+      context: ./code/booking
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"                # host_port:container_port
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@booking-db:5432/booking
+      FLIGHT_SERVICE_URL: http://flight:8081
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8082/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      booking-db:
+        condition: service_healthy
+    networks:
+      - apollo-airlines
+
+  booking-db:
+    image: postgres:15-alpine
+    volumes:
+      - booking-db-data:/var/lib/postgresql/data
+    networks:
+      - apollo-airlines
+
+volumes:
+  booking-db-data:
+
+networks:
+  apollo-airlines:
+    driver: bridge
+```
+
+- **`networks`:** Creates a private software bridge. Inside it, Docker runs an embedded DNS resolver at `127.0.0.11`. `booking` contacts `http://flight:8081` using flight's service name!
+- **`ports`:** Binds a port on your host laptop and forwards traffic to the container.
+- **`depends_on`:** Controls startup ordering based on declared healthchecks.
+
+---
+
 ## A configuration change has a delivery path and a timing story
 
 Suppose the booking service receives its database address as an environment
@@ -91,4 +176,20 @@ An image gives repeatability. It does not guarantee that a service can reach its
 database, that a credential is authorised, or that a new configuration is valid.
 Those questions appear when Apollo starts talking across the network.
 
+## Check your understanding
+
+<details>
+<summary>A source value changes, but booking reads its environment only at startup. What must happen before booking uses the new value?</summary>
+
+A new process must start with the changed value, normally through a controlled
+container replacement. Updating the source alone does not rewrite process memory.
+</details>
+
+<details>
+<summary>Why is a password in an image different from one delivered at runtime?</summary>
+
+The reusable image and every copy contain an embedded password. Runtime delivery
+separates it from the artifact, though access, encryption, rotation, and logging
+still need their own controls.
+</details>
 

@@ -1,15 +1,22 @@
 ---
 title: "Stage 4 — Flight Control: Reliability, Lifecycle & Governance"
-description: "Master startup/liveness/readiness probes, Guaranteed QoS resource governance, graceful SIGTERM drains, PriorityClasses, topology spread, and PodDisruptionBudgets."
+description: "Explore startup, liveness, and readiness probes; resource governance; graceful shutdown; placement; and disruption budgets."
 sidebar_label: "Stage 4: Flight Control (Reliability)"
 ---
 
 # Stage 4: Flight Control — Reliability, Lifecycle & Governance
 
+:::info[Page type · optional lab]
+This lab uses the pinned Apollo11 revision. Confirm two healthy booking replicas
+before disruption exercises; a PDB is not a repair mechanism or an availability guarantee.
+:::
+
 :::note[Take the controls · Flight Control lab]
 Observe how the airline handles startup, unhealthy processes, and graceful departures.
 For the explanation before the experiment, start with the
 [Flight Control chapters](./learn/reliability/probes). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the investigations](#-investigations-ask-which-component-has-authority-to-act).
 :::
 
 Stages 1–3 taught the cluster to create workloads, route to ready endpoints,
@@ -26,6 +33,12 @@ guarantee:
 - Guaranteeing node resources using **Guaranteed Quality of Service (QoS)**.
 - Influencing node placement using **`PriorityClass`** and **`topologySpreadConstraints`**.
 - Protecting user availability during maintenance using **`PodDisruptionBudget` (PDB)** and the Eviction API.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The Flight Control chapters are the primary explanation. Expand this section
+when you want the older combined account beside the lab.
 
 ```mermaid
 sequenceDiagram
@@ -282,6 +295,8 @@ With 2 replicas and `minAvailable: 1`:
 - Evicting Pod 2 simultaneously is **REJECTED** by the API server with `429 TooManyRequests` until the replacement Pod for replica 1 is fully booted, healthy, and passes its readiness probe!
 
 ---
+
+</details>
 
 ## 🧪 Investigations: ask which component has authority to act
 

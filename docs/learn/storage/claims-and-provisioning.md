@@ -38,6 +38,21 @@ flowchart LR
 
 ---
 
+## Local workstation storage vs. cloud persistent storage
+
+Where do the physical bytes actually get stored? The answer depends entirely on your cluster environment:
+
+| Storage Type | Local `kind` Cluster | Cloud Production (AWS EKS, GCP GKE) |
+|---|---|---|
+| **Provisioner Plugin** | `rancher.io/local-path` | CSI Driver (e.g. `ebs.csi.aws.com`, `pd.csi.storage.gke.io`) |
+| **Storage Medium** | A directory on the node's local filesystem (`/var/local-path-provisioner/...`) | Network-attached block storage (AWS EBS Volume, Google Persistent Disk) |
+| **Survives Pod Deletion?** | ✅ Yes. A replacement Pod scheduled on that node remounts the directory. | ✅ Yes. |
+| **Survives Worker Node Loss?** | ❌ **No.** The data lives physically inside that single worker node container. If the node is destroyed, the volume is lost. | ✅ **Yes.** The cloud storage volume exists independently on the cloud network. If Node A dies, the volume detaches from Node A and attaches to Node B! |
+
+In Apollo11's local kind cluster, `standard` StorageClass provisions directories on the worker node. This is ideal for learning because it behaves like real dynamic storage without costing cloud money. But remember its failure boundary: **it is node-local, not high-availability cloud storage.**
+
+---
+
 ## `WaitForFirstConsumer`: aligning storage with compute topology
 
 When storage is physically tied to specific nodes (as with local disks):

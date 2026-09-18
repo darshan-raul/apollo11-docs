@@ -5,7 +5,12 @@ const sidebars: SidebarsConfig = {
     {type: 'doc', id: 'index', label: 'Flight Plan & Overview'},
     {
       type: 'category', label: 'Mission Briefing', collapsed: false,
-      items: ['start/prerequisites', 'start/apollo-airlines'],
+      items: [
+        'start/prerequisites',
+        'start/how-to-use-this-course',
+        'start/terminal-git-and-yaml',
+        'start/apollo-airlines',
+      ],
     },
     {
       type: 'category', label: 'Launchpad · Containers', collapsed: false,
@@ -62,6 +67,7 @@ const sidebars: SidebarsConfig = {
         'learn/storage/volume-lifetimes',
         'learn/storage/claims-and-provisioning',
         'learn/storage/statefulsets-and-headless-dns',
+        'learn/storage/statefulset-storage-and-operations',
         'learn/storage/initialization-and-seeding',
         'learn/storage/recovery-boundaries',
         {type: 'doc', id: 'stage-3', label: 'Mission Data lab · Storage'},

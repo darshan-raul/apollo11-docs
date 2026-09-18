@@ -25,7 +25,9 @@ flowchart LR
 
 *Diagram DL-05 — four sequential handoffs: commit triggers CI, CI builds and pushes image, manifest references image, kubelet pulls and runs container.*
 
-- **1. Source revision**: Commit SHA guarantees the code snapshot tested.
+- **1. Source revision**: The recorded commit identifies the intended code
+  snapshot. The pipeline must still prove that this was the revision it checked
+  out and tested.
 - **2. Artifact build**: Container image compiled and pushed to registry.
 - **3. Manifest reference**: Deployment updated to reference the new image artifact.
 - **4. Runtime execution**: Kubelet pulls the image digest and launches the container.

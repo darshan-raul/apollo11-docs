@@ -24,7 +24,27 @@ flowchart LR
 The lab is a chance to compare your prediction with a running system. The story
 and explanation are there whether or not you run it. *(Diagram OR-01.)*
 
-When you’re ready for the experiments, [prepare your launchpad](../labs/setup).
-For now, [meet Apollo Airlines](./apollo-airlines)—the application that will
-travel with you through every stage.
+## 📁 The Two Repositories: Textbook vs. Application Code
+
+To follow this course effectively, understand that two repositories exist:
+
+1. **`apollo11-docs` (The Textbook):** The documentation site you are reading right now. It teaches the concepts, mental models, failure boundaries, and guides the experiments.
+2. **`Apollo11` (The Application Code & Labs):** The GitHub repository containing the complete Apollo Airlines source code, Dockerfiles, Kubernetes manifests, and automated verification scripts.
+
+:::important[Hands-On Lab Setup]
+If you choose the **hands-on route**, clone the companion `Apollo11` repository into your workspace before starting the labs:
+
+```bash
+git clone https://github.com/darshan-raul/Apollo11.git
+cd Apollo11
+git checkout 7b693c9bae0a789dc9db8e0628c478fd0dd53e88
+```
+
+Every hands-on lab in this course runs from inside that `Apollo11` repository, navigating into stage directories such as `stages/launchpad/`, `stages/ignition/`, and `stages/stage1/`.
+:::
+
+Next, read [how this course works](./how-to-use-this-course). It defines the
+page types, the reading-only and hands-on routes, and what counts as completing
+a stage. When you are ready for experiments, workstation requirements and tools
+are detailed in [Prepare your launchpad](../labs/setup).
 

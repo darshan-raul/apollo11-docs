@@ -60,6 +60,19 @@ PDBs express constraints using either minimum availability or maximum downtime:
 - **`maxUnavailable: 1`**: Allows at most one replica to be simultaneously evicted.
 - **Percentage values (`minAvailable: "50%"`)**: Scales dynamically as the workload expands.
 
+~~~mermaid
+flowchart LR
+  Desired[Desired replicas: 3] --> Required[minAvailable: 2]
+  Ready[Currently healthy: 3] --> Allowed[disruptionsAllowed = 3 - 2 = 1]
+  Required --> Allowed
+  Allowed --> First[First voluntary eviction allowed]
+  First --> Remaining[Healthy replicas: 2]
+  Remaining --> Blocked[Further eviction blocked until health returns]
+~~~
+
+*Diagram RL-08 — the budget permits one voluntary disruption while three Pods
+are healthy, then blocks another until the required two are available again.*
+
 ~~~yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget

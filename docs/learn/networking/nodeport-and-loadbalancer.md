@@ -51,6 +51,24 @@ In bare-metal or local kind environments:
   - **Controller**: Watches for `LoadBalancer` Services and assigns an IP from a preconfigured pool (`172.18.0.50–172.18.0.100`).
   - **Speaker**: Announces the IP to the local Docker network using ARP (Layer 2 mode).
 
+~~~mermaid
+flowchart TB
+  subgraph Control[Address allocation and announcement]
+    LB[LoadBalancer Service] --> C[MetalLB controller]
+    Pool[Configured address pool] --> C
+    C --> Status[Service status receives external IP]
+    Status --> Speaker[MetalLB speaker announces IP]
+  end
+  subgraph Traffic[Application traffic]
+    Client[Client sends to external IP] --> Speaker
+    Speaker --> Rules[Service routing rules]
+    Rules --> Pod[Ready backend Pod]
+  end
+~~~
+
+*Diagram NW-08 — the controller allocates the address, the speaker announces
+it, and Service routing sends client traffic to a ready Pod.*
+
 ---
 
 ## Service exposure comparison

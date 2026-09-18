@@ -55,6 +55,20 @@ Running HPA and VPA concurrently on the same CPU metric causes a destructive rac
 
 ## Evidence and limits
 
+~~~mermaid
+flowchart LR
+  Metric[Demand metric rises] --> HPA[HPA requests more replicas]
+  HPA --> Deploy[Deployment creates Pods]
+  Deploy --> Pending[Pods remain Pending: no suitable capacity]
+  Pending --> NodeScale[Node autoscaler may add a suitable node]
+  NodeScale --> Schedule[Scheduler places Pods]
+  Schedule --> Ready[Readiness makes new capacity usable]
+  Constraint[Impossible affinity, quota, or zonal constraint] -.can block.-> NodeScale
+~~~
+
+*Diagram SC-06 — HPA can request Pods, but scheduler and node capacity determine
+whether those replicas can run and become ready.*
+
 - **1. Inspect VPA recommendations**:
   ```bash
   kubectl get vpa search -n apollo-airlines-apps -o yaml

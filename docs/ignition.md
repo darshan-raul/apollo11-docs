@@ -6,10 +6,17 @@ sidebar_label: "Ignition (First Cluster)"
 
 # Ignition: Your First Kubernetes Cluster
 
+:::info[Page type · optional lab]
+Run this after the Ignition chapters against Apollo11 commit
+`7b693c9bae0a789dc9db8e0628c478fd0dd53e88`. Start in a clean lab clone and verify your context before applying anything.
+:::
+
 :::note[Take the controls · Ignition lab]
 Start your first cluster and watch its components bring a Pod to life.
 For the explanation before the experiment, start with the
 [Ignition chapters](./learn/cluster/why-orchestration). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the investigations](#-investigations-separate-process-recovery-from-object-recovery).
 :::
 
 In **Ignition**, you create a small real cluster on your workstation using
@@ -20,6 +27,12 @@ parts of the cluster turn that stored request into a running process?
 Most importantly, you will perform two controlled experiments that reveal the core contract of Kubernetes:
 1. What the **kubelet** recovers automatically when a process crashes inside an existing Pod.
 2. Why a **bare Pod** does not recover when deleted, illustrating why production systems require controllers (Deployments) introduced in Stage 1.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The Ignition chapters are the primary explanation. Expand this section when you
+want the older all-in-one account beside the lab.
 
 ---
 
@@ -275,6 +288,8 @@ question, or assuming a `Running` status proves an HTTP endpoint works.
 
 ---
 
+</details>
+
 ## 🧪 Investigations: separate process recovery from object recovery
 
 Before each command, predict which component will react. Afterward, use the UID,
@@ -288,7 +303,8 @@ Apollo application workload exists? Their roles explain the later scheduling
 and routing observations.
 
 - **Objective**: Create the multi-node `kind` cluster and verify control plane components.
-- **Starting Point**: Docker running on your host machine.
+- **Starting Point**: Docker running on your host machine; terminal inside the cloned `Apollo11` repository.
+- **What happens under the hood**: `kind` reads `stages/ignition/kind-config.yaml` and starts three Docker containers on your machine: one control plane (`apollo11-control-plane`) and two worker nodes (`apollo11-worker`, `apollo11-worker2`). It also forwards ports `30080`–`30084` and `30443` into the control-plane container for later web access.
 - **Instructions**:
 
 ```bash

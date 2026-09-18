@@ -1,28 +1,68 @@
 # Diagram inventory
 
-Diagram IDs identify a teaching question, not an API object as an active actor. The initial implementation includes the high-risk conceptual diagrams below; remaining planned diagrams are explicitly backlog rather than claimed complete.
+Diagram IDs identify a teaching question, not an API object as an active actor.
+`Authored` means the diagram exists in a learner-facing page and passes the
+Docusaurus production build. It does not replace a light-theme, dark-theme, and
+narrow-viewport visual review.
 
-| ID | Destination | Teaching question | Status |
+## Authored diagrams
+
+| IDs | Destination | Teaching purpose | Status |
 | --- | --- | --- | --- |
-| OR-00 | index | What is the dependency order? | retired; replaced by the mission/question table in the Flight Plan |
-| OR-01–02 | orientation | How do reading and Apollo’s booking flow fit? | complete |
-| CT-01–04 | containers | What runs, where does it run, and what survives? | complete |
-| CL-01–04 | cluster | How does desired state become a Pod? | complete |
-| WL-01–03 | workloads | What differs between ownership, selection, readiness, and rollout? | complete |
-| NW-01 | networking | What are Service control and packet paths? | complete |
-| RL-01 | reliability | What does each probe cause? | complete |
-| NW-02–09 | networking | DNS, NodePort, Ingress, TLS, MetalLB, Gateway | backlog |
-| ST-01–07 | storage | lifetimes, binding, identity, recovery | backlog |
-| RL-02–08 | reliability | draining, pressure, placement, disruption | backlog |
-| DL-01–06 | delivery | render, transform, CI, GitOps, promotion | backlog |
-| OB-01–07 | observability | signals, scrape, query, logs, traces | backlog |
-| SC-01–06 | scaling | measurement, cache, HPA, VPA | backlog |
-| SE-01–05 | security | identity, admission, policy, supply chain | backlog |
-| CO-01–05 | cloud | ownership, topology, restore | backlog |
-| CA-01 | learn/capstone/a-booking-through-kubernetes | How does one booking connect the mission stages? | authored; rendered review pending |
-| CA-02–03 | capstone | failure/recovery and demonstrated boundaries | backlog |
-| OP-01–02 | optional | mission prerequisites | backlog |
-| TR-01–04 | troubleshooting | diagnosis paths | backlog |
+| OR-01–02 | orientation | Reading workflow and the simplified passenger request | authored; build verified |
+| CT-01–04 | containers | Process/image/container, runtime inputs, network location, and readiness | authored; build verified |
+| CL-01–04 | cluster | Reconciliation, API objects, component hand-offs, and Pod replacement | authored; build verified |
+| WL-01–07 | workloads | Ownership, selection, rollout, configuration, Jobs, state, and Service readiness | authored; build verified |
+| NW-00–01 | networking | Pod networking and separate Service control/traffic paths | authored; build verified |
+| NW-04–08 | networking | DNS, host-to-NodePort routing, Ingress, TLS boundaries, and LoadBalancer allocation | authored; build verified |
+| NW-09–13 | networking | Gateway reconciliation, listener and Route matching, request path, permissions, and Ingress migration | authored; build verified |
+| ST-01–06 | storage | Lifetimes, binding, stable identity, per-ordinal claims, initialization, and reclaim policy | authored; build verified |
+| RL-01–08 | reliability | Probe actions and budgets, resources, placement, termination, disruption arithmetic, and pressure | authored; build verified |
+| DL-01–03, DL-05–07 | delivery | Helm, Kustomize, GitOps, CI hand-offs, promotion, and rollback | authored; build verified |
+| OB-01–07 | observability | Signal choice, collection, trace pipeline, logs, objectives, and correlation | authored; build verified |
+| SC-01–06 | scaling | Baselines, cache-aside, HPA, stabilization, VPA, and capacity | authored; build verified |
+| SEC-01–05 | security | Admission/runtime, API access, network policy, secret delivery, and image admission | authored; build verified; conceptual mission |
+| CLD-01–05 | cloud | Provider implementation, ownership, topology, restore, and teardown | authored; build verified; conceptual mission |
+| CA-01–02 | capstone | Integrated booking path and interrupted-request recovery | authored; build verified |
+| TR-01–04 | troubleshooting | Pod, network, storage, and autoscaling diagnosis paths | authored; build verified |
 
-Owner: documentation maintainers. Source basis: Kubernetes upstream concepts and the named Apollo stage where an Apollo-specific assertion is made. Review each complete diagram in light/dark themes and narrow viewport before changing its status.
+There are **78 authored diagrams** in the ranges above. OR-01, OR-02, and CT-01
+use an inline caption style; the other 75 use the `*Diagram ID` caption form.
 
+## Deliberately retired or superseded IDs
+
+These IDs are not missing work. Their proposed teaching question is already
+answered by another diagram or no longer warrants a separate visual.
+
+| ID | Original purpose | Disposition |
+| --- | --- | --- |
+| OR-00 | Whole-course dependency graph | retired; the Flight Plan mission/question table is easier to scan |
+| NW-02–03 | Service selection and readiness | superseded by WL-07 and NW-01 |
+| ST-07 | General recovery boundary | superseded by ST-06 and CLD-04 |
+| DL-04 | Controller ownership during delivery | superseded by DL-03 and DL-06 |
+| CA-03 | Demonstrated versus unproven boundaries | retained as capstone prose; a third overview duplicated CA-01 |
+
+## Remaining diagram backlog
+
+None. Every diagram previously listed in the backlog now has a learner-facing
+Mermaid source, interpretation caption, and destination page.
+
+The former `OP-01–02` optional-mission diagrams are removed from the backlog.
+The optional catalogues do not yet contain enough teaching content to justify
+visuals; diagrams should be proposed only when those pages become lessons.
+
+## Review checklist
+
+Before changing an authored diagram to visually reviewed:
+
+1. Render it in both light and dark themes.
+2. Check labels at a narrow documentation viewport.
+3. Confirm control/configuration, application traffic, and telemetry edges are
+   visually distinguishable where more than one appears.
+4. Confirm no API object is shown performing work that belongs to a controller,
+   kubelet, proxy, application, or provider integration.
+5. Verify Apollo-specific names and relationships against the named source
+   snapshot.
+
+Owner: documentation maintainers. Source basis: Kubernetes upstream concepts
+and the named Apollo stage where an Apollo-specific assertion is made.

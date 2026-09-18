@@ -58,6 +58,21 @@ For spans across separate network boundaries to assemble into a single trace, se
 
 ## The OpenTelemetry Collector architecture
 
+~~~mermaid
+flowchart LR
+  Apps[Apollo services emit spans] --> Receiver[Collector receiver]
+  Receiver --> Processor[Batch, sample, and enrich]
+  Processor --> Exporter[Collector exporter]
+  Exporter --> Tempo[Tempo trace store]
+  Tempo --> Grafana[Grafana trace query]
+  Config[Collector configuration] -.defines pipeline.-> Receiver
+  Config -.defines pipeline.-> Processor
+  Config -.defines pipeline.-> Exporter
+~~~
+
+*Diagram OB-06 — the Collector receives, processes, and exports telemetry; it
+does not create missing trace context between Apollo services.*
+
 - **Applications**: Emit spans over OTLP (OpenTelemetry Protocol) via gRPC (`:4317`) or HTTP (`:4318`).
 - **OTel Collector DaemonSet**: Runs on each worker node to receive, batch, and compress telemetry data locally.
 - **Backend Store (Grafana Tempo)**: Receives batched traces for indexing and high-throughput query lookups.

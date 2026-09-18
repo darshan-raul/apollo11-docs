@@ -6,10 +6,17 @@ sidebar_label: "Stage 1: Liftoff (Workloads)"
 
 # Stage 1: Liftoff — Workloads on Kubernetes
 
+:::info[Page type · optional lab]
+This lab uses the pinned Apollo11 revision from [lab setup](./labs/setup) and the
+`apollo-airlines` namespace. Read the Liftoff chapters before taking the controls.
+:::
+
 :::note[Take the controls · Liftoff lab]
 Put the airline’s workloads in motion and investigate who brings them back after a failure.
 For the explanation before the experiment, start with the
 [Liftoff chapters](./learn/workloads/ownership-and-replicas). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the investigations](#-investigations-watch-the-declared-system-react).
 :::
 
 Ignition ended with an uncomfortable result: deleting `apollo-shell` destroyed
@@ -27,6 +34,12 @@ We will bring the Apollo Airlines workloads into the `apollo-airlines`
 namespace, then follow the relationships that make the system work: controller
 ownership, labels, stable Service names, injected configuration, bounded
 database setup, and workload identity.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The Liftoff chapters are the primary explanation. Expand this section when you
+want the older manifest deep dive beside the lab.
 
 ```mermaid
 flowchart TD
@@ -448,6 +461,8 @@ automountServiceAccountToken: false
 
 ---
 
+</details>
+
 ## 🧪 Investigations: watch the declared system react
 
 You now have a model to test. In each investigation, first identify the object
@@ -462,7 +477,21 @@ that the declared application has become runnable rather than merely accepted
 by the API server?
 
 - **Objective**: Build application images, load them into kind, and apply all Stage 1 manifests.
-- **Starting Point**: Healthy `kind-apollo11` cluster from Ignition.
+- **Starting Point**: Healthy `kind-apollo11` cluster from Ignition; terminal in the `Apollo11` repository root.
+
+#### Inside the Black Box: What `apply.sh` Actually Does
+
+Rather than treating `apply.sh` as magic automation, understand its **6-phase sequential deployment**. The script coordinates these phases to respect the strict dependency graph between configuration, databases, schema migrations, and customer-facing APIs:
+
+| Phase | Directory | Action Executed | Why Order Matters |
+|---|---|---|---|
+| **1/6: Config & Identity** | `k8s/config/` | Creates namespace, `apollo-airlines-config` ConfigMap, `apollo-airlines-secrets`, and 13 tokenless ServiceAccounts. | ConfigMaps and Secrets must exist *before* Pods start; otherwise Pods stall with `CreateContainerConfigError`. |
+| **2/6: Backing Infrastructure** | `k8s/infra/` | Deploys `identity-db`, `flight-db`, `booking-db`, and `redis` Deployments and Services. | Databases must initialize their TCP listeners before applications or schema scripts try to connect. |
+| **3/6: Infra Rollout Wait** | Cluster State | Executes `kubectl rollout status` on each database until all replicas report ready. | Prevents migration jobs from attempting SQL connections against an unbooted database. |
+| **4/6: Schema Bootstrap Jobs** | `k8s/jobs/` | Mounts schema ConfigMaps and runs `init-identity-db`, `init-flight-db`, and `init-booking-db` (`batch/v1`). | Creates required database tables (`users`, `flights`, `bookings`) before API services boot. |
+| **5/6: Application Services** | `k8s/apps/` | Deploys the 6 microservices: `identity`, `flight`, `booking`, `search`, `notification`, `frontend`. | Applications can now start cleanly with their dependencies and tables in place. |
+| **6/6: Application Rollout Wait** | Cluster State | Waits for all 6 application Deployments to achieve desired ready replicas. | Verifies that all containers pass their `/readyz` probes. |
+
 - **Instructions**:
 
 ```bash
@@ -479,11 +508,18 @@ kubectl get deployments,statefulsets,jobs,pods,svc -n apollo-airlines
   - 10 Deployments report desired replicas available (`2/2` for apps, `1/1` for DBs).
   - 3 Jobs (`init-identity-db`, `init-flight-db`, `init-booking-db`) show `1/1 Completed`.
   - Services show `NodePort` mappings matching ports `30080`–`30084`.
-- **Verification Script**:
+- **Verification Script (What 167 Checks Test)**:
 
 ```bash
 bash stages/stage1/scripts/verify.sh
 ```
+
+`verify.sh` automates the 5-Rung Evidence Ladder across all 10 workloads:
+1. Verifies API acceptance and namespace isolation for every resource.
+2. Checks rollout status and replica convergence for Deployments and ReplicaSets.
+3. Validates that EndpointSlices contain ready IP addresses for each Service.
+4. Audits container logs for crash loops or SQL connection errors.
+5. Performs live HTTP `/healthz` and `/readyz` probes against each microservice endpoint.
 
 All 167 automated checks should pass!
 
@@ -492,6 +528,7 @@ All 167 automated checks should pass!
   the entire apply script blindly.
 - **Concept reinforced**: A deployment script establishes desired state; the
   verifier tests the resulting resource graph and behavior.
+
 
 ---
 

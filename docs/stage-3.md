@@ -6,10 +6,17 @@ sidebar_label: "Stage 3: Mission Data (Storage)"
 
 # Stage 3: Mission Data — Persistent Storage & StatefulSets
 
+:::info[Page type · optional lab]
+This lab uses the pinned Apollo11 revision. Read every destructive step's scope
+and recovery instruction before changing a Pod, claim, volume, or database row.
+:::
+
 :::note[Take the controls · Mission Data lab]
 Replace a database Pod and investigate which parts of the reservation survive.
 For the explanation before the experiment, start with the
 [Mission Data chapters](./learn/storage/volume-lifetimes). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the investigations](#-investigations-watch-identity-and-storage-stay-connected).
 :::
 
 In Stage 1, deleting a database Pod proved two things at once: the Deployment
@@ -22,6 +29,12 @@ identity a claim on storage. `identity-db-0` may be replaced, but its claim is
 named for that ordinal and can be mounted again. This is a stronger contract
 than Stage 1, not a permanent cure for every data failure: the kind
 `local-path` backend remains local to a node and is not a backup or HA system.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The Mission Data chapters are the primary explanation. Expand this section when
+you want the older resource deep dive beside the lab.
 
 ```mermaid
 flowchart TD
@@ -290,6 +303,8 @@ By mounting our schema ConfigMap to `/docker-entrypoint-initdb.d/`, PostgreSQL r
 
 ---
 
+</details>
+
 ## 🧪 Investigations: watch identity and storage stay connected
 
 The key question is no longer “does Kubernetes make a new database Pod?” Stage
@@ -394,7 +409,7 @@ kubectl exec -n apollo-airlines-apps identity-db-0 -- \
 kubectl exec -n apollo-airlines-apps identity-db-0 -- \
   psql -U postgres -d identity -c "SELECT email FROM users WHERE id='99999999-9999-4999-8999-999999999999';"
 
-# 4. DELETE THE POD!
+# 4. Delete only the Pod. The StatefulSet recreates it; this does not delete the PVC.
 kubectl delete pod identity-db-0 -n apollo-airlines-apps
 
 # 5. Wait for the StatefulSet controller to recreate identity-db-0

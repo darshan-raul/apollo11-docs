@@ -40,7 +40,9 @@ Bring basic terminal familiarity and an understanding that a browser sends an
 HTTP request to a server. We will introduce containers, YAML, DNS, storage,
 signals, and Kubernetes as the story needs them.
 
-[Mission briefing](./start/prerequisites) sets out the starting point.
+[Mission briefing](./start/prerequisites) sets out the starting point, and
+[How this course works](./start/how-to-use-this-course) separates the required
+reading path from the optional lab path.
 [Prepare your launchpad](./labs/setup) when you want to run the labs; installation
 can wait until then.
 
@@ -52,17 +54,17 @@ The corresponding lab sits beside those chapters in the sidebar.
 
 | Mission | The question that takes us there |
 | --- | --- |
-| [Launchpad · Containers](./learn/containers/process-image-container) | What does it mean to run Apollo Airlines on one machine? |
-| [Ignition · First Cluster](./learn/cluster/why-orchestration) | Who keeps the application running when its pieces move or fail? |
-| [Stage 1 · Liftoff](./learn/workloads/ownership-and-replicas) | A booking Pod disappears. Who replaces it? |
-| [Stage 2 · Guidance](./learn/networking/pod-network-and-cni) | How does a request find the right service when Pod addresses change? |
-| [Stage 3 · Mission Data](./learn/storage/volume-lifetimes) | Which bytes survive when the database Pod is replaced? |
-| [Stage 4 · Flight Control](./learn/reliability/probes) | When should a service accept work, restart, or leave gracefully? |
-| [Stage 5 · Payload Integration](./learn/delivery/rendering-and-helm) | How do we ship the next version and recover from a bad change? |
-| [Stage 6 · Mission Operations](./learn/observability/signals-and-metrics) | A booking is slow. What can the system tell us about why? |
-| [Stage 7 · Orbital Maneuvering](./learn/scaling/measurement-baseline) | More passengers arrive. Which change will actually help? |
-| [Command Module · Security](./learn/security/identity-and-authorization) | Who may change the system, reach a service, or read a credential? |
-| [Lunar Orbit · Cloud & Recovery](./learn/cloud/local-to-cloud) | What changes when the same application leaves the local cluster? |
+| [Launchpad · Containers](./missions/launchpad) | What does it mean to run Apollo Airlines on one machine? |
+| [Ignition · First Cluster](./missions/ignition) | Who keeps the application running when its pieces move or fail? |
+| [Stage 1 · Liftoff](./missions/liftoff) | A booking Pod disappears. Who replaces it? |
+| [Stage 2 · Guidance](./missions/guidance) | How does a request find the right service when Pod addresses change? |
+| [Stage 3 · Mission Data](./missions/mission-data) | Which bytes survive when the database Pod is replaced? |
+| [Stage 4 · Flight Control](./missions/flight-control) | When should a service accept work, restart, or leave gracefully? |
+| [Stage 5 · Payload Integration](./missions/payload-integration) | How do we ship the next version and recover from a bad change? |
+| [Stage 6 · Mission Operations](./missions/mission-operations) | A booking is slow. What can the system tell us about why? |
+| [Stage 7 · Orbital Maneuvering](./missions/orbital-maneuvering) | More passengers arrive. Which change will actually help? |
+| [Command Module · Security](./missions/command-module) | Who may change the system, reach a service, or read a credential? |
+| [Lunar Orbit · Cloud & Recovery](./missions/lunar-orbit) | What changes when the same application leaves the local cluster? |
 | [Capstone · A Passenger’s Booking](./learn/capstone/a-booking-through-kubernetes) | Can we bring the whole journey together in one request? |
 
 Launchpad through Stage 7 form the supported local lab path. Command Module and
@@ -96,5 +98,6 @@ when you start investigating.
 
 ## 🚀 Ready for launch?
 
-Begin with [Launchpad: Process, Image, and Container](./learn/containers/process-image-container).
-We’ll start with a running program and build from there.
+Begin with [Mission Briefing: Before You Board](./start/prerequisites). It leads
+through the course contract, prerequisite primer, airline story, and Launchpad
+briefing before the first container chapter.

@@ -55,7 +55,10 @@ Embedding schema migrations directly into application startup creates three oper
 - **2. Entangled failure domains**: When a migration fails, the application Pod enters `CrashLoopBackOff`, obscuring whether the root cause is a database schema error, bad environment configuration, or network partition.
 - **3. Inability to retry independently**: You cannot re-run only the failed migration without constantly restarting the application web server and causing cascading traffic drops.
 
-Running `init-booking-db` as a standalone Job guarantees the migration completes before the application Deployment is exposed to traffic.
+Running `init-booking-db` as a standalone Job lets Apollo observe and retry the
+migration independently from the application. It does not, by itself, make the
+Deployment wait. The delivery workflow must wait for Job success before exposing
+a version that depends on the new schema.
 
 ---
 

@@ -37,6 +37,23 @@ When clients connect over HTTPS:
 - **Certificate retrieval**: Traefik loads the public certificate and private key from a Kubernetes Secret (`kubernetes.io/tls`).
 - **Upstream forwarding**: Traefik forwards the decrypted HTTP request to the cluster's internal Service over plain HTTP.
 
+~~~mermaid
+sequenceDiagram
+  participant B as Browser
+  participant P as Edge proxy
+  participant S as TLS Secret
+  participant F as flight Service
+  S-->>P: certificate and private key
+  B->>P: encrypted HTTPS request
+  Note over P: TLS terminates; HTTP request is decrypted
+  P->>F: plain HTTP in the documented lab path
+  F-->>P: HTTP response
+  P-->>B: encrypted HTTPS response
+~~~
+
+*Diagram NW-07 — TLS protects the browser-to-proxy connection; the lab's
+proxy-to-Service connection is a separate, unencrypted hop.*
+
 ### Fallback behavior on missing certificates:
 - If the referenced Secret is deleted or invalid, Traefik serves a self-signed fallback certificate (`CN=TRAEFIK DEFAULT CERT`) rather than dropping the TCP connection outright.
 

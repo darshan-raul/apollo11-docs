@@ -1,15 +1,22 @@
 ---
 title: "Stage 7 — Orbital Maneuvering: Autoscaling & Scheduling"
-description: "Master Redis cache-aside, Horizontal Pod Autoscaling (HPA v2), Vertical Pod Autoscaler (VPA), node taints, tolerations, and affinity."
+description: "Explore cache-aside behavior, horizontal and vertical autoscaling, capacity, and workload placement."
 sidebar_label: "Stage 7: Scaling & Scheduling"
 ---
 
 # Stage 7: Orbital Maneuvering — Autoscaling & Scheduling
 
+:::info[Page type · optional lab]
+This lab uses the pinned Apollo11 revision and requires k6. Capture a baseline
+before changing cache or scaling controls, and run the documented cleanup after interruption.
+:::
+
 :::note[Take the controls · Orbital Maneuvering lab]
 Bring more traffic to the airline and watch caching, scaling, and placement respond.
 For the explanation before the experiment, start with the
 [Orbital Maneuvering chapters](./learn/scaling/measurement-baseline). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the investigations](#-investigations-follow-the-controller-hand-offs).
 :::
 
 Stage 6 gave us signals for people to investigate. Stage 7 introduces two
@@ -28,6 +35,12 @@ In **Stage 7 (Orbital Maneuvering)**, we make Apollo Airlines **elastic and cach
    replicas; the local dev override uses 1–3 to fit a workstation.
 3. **Vertical Pod Autoscaler (VPA)**: We deploy VPA in recommendation-only mode (`updateMode: "Off"`) to calculate ideal CPU and memory sizing based on real historical consumption.
 4. **Advanced Scheduling Lab**: We run an observable, reversible scheduling experiment using **node taints, tolerations, node affinity, and topology spread constraints**.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The Orbital Maneuvering chapters are the primary explanation. Expand this
+section when you want the older scaling and scheduling account beside the lab.
 
 ```mermaid
 flowchart TD
@@ -238,6 +251,8 @@ is a Pod allowed onto it, and among allowed nodes which ones should score higher
    - `requiredDuringSchedulingIgnoredDuringExecution`: Hard requirement (fail scheduling if no matching node exists).
 
 ---
+
+</details>
 
 ## 🧪 Investigations: follow the controller hand-offs
 

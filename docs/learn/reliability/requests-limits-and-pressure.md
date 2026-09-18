@@ -25,7 +25,9 @@ flowchart LR
 *Diagram RL-03 — the scheduler uses requests to determine fit; node capacity is booked by requests, not live usage.*
 
 - **Requests (`resources.requests`)**:
-  - **Scheduling contract**: The minimum CPU and memory guaranteed to the Pod.
+  - **Scheduling input**: The CPU and memory used when deciding whether a node
+    has room for the Pod. A request is not a promise that the application will
+    always receive that amount under every runtime condition.
   - **Autoscaler denominator**: Used by HPA to calculate current CPU utilization percentages (`actual_cpu / requested_cpu`).
 - **Limits (`resources.limits`)**:
   - **Runtime ceiling**: The maximum resource consumption permitted by the Linux kernel cgroups.
@@ -49,6 +51,19 @@ Kubernetes infers a QoS class based on your configuration:
   - Eviction priority: Highest risk; terminated first when node feels pressure.
 
 > **Operational warning**: QoS class is not an absolute eviction shield. A `Guaranteed` Pod consuming significantly more memory than requested will still be targeted before an idle `BestEffort` Pod.
+
+~~~mermaid
+flowchart TD
+  Pressure[Node reports memory or disk pressure] --> Candidates[Identify Pods using the pressured resource]
+  Candidates --> Priority[Consider Pod priority]
+  Priority --> Relative[Compare usage with requests where applicable]
+  Relative --> QoS[QoS class contributes to ranking]
+  QoS --> Victim[Evict a selected Pod]
+  Victim --> Recheck[Recheck node pressure]
+~~~
+
+*Diagram RL-07 — eviction selection combines pressure type, priority, usage
+relative to requests, and QoS; it is not a fixed three-class ladder.*
 
 ---
 

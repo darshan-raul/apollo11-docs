@@ -79,4 +79,19 @@ Names and routes help a process find another process. They do not make the
 destination ready for useful work. The next chapter follows what happens when a
 dependency exists but cannot yet help complete a passenger booking.
 
+## Check your understanding
+
+<details>
+<summary>The browser can reach <code>localhost:8082</code>. Does that prove booking can reach <code>flight:8081</code>?</summary>
+
+No. Those requests start from different clients and follow different network
+paths. Test booking-to-flight connectivity from booking's network environment.
+</details>
+
+<details>
+<summary>Why should booking use a service name instead of a recorded container IP?</summary>
+
+The name is the stable contract. An IP may change when a container is replaced,
+while name resolution can point callers at the current destination.
+</details>
 

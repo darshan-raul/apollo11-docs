@@ -6,6 +6,11 @@ sidebar_label: "Core Capstone"
 
 # Apollo11 Core Capstone: Operate What Exists
 
+:::info[Page type · optional assessed lab]
+Use the pinned Apollo11 revision. The capstone assesses causal explanation, not
+command completion; unsupported security and cloud controls must remain labelled conceptual.
+:::
+
 Want to follow the story before running the lab? Begin with
 [A Passenger’s Booking](./learn/capstone/a-booking-through-kubernetes), then
 return here when you’re ready to take the controls.

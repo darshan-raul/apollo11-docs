@@ -6,10 +6,17 @@ sidebar_label: "Stage 5: Packaging (Helm & GitOps)"
 
 # Stage 5: Payload Integration — Helm, Kustomize & GitOps
 
+:::info[Page type · optional lab]
+This lab uses the pinned Apollo11 revision. Rendering, API acceptance, rollout
+completion, GitOps sync, and passenger success are separate evidence points.
+:::
+
 :::note[Take the controls · Payload Integration lab]
 Package and deliver a change to the airline, then inspect the result.
 For the explanation before the experiment, start with the
 [Payload Integration chapters](./learn/delivery/rendering-and-helm). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the investigations](#-investigations-inspect-the-generated-request-before-trusting-the-tool).
 :::
 
 Stages 1–4 made the resource graph visible: Deployments refer to templates,
@@ -27,6 +34,12 @@ In **Stage 5 (Payload Integration)**, we package Apollo Airlines into a Helm
 chart, contrast it with Kustomize overlays, inspect the repository's GitHub
 Actions CI, and reconcile state with Argo CD GitOps. These are delivery
 building blocks; the chart alone does not make the platform production-ready.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The Payload Integration chapters are the primary explanation. Expand this
+section when you want the older tool-by-tool account beside the lab.
 
 ```mermaid
 flowchart TD
@@ -256,6 +269,8 @@ not be made for prod.
 
 ---
 
+</details>
+
 ## 🧪 Investigations: inspect the generated request before trusting the tool
 
 Package tooling can make a large application feel like one command. Keep asking
@@ -413,6 +428,46 @@ Notice that Kustomize injected `labels: environment: dev` into all resources wit
   referenced base if a resource or patch cannot be resolved.
 - **Concept reinforced**: Kustomize composes and patches Kubernetes objects;
   Helm evaluates templates and records releases.
+
+---
+
+### Exercise 5 (Optional): Argo CD GitOps & Drift Self-Healing
+
+**Prediction:** unlike Helm, which exits once an apply command completes, Argo CD runs continuously. If an operator manually mutates the live cluster out of band (e.g. scales a deployment directly via `kubectl`), Argo CD will detect the divergence (`OutOfSync`) and automatically self-heal the cluster back to the Git declaration.
+
+- **Objective**: Bootstrap Argo CD, deploy the `apollo11-dev` Application tracking the Git repository, and observe automated drift self-healing.
+- **Starting Point**: Healthy `kind-apollo11` cluster.
+- **Note on the Local GitOps Paradox**: Argo CD runs inside the cluster and tracks the upstream repository (`https://github.com/darshan-raul/Apollo11.git`). You do not need push access to verify GitOps: we test reconciliation by intentionally creating drift *inside* the cluster and watching Argo CD heal it!
+
+- **Instructions**:
+
+```bash
+# 1. Bootstrap Argo CD and apply the dev application
+bash stages/stage5/argocd/scripts/bootstrap.sh
+
+# 2. Check the Application status
+kubectl get application apollo11-dev -n argocd
+# Expected: STATUS: Synced, HEALTH: Healthy
+
+# 3. Intentionally introduce out-of-band cluster drift!
+kubectl scale deployment/booking -n apollo-airlines-dev-apps --replicas=5
+
+# 4. Confirm the manual change was applied locally
+kubectl get deployment booking -n apollo-airlines-dev-apps
+# Output: Replicas: 5
+
+# 5. Wait for Argo CD's automated reconciliation loop (or force immediate sync)
+argocd app sync apollo11-dev --core 2>/dev/null || \
+  kubectl get application apollo11-dev -n argocd -w
+
+# 6. Check the deployment again
+kubectl get deployment booking -n apollo-airlines-dev-apps
+# Output: Replicas: 1 (Argo CD self-healed and restored the Git contract!)
+```
+
+- **Expected Result**: Argo CD detects the manual replica change, flags the state as `OutOfSync`, and enforces the Git source of truth by scaling `booking` back to 1 replica.
+- **Verification Command**: `kubectl get application apollo11-dev -n argocd` reports `Synced` and `Healthy`.
+- **Concept reinforced**: GitOps establishes Git as the sole authority. Cluster drift is automatically corrected rather than tolerated.
 
 ---
 

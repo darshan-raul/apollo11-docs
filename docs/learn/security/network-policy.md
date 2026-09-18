@@ -7,6 +7,12 @@ description: "Understand how NetworkPolicy enforces traffic isolation, why a cap
 
 *Stage 8 · Command Module (Planned Roadmap)*
 
+:::note[Conceptual chapter]
+Apollo's supported local cluster uses kindnet, which does not enforce these
+policies. The commands below show how a future policy-capable environment would
+be checked; they are not a runnable Stage 8 lab.
+:::
+
 By default, Kubernetes networks are **flat and completely open**: any Pod in any namespace can open a TCP connection to any other Pod IP or Service across the cluster. If an attacker compromises the public-facing frontend, they can query internal databases directly.
 
 A **NetworkPolicy** acts as an in-cluster packet filter, restricting network traffic between Pods based on label selectors, ports, and namespaces.

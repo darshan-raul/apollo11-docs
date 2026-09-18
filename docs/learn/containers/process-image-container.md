@@ -43,6 +43,57 @@ They share the same starting code, but a value held in one process’s memory is
 not automatically available in the other. This is why running another copy and
 preserving application state become separate questions as the airline grows.
 
+## How isolation works: containers are not virtual machines
+
+A common misconception is that a container is a lightweight virtual machine. It is not:
+
+- **Virtual Machines (VMs):** A hypervisor (such as KVM or VMware) slices physical hardware into virtualized hardware. Each VM runs a full **guest operating system** with its own kernel, systemd daemon, drivers, and gigabytes of memory overhead.
+- **Containers:** There is **no guest OS** and **no hypervisor**. A container is simply an ordinary Linux process running directly on the host kernel, constrained by two core Linux kernel primitives:
+
+### 1. Linux Namespaces (What the process can see)
+Namespaces give the process a dedicated, restricted view of global system resources:
+- **`pid` namespace:** Isolates Process IDs. Inside the container, your application process thinks it is PID 1, completely blind to host processes.
+- **`net` namespace:** Gives the container its own virtual network interface (`eth0`), routing table, and private IP address.
+- **`mnt` namespace:** Isolates filesystem mount points, so the container only sees its own image root filesystem (`rootfs`).
+- **`ipc` namespace:** Isolates Inter-Process Communication (shared memory, message queues).
+- **`uts` namespace:** Allows the container to have its own hostname.
+- **`user` namespace:** Maps container root (UID 0) to an unprivileged host UID.
+
+### 2. Control Groups / cgroups (What the process can use)
+While namespaces restrict what a process can *see*, **cgroups** restrict what it can *consume*:
+- Enforces hard and soft ceilings on CPU shares, memory allocation, disk I/O, and maximum process count.
+- If a container exceeds its memory ceiling, the Linux kernel invokes the **OOM (Out-Of-Memory) Killer** and terminates the process immediately.
+
+```
+┌────────────────────────────────────────────────────────┐
+│                   VIRTUAL MACHINE                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ Application Code & Binaries                      │  │
+│  ├──────────────────────────────────────────────────┤  │
+│  │ Guest OS (Kernel, Systemd, Daemons)              │  │
+│  ├──────────────────────────────────────────────────┤  │
+│  │ Hypervisor (Hardware Virtualization Layer)       │  │
+│  ├──────────────────────────────────────────────────┤  │
+│  │ Host OS Kernel & Physical Hardware               │  │
+│  └──────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────┐
+│                      CONTAINER                         │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ Application Code, Dependencies & Root Filesystem │  │
+│  ├──────────────────────────────────────────────────┤  │
+│  │ Isolated via Linux Namespaces & cgroups          │  │
+│  ├──────────────────────────────────────────────────┤  │
+│  │ Host Linux Kernel (Shared Directly)              │  │
+│  ├──────────────────────────────────────────────────┤  │
+│  │ Physical / Virtual Host Hardware                 │  │
+│  └──────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────┘
+```
+
+Because containers share the host kernel, they start in milliseconds rather than minutes. But because they are just constrained processes, any failure to declare persistent storage, health checks, or restart policies leaves them vulnerable to silent loss.
+
 ## Why this distinction matters to Apollo
 
 The booking program is a process with memory, file descriptors, and a lifecycle.
@@ -62,3 +113,20 @@ container and process status to learn what is running now. A container that is
 running proves the process has not exited; it does not prove that a booking
 dependency is reachable or that temporary state is safe. The next Launchpad
 chapters add configuration, network location, and dependency readiness.
+
+## Check your understanding
+
+<details>
+<summary>You rebuild <code>booking:latest</code> while a booking container is running. Did that container change?</summary>
+
+No. The rebuild creates a new image artifact. The existing container continues
+from the image and writable state with which it was created until it is replaced.
+</details>
+
+<details>
+<summary>A process exits but its image still exists. Which state is definitely gone?</summary>
+
+Its process memory. Image contents remain; mounted storage may remain depending
+on its boundary, while writable-layer survival depends on whether the same
+container is restarted or replaced.
+</details>

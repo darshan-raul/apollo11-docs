@@ -6,10 +6,18 @@ sidebar_label: "Stage 2: Guidance (Networking)"
 
 # Stage 2: Guidance — Networking & Edge Access
 
+:::info[Page type · optional lab]
+This lab uses the pinned Apollo11 revision and introduces the
+`apollo-airlines-apps` and `apollo-airlines-ui` namespace split. Do not reuse
+Stage 1 namespace assumptions.
+:::
+
 :::note[Take the controls · Guidance lab]
 Trace the route from a passenger’s request to the service that answers it.
 For the explanation before the experiment, start with the
 [Guidance chapters](./learn/networking/pod-network-and-cni). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the first hands-on substage](#hands-on-lab-substage-1-discovery--break-drill).
 :::
 
 Stage 1 gave every Apollo component a Service name, but it left two questions
@@ -25,6 +33,12 @@ Stage 2 answers those questions one layer at a time. Do not treat the five
 substages as five competing ways to “do networking.” Each one exposes a missing
 piece of the previous arrangement: stable internal identity, host reachability,
 HTTP routing, local load-balancer addresses, and finally a richer routing API.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The Guidance chapters are the primary explanation. Expand each substage's
+refresher when you need its older combined theory-and-lab context.
 
 ```
 Substage 1                 Substage 2            Substage 3                Substage 4             Substage 5
@@ -116,6 +130,8 @@ The controller's sequence is:
 2. If a Pod fails its readiness probe, Kubernetes marks the endpoint unready.
    Consumers stop choosing it after that state propagates; this reduces traffic
    to unready Pods but does not promise zero dropped connections.
+
+</details>
 
 #### Hands-On Lab: Substage 1 Discovery & Break Drill
 

@@ -57,6 +57,69 @@ container exit; it does not decide whether a new release should be promoted.
 This separation is why useful debugging follows the chain instead of immediately
 deleting Pods.
 
+## Where do these components live? Understanding kind
+
+In a cloud environment (such as AWS EKS or GCP GKE), Kubernetes nodes are
+separate virtual machines or physical servers connected by a cloud network.
+In this course, we create a multi-node cluster locally using **`kind`**
+(**K**ubernetes **in** **D**ocker).
+
+`kind` uses a clever pattern: **every Kubernetes node is itself a Docker
+container** running on your laptop.
+
+```mermaid
+flowchart TB
+  subgraph Host ["Your Workstation / Laptop"]
+    CLI["kubectl (CLI client)"]
+
+    subgraph DockerEngine ["Docker Engine"]
+      subgraph CPNode ["Docker Container: apollo11-control-plane"]
+        API["kube-apiserver (Port :6443)"]
+        ETCD[("etcd (storage)")]
+        CM["controller-manager"]
+        SCHED["scheduler"]
+        KL0["kubelet"]
+        CRI0["containerd"]
+      end
+
+      subgraph W1Node ["Docker Container: apollo11-worker"]
+        KL1["kubelet"]
+        KP1["kube-proxy"]
+        CRI1["containerd"]
+        P1["Future Workload Pods"]
+      end
+
+      subgraph W2Node ["Docker Container: apollo11-worker2"]
+        KL2["kubelet"]
+        KP2["kube-proxy"]
+        CRI2["containerd"]
+        P2["Future Workload Pods"]
+      end
+    end
+
+    CLI -->|HTTPS :6443| API
+    CPNode <--> W1Node
+    CPNode <--> W2Node
+  end
+```
+
+### What happens when you launch Apollo11's cluster:
+
+1. **Three Containers as Three Nodes:** Docker starts three containers:
+   `apollo11-control-plane`, `apollo11-worker`, and `apollo11-worker2`.
+2. **Container-in-Container Runtime:** Inside each node container, `containerd`
+   runs as the Container Runtime Interface (CRI). When Kubernetes schedules a
+   Pod on `apollo11-worker`, the worker's kubelet tells its nested `containerd`
+   to start the application container.
+3. **`kubectl` Communication:** Your laptop's `kubectl` CLI communicates with
+   the cluster via HTTPS on port `6443`, which Docker forwards directly to
+   the `kube-apiserver` inside the `apollo11-control-plane` container.
+4. **`extraPortMappings`:** Because the nodes are containers isolated inside a
+   Docker network, `kind-config.yaml` explicitly forwards ports `30080`–`30084`
+   and `30443` from your laptop into the control-plane container. In Stage 2,
+   this port forwarding is what allows your host web browser to reach the
+   airline's frontend and APIs.
+
 ## Work from evidence outward
 
 For a failed launch, begin with the stored object and its conditions. Then inspect

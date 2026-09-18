@@ -19,8 +19,9 @@ different mechanisms with different failure boundaries.
 1. [Volume lifetimes](../learn/storage/volume-lifetimes)
 2. [Claims and provisioning](../learn/storage/claims-and-provisioning)
 3. [StatefulSets and headless DNS](../learn/storage/statefulsets-and-headless-dns)
-4. [Initialization and seeding](../learn/storage/initialization-and-seeding)
-5. [Recovery boundaries](../learn/storage/recovery-boundaries)
+4. [StatefulSet storage and operations](../learn/storage/statefulset-storage-and-operations)
+5. [Initialization and seeding](../learn/storage/initialization-and-seeding)
+6. [Recovery boundaries](../learn/storage/recovery-boundaries)
 
 The aim is not to declare that every database needs a StatefulSet. It is to
 choose stable identity, ordered behaviour, and storage claims when the workload
@@ -32,5 +33,4 @@ Take the [Mission Data lab](../stage-3) when you can predict which resources
 remain after deleting a database Pod and which would disappear if the claim were
 deleted. The experiment should strengthen a precise claim, not a vague feeling
 that the data is safe.
-
 

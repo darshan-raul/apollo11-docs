@@ -40,4 +40,9 @@ backend through its own `localhost`, and name a dependency that can make the
 booking service unready. The lab is where you test those predictions, not where
 you first encounter them.
 
+Reading-only learners may continue after answering those readiness questions.
+Hands-on learners should complete [optional lab setup](../labs/setup) to clone
+the `Apollo11` repository at the pinned revision (`git clone https://github.com/darshan-raul/Apollo11.git && cd Apollo11`).
+All lab exercises will run from your terminal inside that repository, beginning
+in `cd stages/launchpad`.
 

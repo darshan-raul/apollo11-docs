@@ -79,4 +79,20 @@ itself unable to serve. It does not guarantee every later dependency call or
 preserve data through every failure. Kubernetes will use readiness as one input
 to routing; Mission Data will make the storage boundary explicit.
 
+## Check your understanding
+
+<details>
+<summary>Flight's database is unavailable, but flight still answers <code>/healthz</code>. Should liveness restart it?</summary>
+
+Usually not. Restarting flight does not repair its database. Flight can remain
+alive while readiness withholds new work until the dependency recovers.
+</details>
+
+<details>
+<summary>A record survives <code>docker compose down</code>. Have you proved it survives host loss?</summary>
+
+No. You proved survival across container removal while retaining a named volume
+on that host. Host loss, volume deletion, corruption, and restore are different
+failure boundaries.
+</details>
 

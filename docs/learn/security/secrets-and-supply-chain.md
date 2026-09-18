@@ -7,6 +7,12 @@ description: "Understand external secret synchronizers, why tags are insufficien
 
 *Stage 8 · Command Module (Planned Roadmap)*
 
+:::note[Conceptual chapter]
+Vault, External Secrets Operator, signing, and admission enforcement are planned
+architecture, not installed parts of the supported Apollo lab. Treat the
+commands below as examples of future evidence, not current setup instructions.
+:::
+
 Securing application infrastructure requires protecting secrets from exposure and verifying that container images running on worker nodes originated from trusted, tamper-proof build pipelines.
 
 ---
@@ -43,6 +49,21 @@ A secure software supply chain establishes two guarantees:
   - CI signs the built container image with a private key.
   - Admission controllers (Kyverno) verify the signature against a trusted public key before permitting Pod scheduling.
   - Unsigned or altered images are rejected at admission time.
+
+~~~mermaid
+flowchart LR
+  Source[Reviewed source revision] --> CI[CI builds image]
+  CI --> Digest[Registry stores image by digest]
+  CI --> Signature[Signer records signature or attestation]
+  Deploy[Deployment references digest] --> Admission[Admission policy]
+  Digest --> Admission
+  Signature --> Admission
+  Admission -->|trusted identity and matching digest| Pod[Pod may be admitted]
+  Admission -->|missing or invalid evidence| Reject[Request rejected]
+~~~
+
+*Diagram SEC-05 — admission verifies evidence for the referenced image digest;
+a familiar tag alone does not establish provenance.*
 
 ---
 

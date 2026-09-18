@@ -7,6 +7,12 @@ description: "Understand the difference between pre-admission policy evaluation 
 
 *Stage 8 · Command Module (Planned Roadmap)*
 
+:::note[Conceptual chapter]
+Apollo does not yet provide a runnable Stage 8 security environment. The
+manifests and commands below illustrate a future implementation; they are not
+steps in the supported Stage 7 lab.
+:::
+
 A secure container image declared in YAML can still be exploited at runtime if the container runs as root, mounts a writable root filesystem, or retains unnecessary Linux kernel capabilities. 
 
 Kubernetes secures workloads across two separate enforcement boundaries: **pre-admission** (before objects are saved to etcd) and **runtime sandboxing** (after containers start).

@@ -54,6 +54,19 @@ Utilization % = ( Actual CPU Usage / Requested CPU ) * 100
 
 ## Scale-down stabilization window
 
+~~~mermaid
+flowchart LR
+  R1[Recommendation: 10 replicas] --> History[Recent recommendation history]
+  R2[Recommendation: 7 replicas] --> History
+  R3[Recommendation: 4 replicas] --> History
+  History --> Window{Within downscale window?}
+  Window -->|yes| Safe[Choose highest recent recommendation: 10]
+  Window -->|after older values expire| Lower[Allow a lower desired count]
+~~~
+
+*Diagram SC-05 — downscale stabilization retains recent recommendations and
+uses the highest relevant value instead of sleeping for a fixed period.*
+
 - **Flapping hazard**: Rapidly alternating between adding and removing Pods when traffic fluctuates.
 - **Stabilization window (`stabilizationWindowSeconds: 300`)**:
   - Remembers the highest recommended replica count over the preceding 5 minutes.

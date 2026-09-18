@@ -23,9 +23,10 @@ can limit.
 4. [Scheduling](../learn/reliability/scheduling)
 5. [Disruption budgets](../learn/reliability/disruption-budgets)
 
-A startup budget must cover the startup you describe. A preStop hook spends time
-inside the termination grace period. QoS classes inform pressure decisions, but
-they are not a universal eviction ladder.
+As you read, ask which component observes each signal, what action it may take,
+and how long that action is allowed to take. Also ask which failures a mechanism
+cannot prevent; a health check, resource setting, or disruption budget is never
+a general promise of availability.
 
 ## When to take the controls
 
@@ -33,5 +34,4 @@ Use the [Flight Control lab](../stage-4) once you can say which actor reacts to
 each probe result and why a local successful rollout is evidence with limits.
 Then you can observe readiness, scheduling, and shutdown without overclaiming
 availability.
-
 

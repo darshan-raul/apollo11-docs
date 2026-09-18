@@ -6,10 +6,17 @@ sidebar_label: "Stage 6: Mission Ops (Observability)"
 
 # Stage 6: Mission Operations — Observability & Tracing
 
+:::info[Page type · optional lab]
+This lab uses the pinned Apollo11 revision and the `apollo-observability`
+namespace. Generated example IDs are not evidence; correlate an ID from the live request you made.
+:::
+
 :::note[Take the controls · Mission Operations lab]
 Follow a booking through the signals the application leaves behind.
 For the explanation before the experiment, start with the
 [Mission Operations chapters](./learn/observability/signals-and-metrics). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the investigations](#-investigations-choose-the-signal-before-opening-the-tool).
 :::
 
 Stage 5 made the resource graph reproducible across environments. Earlier
@@ -25,6 +32,12 @@ Stage 6 adds three complementary kinds of evidence to Apollo Airlines:
 3. **Centralized Logs**: Structured JSON logs collected by Grafana Alloy DaemonSets and indexed by Loki.
 4. **Grafana views**: pre-provisioned ways to query the three stores without
    pretending that one signal answers every question.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The Mission Operations chapters are the primary explanation. Expand this
+section when you want the older signal-by-signal account beside the lab.
 
 ```mermaid
 flowchart TD
@@ -259,6 +272,8 @@ node:
    for the ID printed by the trace test.
 
 ---
+
+</details>
 
 ## 🧪 Investigations: choose the signal before opening the tool
 

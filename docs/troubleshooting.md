@@ -44,6 +44,21 @@ Never jump to Rung 4 (application logs) if Rung 1 shows the Pod is `Pending`! If
 
 ## 🚨 1. Pod Lifecycle & Workload Failures
 
+```mermaid
+flowchart TD
+  Start[Pod is not useful] --> Phase{Pod phase?}
+  Phase -->|Pending| Events[Read scheduling events]
+  Events --> Fit{Resources, taints, affinity, or claim?}
+  Phase -->|Running but restarting| Status[Read container last state and restart count]
+  Status --> Previous[Read previous container logs]
+  Phase -->|Running, not Ready| Probe[Inspect readiness condition and probe events]
+  Probe --> Endpoint[Check whether endpoint eligibility changed]
+  Phase -->|Pod replaced| Identity[Compare UID, owner references, and creation time]
+```
+
+*Diagram TR-01 — Pod diagnosis branches first on lifecycle state, so commands
+collect evidence from the component that has actually acted.*
+
 ### Symptom: `CrashLoopBackOff`
 
 The container process starts, fails or crashes, exits, and the kubelet repeatedly restarts it with exponential backoff delay.
@@ -123,6 +138,24 @@ You will observe: `Reason: OOMKilled` and `Exit Code: 137`.
 
 ## 🌐 2. Networking & Service Failures
 
+```mermaid
+flowchart TD
+  Fail[Request fails] --> Client{Where did the request start?}
+  Client --> DNS[Resolve the intended name from that client]
+  DNS --> Edge{Does traffic use an edge proxy?}
+  Edge -->|yes| Route[Check listener and route status]
+  Edge -->|no| Service[Inspect Service selector and port]
+  Route --> Service
+  Service --> Endpoints{Ready endpoints published?}
+  Endpoints -->|no| Labels[Compare labels and readiness]
+  Endpoints -->|yes| Connect[Test target port from the same client location]
+  Connect --> App[Inspect application response and logs]
+```
+
+*Diagram TR-02 — network diagnosis preserves the client location and checks DNS,
+edge routing, Service configuration, endpoints, and application behavior in
+order.*
+
 ### Symptom: Service Has `ENDPOINTS: <none>`
 
 The Service exists, but traffic routed to it fails with connection timeout or connection refused.
@@ -187,6 +220,21 @@ kubectl describe httproute <route-name> -n <namespace> | grep -A 8 Conditions:
 
 ## 💾 3. Storage & StatefulSet Issues
 
+```mermaid
+flowchart TD
+  Start[Database or volume symptom] --> Claim{PVC phase?}
+  Claim -->|Pending| Class[Check StorageClass, provisioner, events, and topology]
+  Claim -->|Bound| Mount{Pod scheduled and volume mounted?}
+  Mount -->|no| Attach[Read scheduling and attach or mount events]
+  Mount -->|yes| Database{Database opens expected data?}
+  Database -->|no| Identity[Confirm ordinal, claim name, mount path, and data directory]
+  Database -->|yes| App[Verify data through Apollo's application path]
+```
+
+*Diagram TR-03 — a Bound claim is only one transition; attachment, database
+readability, and application-level data checks establish progressively stronger
+evidence.*
+
 ### Symptom: PVC Stuck in `Pending`
 
 #### How to Diagnose:
@@ -213,6 +261,22 @@ AWS EBS volumes are strictly zonal (e.g. `us-east-1a`). If a node dies in `us-ea
 ---
 
 ## 📊 4. Autoscaling (HPA) Issues
+
+```mermaid
+flowchart TD
+  Start[HPA does not produce useful replicas] --> Metric{Current metric available?}
+  Metric -->|no| Pipeline[Check metrics API, target selection, and scrape path]
+  Metric -->|yes| Request{CPU request defined?}
+  Request -->|no| Denominator[Add a meaningful request; utilization has no denominator]
+  Request -->|yes| Desired[Compare current metric, target, and desired replicas]
+  Desired --> Limit{Blocked by min, max, or stabilization?}
+  Limit -->|no| Pods{New Pods created and scheduled?}
+  Pods -->|Pending| Capacity[Inspect scheduler events and node capacity]
+  Pods -->|Ready| Outcome[Compare latency, errors, and saturation with baseline]
+```
+
+*Diagram TR-04 — HPA diagnosis follows metric availability, calculation inputs,
+controller constraints, scheduling capacity, and finally passenger impact.*
 
 ### Symptom: HPA Shows `TARGETS: <unknown> / 70%`
 

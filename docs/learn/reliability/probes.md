@@ -33,6 +33,20 @@ period and threshold. A liveness failure can restart the container. A readiness
 failure normally leaves it running but makes it ineligible for new Service
 traffic.
 
+```mermaid
+flowchart LR
+  Start[Container starts] --> S1[Probe at 10s: fail]
+  S1 --> S2[Probe at 20s: fail]
+  S2 --> S3[Probe at 30s: fail]
+  S3 --> Decision{failureThreshold = 4?}
+  Decision -->|yes; one attempt remains| S4[Probe at 40s]
+  S4 -->|success| Enable[Enable liveness and readiness]
+  S4 -->|failure| Restart[Startup budget exhausted; restart container]
+```
+
+*Diagram RL-02 — with a 10-second period and failure threshold of four, the
+startup probe allows roughly four failed samples before kubelet acts.*
+
 ## Read the result as a state transition
 
 A single failed sample is not the same as a threshold being reached. Consecutive

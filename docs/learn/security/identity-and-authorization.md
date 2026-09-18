@@ -7,6 +7,12 @@ description: "Understand authentication, authorization, and admission as separat
 
 *Stage 8 · Command Module (Planned Roadmap)*
 
+:::note[Conceptual chapter]
+Apollo does not yet provide a runnable Stage 8 security environment. The
+commands below illustrate the evidence to collect in a future implementation;
+they are not expected to succeed against the supported Stage 7 lab.
+:::
+
 When a request arrives at the Kubernetes API server, it is not evaluated by a single monolithic security check. It passes through three sequential security gates: **Authentication**, **Authorization**, and **Admission Control**.
 
 ---

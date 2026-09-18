@@ -6,10 +6,17 @@ sidebar_label: "Launchpad (Docker Compose)"
 
 # Launchpad: Container Foundations with Docker Compose
 
+:::info[Page type · optional lab]
+Run this only after the four Launchpad chapters. It expects Apollo11 commit
+`7b693c9bae0a789dc9db8e0628c478fd0dd53e88`; verify it in [lab setup](./labs/setup).
+:::
+
 :::note[Take the controls · Launchpad lab]
 Build the airline’s first containers, then follow what happens when they start, connect, and fail.
 For the explanation before the experiment, start with the
 [Launchpad chapters](./learn/containers/process-image-container). You can return to this lab whenever you’re ready.
+
+Already read them? [Jump to the investigations](#-investigations).
 :::
 
 Before Kubernetes can be useful, it helps to feel the problem it is going to
@@ -23,6 +30,12 @@ what a running application is made of: a process, an image filesystem, a network
 identity, dependencies, and data. Those facts remain true when the process
 later lives in a Pod. Kubernetes adds a way to declare and coordinate them; it
 does not make them disappear.
+
+<details>
+<summary><strong>Optional conceptual refresher</strong></summary>
+
+The chapters linked above are the primary explanation. Expand this refresher if
+you want the older all-in-one account beside the lab.
 
 ---
 
@@ -356,6 +369,8 @@ separate endpoints so an operator can tell the difference.
 
 ---
 
+</details>
+
 ## 🧪 Investigations
 
 Each investigation asks one question. Read that question before running the
@@ -520,8 +535,12 @@ docker compose exec identity-db psql -U postgres -d identity -c "SELECT email FR
   ls`; a custom Compose project name changes the generated prefix.
 - **Concept reinforced**: Removing containers does not remove named volumes
   unless cleanup explicitly requests volume deletion.
-- **Destructive Test**:
-  If you run `docker compose down -v`, the `-v` flag instructs Docker to **destroy all attached named volumes**. Subsequent startup would recreate clean, empty databases.
+:::danger[Do not run this during the learning path]
+`docker compose down -v` destroys the stage's attached named volumes and the
+database records inside them. The normal cleanup command below deliberately
+omits `-v`. Run the destructive form only when you intend to reset all
+Launchpad data and accept that it cannot be recovered without a backup.
+:::
 
 ---
 

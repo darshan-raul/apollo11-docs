@@ -22,15 +22,20 @@ then travels through the rules that an implementation has configured.
 3. [DNS and namespaces](../learn/networking/dns-and-namespaces)
 4. [NodePort and LoadBalancer](../learn/networking/nodeport-and-loadbalancer)
 5. [Ingress and TLS](../learn/networking/ingress-and-tls)
-6. [Gateway API](../learn/networking/gateway-api)
+6. [Gateway API](../learn/networking/gateway-api) — advanced edge model; required
+   for the full hands-on lab, optional on a first reading-only pass.
 
-You will also meet the distinction between a Route attaching to a Gateway and a
-Route referring to a backend across namespaces. They are separate permissions.
+As you read, keep two questions separate: how is a route allowed to use an edge
+listener, and how is it allowed to send traffic to an application owned
+elsewhere? The final chapter gives those permissions their Kubernetes names.
+
+If this is your first networking pass, stop after Ingress and TLS and confirm
+that you can trace DNS → reachable address → edge proxy → Service → ready Pod.
+Then read Gateway API as a second pass about ownership and cross-namespace
+permission. It is intentionally deeper than the core request-path model.
 
 ## When to take the controls
 
 The [Guidance lab](../stage-2) becomes valuable once you can draw the request
 path and name the evidence that a Pod is an eligible endpoint. Use it to inspect
 DNS answers, routes, and traffic—not to discover what a Service is for.
-
-
