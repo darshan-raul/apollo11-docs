@@ -87,23 +87,26 @@ grep -R -n -E "runAsNonRoot|seccompProfile|readOnlyRootFilesystem|allowPrivilege
 
 ### Expected result
 
-Stage 1 contains the explicit token-automount setting. The Stage 7 application
-chart does not currently preserve all of the planned Stage 8 hardening fields.
+Stage 1 and the patched Stage 7 chart both explicitly disable token automount.
+The Stage 7 chart still lacks the planned workload hardening fields checked
+above; token protection alone does not establish the full Stage 8 posture.
 That is a documented curriculum gap, not permission to edit the application
 repository while following this guide.
 
 ### Verification
 
 ```bash
-test ! -d stages/stage8 && echo "Stage 8 implementation is absent, as documented"
+cat stages/stage8/README.md
+# Require an implemented status and lifecycle evidence before running a lab.
 grep -n "Stage 8 is a clean rebuild" ROADMAP.md
 ```
 
 ### Troubleshooting
 
-If `stages/stage8/` now exists, stop using this page as status evidence. Read
-its README and verification scripts, then confirm the top-level trust status
-before running anything.
+The directory contains a status placeholder. Its existence does not establish
+a working security lab. Read its README and confirm the top-level trust status
+before running anything. Only an implemented snapshot with its own lifecycle
+evidence can replace the planned boundary.
 
 ### Concept reinforced
 

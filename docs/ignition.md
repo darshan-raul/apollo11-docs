@@ -8,7 +8,7 @@ sidebar_label: "Ignition (First Cluster)"
 
 :::info[Page type · optional lab]
 Run this after the Ignition chapters against Apollo11 commit
-`7b693c9bae0a789dc9db8e0628c478fd0dd53e88`. Start in a clean lab clone and verify your context before applying anything.
+`143cac8bb7e611db25f87582a178b44ae2d2fb1e` plus the companion gap-fix patch (see [setup](./labs/setup#revision-and-verification-boundary)). Start in a clean lab clone and verify your context before applying anything.
 :::
 
 :::note[Take the controls · Ignition lab]

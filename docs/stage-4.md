@@ -165,7 +165,7 @@ In `booking-dep.yaml`, we solve this with two coordinated mechanisms:
 The scheduler needs to decide whether a Pod can fit before the container starts.
 The kernel needs rules after it starts. Requests and limits serve those distinct
 moments, even when Stage 4 deliberately makes their values equal.
-- **`requests`**: The amount of CPU and memory that the kube-scheduler **guarantees** to reserve on a node for that Pod. If a node does not have enough unallocated requests, the Pod cannot be scheduled there.
+- **`requests`**: The CPU and memory amounts the scheduler uses to decide whether a Pod fits on a node. Requests are accounted against allocatable capacity; they do not preallocate physical memory or guarantee application performance. A Pod cannot be scheduled on a node with insufficient capacity for its requests.
 - **`limits`**: The maximum ceiling the container is allowed to consume.
   - **CPU (Compressible)**: If a container exceeds its CPU limit, the Linux kernel cgroup **throttles** its CPU shares. The container runs slower, but is not killed.
   - **Memory (Incompressible)**: If a container exceeds its memory limit, the Linux kernel triggers an **OOMKill** (Out Of Memory) event and immediately kills the process!

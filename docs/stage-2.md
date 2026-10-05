@@ -469,7 +469,7 @@ The **Gateway API** (`gateway.networking.k8s.io`) is the modern official Kuberne
 │ APP DEVELOPER (apps)         │  │ UI DEVELOPER (ui)            │
 │ HTTPRoute: booking           │  │ HTTPRoute: frontend          │
 │ host: booking.apollo.local   │  │ host: frontend.apollo.local  │
-│ backendRef: booking:8082     │  │ (Allowed by ReferenceGrant!) │
+│ backendRef: booking:8082     │  │ (Allowed by allowedRoutes!) │
 └──────────────────────────────┘  └──────────────────────────────┘
 ```
 
@@ -525,9 +525,16 @@ spec:
           port: 8082
 ```
 
-### 3. Cross-Namespace Security: ReferenceGrant
+### 3. Cross-Namespace Security: ReferenceGrant vs. Route Attachment
 
-In Gateway API, a route in namespace A cannot silently route traffic to a Service in namespace B unless namespace B explicitly permits it using a **`ReferenceGrant`**:
+Cross-namespace Gateway API interactions involve two distinct boundaries that must not be confused:
+
+1. **Route Attachment Permission (`allowedRoutes`)**:
+   The `frontend` HTTPRoute lives in `apollo-airlines-ui` and attaches across namespaces to `apollo-gateway` in `apollo-airlines-apps`. This cross-namespace attachment is authorized solely by the Gateway listener's `allowedRoutes.namespaces.from: All` setting.
+2. **Backend Reference Permission (`ReferenceGrant`)**:
+   In Gateway API, a route in namespace A cannot forward traffic to a Service in namespace B unless namespace B explicitly authorizes that reference using a **`ReferenceGrant`**. In Apollo Airlines, the frontend HTTPRoute forwards to `frontend` Service within its *own* namespace (`apollo-airlines-ui`).
+
+`01a-referencegrant.yaml` is provided in `apollo-airlines-ui` as the canonical reference example: it demonstrates how the UI namespace authorizes any HTTPRoute in `apollo-airlines-apps` that wishes to reference the `frontend` Service:
 
 *Source: `stages/stage2/k8s/substages/05-envoy-gateway/01a-referencegrant.yaml`*
 
@@ -547,6 +554,10 @@ spec:
       kind: Service
       name: frontend
 ```
+
+:::tip[Architectural Boundary]
+Remember: A `ReferenceGrant` lives in the target backend's namespace and governs *backend references*. It does not govern which routes may attach to a Gateway listener; that is always governed by the listener's `allowedRoutes`.
+:::
 
 #### Hands-On Lab: Substage 5 Envoy Gateway Verification
 
@@ -590,7 +601,8 @@ The three requests should return HTTP 200 readiness responses.
   references.
 - **Troubleshooting**: If `Programmed` is false, inspect GatewayClass and Envoy
   Gateway controller logs. If only the frontend cross-namespace route fails,
-  inspect its `ReferenceGrant`. If an app route fails, trace its backend Service
+  inspect the Gateway's `allowedRoutes` and Route attachment conditions. A
+  cross-namespace backend also requires a `ReferenceGrant`. If an app route fails, trace its backend Service
   selector and EndpointSlice.
 - **Concept reinforced**: GatewayClass selects an implementation, Gateway owns
   listeners, HTTPRoute owns traffic rules, and ReferenceGrant authorizes a
@@ -621,3 +633,80 @@ Now that you have verified the networking ladder and recorded its evidence,
 continue to the persistent data problem exposed in Stage 1.
 
 👉 **Continue to [Stage 3: Mission Data (Persistent Storage & StatefulSets)](./stage-3)**
+
+## 🔒 Hands-On Lab: Complete Client-to-Application TLS & Failure Drill
+
+In the canonical Envoy Gateway baseline (Substage 5), TLS is not an inert manifest—it is actively terminated on port 443 with `apollo-tls-secret`, and frontend API URLs use HTTPS.
+
+Evaluating TLS requires separating **three fundamental questions**:
+1. **Does the listener accept TLS?** (`curl -k` connects, but skips validation and does not prove browser acceptance).
+2. **Is the certificate trusted for the requested hostname?** (Validates certificate authority and SNI wildcard matching).
+3. **Do client application workflows succeed over HTTPS?** (Ensures end-to-end API calls succeed without browser mixed-content blocks).
+
+Follow the five-part lab contract:
+
+### 1. Build: Verify TLS Configuration & Provisioning
+The certificate is generated and stored in a Kubernetes Secret during Substage 5 deployment:
+```bash
+# Inspect the HTTPS listener on the Gateway
+kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.listeners[?(@.name=="https")].conditions}' | jq .
+```
+Both `Accepted=True` and `Programmed=True` (with `ResolvedRefs=True`) confirm Envoy Gateway has loaded `apollo-tls-secret`.
+
+### 2. Inspect: Certificate Trust, Negative Validation, and API Workflows
+```bash
+GATEWAY_IP=$(kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.addresses[0].value}')
+
+# A. Extract the public CA certificate from the cluster Secret
+kubectl -n apollo-airlines-apps get secret apollo-tls-secret -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/apollo-ca.crt
+
+# B. Verify valid certificate trust against the booking hostname
+curl --cacert /tmp/apollo-ca.crt --resolve booking.apollo.local:443:${GATEWAY_IP} https://booking.apollo.local/readyz
+# Output: {"status":"UP"} (HTTP 200)
+
+# C. Negative check: verify certificate rejection for an unauthorized hostname
+curl --cacert /tmp/apollo-ca.crt --resolve untrusted.apollo.invalid:443:${GATEWAY_IP} https://untrusted.apollo.invalid/healthz || echo "Exit code: $?"
+# Expected result: curl fails with exit code 60 (SSL peer certificate was not issued for hostname)
+
+# D. Run the full automated end-to-end HTTPS API workflow
+bash stages/stage2/scripts/verify-tls.sh
+```
+`verify-tls.sh` logs in via `identity`, fetches `flight` inventory, queries `search`, creates a reservation on `booking`, and performs an authorized cancellation.
+
+### 3. Break: Break TLS by Removing the Certificate Secret
+Simulate a certificate storage failure or accidental secret deletion:
+```bash
+# Delete the TLS secret
+kubectl -n apollo-airlines-apps delete secret apollo-tls-secret
+
+# Test HTTPS reachability:
+curl --cacert /tmp/apollo-ca.crt --resolve booking.apollo.local:443:${GATEWAY_IP} https://booking.apollo.local/readyz || echo "HTTPS Failed"
+
+# Inspect the Gateway listener condition:
+kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.listeners[?(@.name=="https")].conditions[?(@.type=="ResolvedRefs")]}' | jq .
+# Notice: ResolvedRefs is now False with Reason: InvalidCertificateRef!
+
+# Test HTTP port 80:
+curl -H "Host: booking.apollo.local" "http://${GATEWAY_IP}/readyz"
+# HTTP port 80 continues to return HTTP 200!
+```
+
+### 4. Recover: Regenerate Certificate and Prove Workload Recovery
+Restore the certificate secret and prove full end-to-end recovery:
+```bash
+# 1. Regenerate certificate secret
+bash stages/stage2/k8s/substages/03-traefik-ingress-tls/generate-certs.sh --context kind-apollo11
+
+# 2. Re-extract the new certificate
+kubectl -n apollo-airlines-apps get secret apollo-tls-secret -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/apollo-ca.crt
+
+# 3. Verify HTTPS recovery and rerun the complete API workflow
+curl --cacert /tmp/apollo-ca.crt --resolve booking.apollo.local:443:${GATEWAY_IP} https://booking.apollo.local/readyz
+bash stages/stage2/scripts/verify-tls.sh
+```
+The script completes with: `Trusted HTTPS login, populated search, booking, cancellation, and hostname rejection passed.`
+
+### 5. Explain: What This Evidence Proves
+- **`curl -k` is deceptive**: An untrusted or expired certificate connects via `-k`, but real browsers block requests with mixed-content errors or security warnings.
+- **SNI and SAN boundaries**: The certificate wildcard `*.apollo.local` protects all Apollo microservices while properly rejecting untrusted domains.
+- **Gateway listener isolation**: When the TLS secret is deleted, only the HTTPS listener is invalidated (`ResolvedRefs=False`); independent HTTP listeners remain available to traffic.

@@ -493,3 +493,11 @@ Before moving to Stage 6, test your understanding:
 Now that Apollo Airlines is packaged and deployable across any environment, let's turn on full observability: metrics, distributed tracing, and centralized logging!
 
 👉 **Continue to [Stage 6: Mission Operations (Observability & Tracing)](./stage-6)**
+
+## Current verification boundary
+
+The earlier source check totals are historical evidence. The October candidate
+changes context guards, TLS ownership, frontend HTTPS API URLs, and token
+protection; it requires a fresh clean lifecycle. Use the current verifier's
+summary and manual behavioral results for the revision plus patch you run.
+A production docs build verifies page compilation and links, not lab behavior.

@@ -435,3 +435,13 @@ work in Stage 8, so do not describe the Kubernetes deployment as hardened yet.
 Now, explore how these concepts translate to real cloud providers like AWS EKS, and review our security and specialization roadmaps!
 
 👉 **Continue to [Cloud Appendix: EKS Research Boundary](./eks)**
+
+## Current verification boundary
+
+The earlier source check totals are historical evidence. The October candidate
+changes context guards, TLS ownership, frontend HTTPS API URLs, and token
+protection; it requires a fresh clean lifecycle. Use the current verifier's
+summary and manual behavioral results for the revision plus patch you run.
+A production docs build verifies page compilation and links, not lab behavior.
+
+Use the explicit cache baseline in [Measurement before optimization](./learn/scaling/measurement-baseline) before interpreting an HPA result.

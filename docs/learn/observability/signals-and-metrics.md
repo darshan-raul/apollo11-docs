@@ -17,7 +17,7 @@ Observability requires pairing the right signal with the right operational quest
 
 ~~~mermaid
 flowchart LR
-  Passenger["Passenger: 'My booking was slow'"] --> Metric["Metric\nIs this widespread?\nbooking_request_duration_seconds\np99 spike at 14:30"]
+  Passenger["Passenger: 'My booking was slow'"] --> Metric["Metric\nIs this widespread?\nhttp_request_duration_ms\np99 spike at 14:30"]
   Metric --> Trace["Trace\nWhere did time go?\nflight span: 340ms"]
   Trace --> Log["Log\nWhat happened in flight?\nERROR: db connect timeout 14:31:55"]
   Log --> Root["Root cause:\nflight DB connection pool exhausted"]
@@ -35,12 +35,12 @@ flowchart LR
 
 ## Counters vs. Histograms
 
-- **Counters (`booking_requests_total`)**:
+- **Counters (`http_requests_total`)**:
   - Monotonically increasing values starting from `0`.
   - Resets to `0` when container restarts.
-  - Query as rates: `rate(booking_requests_total[5m])` (requests per second).
-- **Histograms (`booking_request_duration_seconds`)**:
-  - Samples durations into configurable buckets (`le="0.05"`, `le="0.5"`, `le="+Inf"`).
+  - Query as rates: `rate(http_requests_total{service="booking"}[5m])` (requests per second).
+- **Histograms (`http_request_duration_ms`)**:
+  - Samples durations in milliseconds into configurable buckets (`le="50"`, `le="500"`, `le="+Inf"`).
   - Enables percentile calculations: `histogram_quantile(0.99, ...)` (p99 tail latency).
 
 ---
@@ -55,15 +55,15 @@ flowchart LR
 
 ## Evidence and limits
 
-- **1. Target scrape health**: Ensure Prometheus is scraping metrics:
+- **1. Discovery configuration**: Inspect ServiceMonitors, then confirm actual targets in the Prometheus UI:
   ```bash
   kubectl get servicemonitor -n apollo-observability
   ```
 - **2. Query live rates**: Test PromQL expressions via curl or Prometheus UI:
-  ```bash
-  rate(booking_requests_total{status="200"}[5m])
+  ```promql
+  rate(http_requests_total{service="booking",status="200"}[5m])
   ```
 - **3. Check percentile latencies**: Inspect p99 latency distributions:
-  ```bash
-  histogram_quantile(0.99, sum by(le) (rate(booking_request_duration_seconds_bucket[5m])))
+  ```promql
+  histogram_quantile(0.99, sum by(le) (rate(http_request_duration_ms_bucket{service="booking"}[5m])))
   ```

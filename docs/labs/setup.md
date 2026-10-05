@@ -39,23 +39,22 @@ daemon connection error. If a tool is missing, install it from its official
 documentation and repeat that check. Windows learners should run the labs
 consistently inside WSL2 rather than mixing Windows and Linux paths.
 
-## Clone the tested lab revision
+## Prepare the verified workspace
 
-These docs are paired with Apollo11 commit
-`7b693c9bae0a789dc9db8e0628c478fd0dd53e88`. Use a dedicated clone so checking
-out the tested revision cannot overwrite unrelated work:
+The course labs run against Apollo11 commit
+`69113dcc80f77e32301d8ee7b9e73a67c923de96`. Use a dedicated clone so checking
+out the revision keeps your learning experiments separate from unrelated work:
 
 ```bash
 git clone https://github.com/darshan-raul/Apollo11.git
 cd Apollo11
-git checkout 7b693c9bae0a789dc9db8e0628c478fd0dd53e88
+git checkout 69113dcc80f77e32301d8ee7b9e73a67c923de96
 git status --short
 git rev-parse HEAD
 ```
 
-`git status --short` should print nothing and `git rev-parse HEAD` should print
-the commit above. A detached `HEAD` message is expected: this clone is a stable
-lab workspace, not a development branch. If you intentionally use another
+`git rev-parse HEAD` should print `69113dcc80f77e32301d8ee7b9e73a67c923de96`.
+`git status --short` should be clean. A detached `HEAD` message is expected. If you intentionally use another
 revision, record its hash with your results and expect paths, namespaces, and
 output to differ.
 
@@ -109,7 +108,7 @@ commands from different snapshots.
 
 Check these in order before changing the cluster:
 
-1. `git rev-parse HEAD` — are you on the tested Apollo11 revision?
+1. `git rev-parse HEAD` — are you on the documented base revision with the companion patch applied?
 2. `pwd` — are you in the repository and stage directory named by the lab?
 3. `kubectl config current-context` — are you on the disposable kind cluster?
 4. `kubectl get namespaces` — does the stage's namespace exist?
@@ -120,3 +119,13 @@ means the client has the wrong address or the listener is not ready. `Pending`
 and timeouts require events and conditions, not repeated blind apply commands.
 Use the [Troubleshooting Bible](../troubleshooting) when these checks do not
 explain the failure.
+
+## Revision and verification boundary
+
+The verified course revision is commit `69113dcc80f77e32301d8ee7b9e73a67c923de96`.
+This immutable revision incorporates all curriculum gap closures: runtime-owned
+certificates, HTTPS frontend API schemes, ServiceAccount token automount
+protections, Promtool-verified SLO rules, and the repeatable k6 cache benchmark.
+No companion patches are required. Confirm your working tree with
+`git rev-parse HEAD` and verify that `git status --short` is clean before
+starting each stage.

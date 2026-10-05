@@ -8,7 +8,7 @@ sidebar_label: "Launchpad (Docker Compose)"
 
 :::info[Page type · optional lab]
 Run this only after the four Launchpad chapters. It expects Apollo11 commit
-`7b693c9bae0a789dc9db8e0628c478fd0dd53e88`; verify it in [lab setup](./labs/setup).
+`143cac8bb7e611db25f87582a178b44ae2d2fb1e` plus the companion gap-fix patch (see [setup](./labs/setup#revision-and-verification-boundary)); verify it in [lab setup](./labs/setup).
 :::
 
 :::note[Take the controls · Launchpad lab]

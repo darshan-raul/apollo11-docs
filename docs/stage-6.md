@@ -462,3 +462,15 @@ Horizontal and Vertical Pod Autoscaling, Redis caching, and advanced
 scheduling.
 
 👉 **Continue to [Stage 7: Orbital Maneuvering (Autoscaling & Scheduling)](./stage-7)**
+
+## Current verification boundary
+
+The earlier source check totals are historical evidence. The October candidate
+changes context guards, TLS ownership, frontend HTTPS API URLs, and token
+protection; it requires a fresh clean lifecycle. Use the current verifier's
+summary and manual behavioral results for the revision plus patch you run.
+A production docs build verifies page compilation and links, not lab behavior.
+
+For the ordered metrics → dashboards → alerts/SLO → logs → traces → correlation
+path, follow `stages/stage6/SIGNALS.md`. The existing full-stack installer remains
+the maintainer path; the ordered replacement awaits runtime lifecycle evidence.

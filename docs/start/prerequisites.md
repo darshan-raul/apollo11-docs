@@ -37,7 +37,7 @@ If you choose the **hands-on route**, clone the companion `Apollo11` repository 
 ```bash
 git clone https://github.com/darshan-raul/Apollo11.git
 cd Apollo11
-git checkout 7b693c9bae0a789dc9db8e0628c478fd0dd53e88
+git checkout 69113dcc80f77e32301d8ee7b9e73a67c923de96
 ```
 
 Every hands-on lab in this course runs from inside that `Apollo11` repository, navigating into stage directories such as `stages/launchpad/`, `stages/ignition/`, and `stages/stage1/`.
@@ -48,3 +48,13 @@ page types, the reading-only and hands-on routes, and what counts as completing
 a stage. When you are ready for experiments, workstation requirements and tools
 are detailed in [Prepare your launchpad](../labs/setup).
 
+
+## Revision and verification boundary
+
+The verified course revision is commit `69113dcc80f77e32301d8ee7b9e73a67c923de96`.
+This immutable revision incorporates all curriculum gap closures: runtime-owned
+certificates, HTTPS frontend API schemes, ServiceAccount token automount
+protections, Promtool-verified SLO rules, and the repeatable k6 cache benchmark.
+No companion patches are required. Confirm your working tree with
+`git rev-parse HEAD` and verify that `git status --short` is clean before
+starting each stage.

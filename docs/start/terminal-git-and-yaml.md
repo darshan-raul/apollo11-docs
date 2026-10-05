@@ -39,7 +39,7 @@ git status --short
 git rev-parse HEAD
 ```
 
-The [lab compatibility contract](../labs/setup#clone-the-tested-lab-revision)
+The [lab compatibility contract](../labs/setup#prepare-the-verified-workspace)
 provides the supported clone and checkout commands.
 
 ## Read YAML as nested data
