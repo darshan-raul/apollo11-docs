@@ -6,9 +6,9 @@ sidebar_label: "Launchpad (Docker Compose)"
 
 # Launchpad: Container Foundations with Docker Compose
 
-:::info[Page type · optional lab]
+:::info[Page type · build and investigate]
 Run this only after the four Launchpad chapters. It expects Apollo11 commit
-`143cac8bb7e611db25f87582a178b44ae2d2fb1e` plus the companion gap-fix patch (see [setup](./labs/setup#revision-and-verification-boundary)); verify it in [lab setup](./labs/setup).
+`69113dcc80f77e32301d8ee7b9e73a67c923de96` (see [setup](./labs/setup#revision-and-verification-boundary)); verify it in [lab setup](./labs/setup).
 :::
 
 :::note[Take the controls · Launchpad lab]
@@ -505,36 +505,44 @@ curl --retry 10 --retry-all-errors --fail -i http://localhost:8081/readyz
 ### Exercise 4: Testing Volume Persistence vs. Container Deletion
 
 **Prediction:** a named volume belongs to Docker, not to the short-lived
-`identity-db` container. Removing containers without `-v` therefore differs
-from deleting the volume itself.
+`identity-db` container. Removing containers without `-v` preserves the volume and its files.
+Inserting a unique learner marker proves that data was retained across container replacement rather than merely re-created by the init script.
 
-- **Objective**: Prove the difference between container memory/disk and Docker named volumes.
-- **Starting Point**: Database initialized and seeded.
+- **Objective**: Prove the difference between ephemeral container writable layers and Docker named volumes using a unique marker row.
+- **Starting Point**: Database initialized and healthy.
 - **Instructions**:
 
 ```bash
-# 1. Query users from identity-db
-docker compose exec identity-db psql -U postgres -d identity -c "SELECT email FROM users LIMIT 1;"
+# 1. Insert a unique learner marker record into identity-db
+docker compose exec identity-db psql -U postgres -d identity -c \
+  "INSERT INTO users (email, password_hash, first_name) VALUES ('marker@apollo.local', 'hash', 'Marker');"
 
-# 2. Stop and remove the containers (WITHOUT removing volumes)
+# 2. Inspect and record the named volume's identity
+docker volume inspect launchpad_identity-db-data
+
+# 3. Stop and remove the containers (WITHOUT removing volumes)
 docker compose down
 
-# 3. Start containers back up
+# 4. Start containers back up
 docker compose up -d
 
-# 4. Check if the database data survived
-docker compose exec identity-db psql -U postgres -d identity -c "SELECT email FROM users LIMIT 1;"
+# 5. Wait for database readiness before querying
+until docker compose exec identity-db pg_isready -U postgres -d identity; do sleep 1; done
+
+# 6. Verify that your unique marker survived container destruction
+docker compose exec identity-db psql -U postgres -d identity -c \
+  "SELECT email, first_name FROM users WHERE email='marker@apollo.local';"
+
+# 7. Clean up the marker record to return to baseline
+docker compose exec identity-db psql -U postgres -d identity -c \
+  "DELETE FROM users WHERE email='marker@apollo.local';"
 ```
 
 - **Expected Result**:
-  The user record is preserved! The named volume `launchpad_identity-db-data` was untouched.
-- **Verification command**: `docker volume inspect
-  launchpad_identity-db-data` should succeed before and after `docker compose
-  down`.
-- **Troubleshooting hints**: If the volume name differs, inspect `docker volume
-  ls`; a custom Compose project name changes the generated prefix.
-- **Concept reinforced**: Removing containers does not remove named volumes
-  unless cleanup explicitly requests volume deletion.
+  The marker record `marker@apollo.local` is returned after recreation. Because `marker@apollo.local` is not part of the initial seed script, this proves that PostgreSQL resumed from the retained volume data rather than re-running the initialization scripts on an empty disk.
+- **Verification command**: `docker volume inspect launchpad_identity-db-data` confirms the underlying host storage path remained unchanged.
+- **Troubleshooting hints**: If the volume name differs, inspect `docker volume ls`; a custom Compose project name changes the generated prefix.
+- **Concept reinforced**: Removing containers does not remove named volumes unless cleanup explicitly requests volume deletion (`-v`).
 :::danger[Do not run this during the learning path]
 `docker compose down -v` destroys the stage's attached named volumes and the
 database records inside them. The normal cleanup command below deliberately

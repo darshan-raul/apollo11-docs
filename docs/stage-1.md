@@ -479,17 +479,17 @@ by the API server?
 - **Objective**: Build application images, load them into kind, and apply all Stage 1 manifests.
 - **Starting Point**: Healthy `kind-apollo11` cluster from Ignition; terminal in the `Apollo11` repository root.
 
-#### Inside the Black Box: What `apply.sh` Actually Does
+#### Inside the Pipeline: The 6-Phase Dependency Graph
 
-Rather than treating `apply.sh` as magic automation, understand its **6-phase sequential deployment**. The script coordinates these phases to respect the strict dependency graph between configuration, databases, schema migrations, and customer-facing APIs:
+Rather than treating `apply.sh` as magic automation, understand its **6-phase sequential deployment**. The sequence coordinates these phases to respect the strict dependency graph between configuration, databases, schema migrations, and customer-facing APIs. You can author and apply these manifests incrementally from `stages/stage1/k8s/` (or into `learner-work/stage1/`):
 
 | Phase | Directory | Action Executed | Why Order Matters |
 |---|---|---|---|
-| **1/6: Config & Identity** | `k8s/config/` | Creates namespace, `apollo-airlines-config` ConfigMap, `apollo-airlines-secrets`, and 13 tokenless ServiceAccounts. | ConfigMaps and Secrets must exist *before* Pods start; otherwise Pods stall with `CreateContainerConfigError`. |
-| **2/6: Backing Infrastructure** | `k8s/infra/` | Deploys `identity-db`, `flight-db`, `booking-db`, and `redis` Deployments and Services. | Databases must initialize their TCP listeners before applications or schema scripts try to connect. |
+| **1/6: Config & Identity** | `stages/stage1/k8s/config/` | Creates namespace, `apollo-airlines-config` ConfigMap, `apollo-airlines-secrets`, and 13 tokenless ServiceAccounts. | ConfigMaps and Secrets must exist *before* Pods start; otherwise Pods stall with `CreateContainerConfigError`. |
+| **2/6: Backing Infrastructure** | `stages/stage1/k8s/infra/<db>/` | Deploys `identity-db`, `flight-db`, `booking-db`, and `redis` Deployments and Services. | Databases must initialize their TCP listeners before applications or schema scripts try to connect. |
 | **3/6: Infra Rollout Wait** | Cluster State | Executes `kubectl rollout status` on each database until all replicas report ready. | Prevents migration jobs from attempting SQL connections against an unbooted database. |
-| **4/6: Schema Bootstrap Jobs** | `k8s/jobs/` | Mounts schema ConfigMaps and runs `init-identity-db`, `init-flight-db`, and `init-booking-db` (`batch/v1`). | Creates required database tables (`users`, `flights`, `bookings`) before API services boot. |
-| **5/6: Application Services** | `k8s/apps/` | Deploys the 6 microservices: `identity`, `flight`, `booking`, `search`, `notification`, `frontend`. | Applications can now start cleanly with their dependencies and tables in place. |
+| **4/6: Schema Bootstrap Jobs** | `stages/stage1/k8s/jobs/` | Mounts schema ConfigMaps and runs `init-identity-db`, `init-flight-db`, and `init-booking-db` (`batch/v1`). | Creates required database tables (`users`, `flights`, `bookings`) before API services boot. |
+| **5/6: Application Services** | `stages/stage1/k8s/apps/<app>/` | Deploys the 6 microservices: `identity`, `flight`, `booking`, `search`, `notification`, `frontend`. | Applications can now start cleanly with their dependencies and tables in place. |
 | **6/6: Application Rollout Wait** | Cluster State | Waits for all 6 application Deployments to achieve desired ready replicas. | Verifies that all containers pass their `/readyz` probes. |
 
 - **Instructions**:
@@ -497,18 +497,18 @@ Rather than treating `apply.sh` as magic automation, understand its **6-phase se
 ```bash
 cd Apollo11
 
-# 1. Run the verified Stage 1 deploy script
+# 1. Run the verified Stage 1 deploy script (or apply each phase manually above)
 bash stages/stage1/scripts/apply.sh
 
 # 2. Inspect all deployed workloads in apollo-airlines
-kubectl get deployments,statefulsets,jobs,pods,svc -n apollo-airlines
+kubectl get deployments,jobs,pods,svc -n apollo-airlines
 ```
 
 - **Expected Result**:
   - 10 Deployments report desired replicas available (`2/2` for apps, `1/1` for DBs).
   - 3 Jobs (`init-identity-db`, `init-flight-db`, `init-booking-db`) show `1/1 Completed`.
   - Services show `NodePort` mappings matching ports `30080`–`30084`.
-- **Verification Script (What 167 Checks Test)**:
+- **Maintainer Verification Suite (What 167 Checks Test)**:
 
 ```bash
 bash stages/stage1/scripts/verify.sh
@@ -521,7 +521,7 @@ bash stages/stage1/scripts/verify.sh
 4. Audits container logs for crash loops or SQL connection errors.
 5. Performs live HTTP `/healthz` and `/readyz` probes against each microservice endpoint.
 
-All 167 automated checks should pass!
+All 167 automated checks pass to confirm the verified baseline!
 
 - **Troubleshooting hints**: A verifier failure names the contract it checked.
   Use that resource's status, events, `describe`, and logs rather than rerunning

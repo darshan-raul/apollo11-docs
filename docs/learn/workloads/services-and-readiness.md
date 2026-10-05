@@ -96,7 +96,8 @@ Verify healthy Service endpoints across the complete pipeline:
   ```bash
   kubectl get endpointslices -n apollo-airlines -l kubernetes.io/service-name=booking
   ```
-- **4. Network connectivity**: Test the live ClusterIP from another Pod:
+- **4. Network connectivity**: Test the live ClusterIP from an in-cluster diagnostic client:
   ```bash
-  kubectl exec -n apollo-airlines deploy/frontend -- curl -s http://booking:8082/readyz
+  kubectl run curl-client --rm -i --tty --image=curlimages/curl:8.7.1 --restart=Never -n apollo-airlines -- curl -s http://booking:8082/readyz
   ```
+  *(Or verify from your workstation via port-forward: `kubectl port-forward -n apollo-airlines svc/booking 8082:8082` and run `curl http://localhost:8082/readyz`).*

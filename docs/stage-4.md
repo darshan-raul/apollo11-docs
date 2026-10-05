@@ -386,49 +386,54 @@ kubectl delete pod -n apollo-airlines-apps "$BOOKING_POD" --wait=false
 
 ---
 
-### Exercise 3: Testing the Eviction API & PDB Violations
+### Exercise 3: Testing the Eviction API & Deterministic PDB Enforcement
 
-**Prediction:** the second eviction is rejected only while the PDB observes too
-few available booking Pods. If the first replacement becomes Ready quickly, the
-same request can become allowed—this is a live availability calculation, not a
-permanent lock.
+**Prediction:** `booking-pdb` specifies `minAvailable: 1`. When two healthy replicas exist, one disruption is allowed. If only one healthy replica exists, the Eviction API must deterministically reject any eviction request because disruptions allowed is zero.
 
-- **Objective**: Use the raw Kubernetes Eviction API to verify that `booking-pdb` blocks concurrent disruptions.
+- **Objective**: Use the raw Kubernetes Eviction API to verify that `booking-pdb` blocks disruptions when availability drops to the minimum threshold.
 - **Starting Point**: Two healthy `booking` pods running.
 - **Instructions**:
 
 ```bash
-POD1=$(kubectl get pods -n apollo-airlines-apps -l app=booking -o jsonpath='{.items[0].metadata.name}')
-POD2=$(kubectl get pods -n apollo-airlines-apps -l app=booking -o jsonpath='{.items[1].metadata.name}')
-
-# 1. Check current PDB status
+# 1. Inspect the healthy baseline PDB status
 kubectl get pdb booking-pdb -n apollo-airlines-apps
-# ALLOWED DISRUPTIONS should be 1
+# ALLOWED DISRUPTIONS: 1 (2 replicas running, minAvailable: 1)
 
-# 2. Evict the first Pod via raw Eviction API
-kubectl create --raw "/api/v1/namespaces/apollo-airlines-apps/pods/${POD1}/eviction" -f - <<EOF
-{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"${POD1}","namespace":"apollo-airlines-apps"}}
-EOF
-# Output: {"status":"Success","code":201}
+# 2. Deliberately scale booking to 1 replica to create a zero-budget condition
+kubectl scale deployment/booking -n apollo-airlines-apps --replicas=1
+kubectl rollout status deployment/booking -n apollo-airlines-apps
 
-# 3. Immediately attempt to evict the second Pod while allowed disruptions is 0!
-kubectl create --raw "/api/v1/namespaces/apollo-airlines-apps/pods/${POD2}/eviction" -f - <<EOF
-{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"${POD2}","namespace":"apollo-airlines-apps"}}
+# 3. Observe the updated PDB status
+kubectl get pdb booking-pdb -n apollo-airlines-apps
+# ALLOWED DISRUPTIONS is now 0! Exactly 1 replica is running and minAvailable is 1.
+
+# 4. Attempt to evict the single remaining Pod via the Eviction API
+REMAINING_POD=$(kubectl get pods -n apollo-airlines-apps -l app=booking -o jsonpath='{.items[0].metadata.name}')
+
+kubectl create --raw "/api/v1/namespaces/apollo-airlines-apps/pods/${REMAINING_POD}/eviction" -f - <<EOF
+{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"${REMAINING_POD}","namespace":"apollo-airlines-apps"}}
 EOF
 ```
 
-- **Expected Result for Step 3**:
+- **Expected Result for Step 4**:
+  The API server immediately rejects the request:
   `Error from server (TooManyRequests): Cannot evict pod as it would violate the pod disruption budget.`
+  This rejection occurs deterministically because `disruptionsAllowed` is `0`.
+
+```bash
+# 5. Restore the baseline 2 replicas and verify budget recovery
+kubectl scale deployment/booking -n apollo-airlines-apps --replicas=2
+kubectl rollout status deployment/booking -n apollo-airlines-apps
+
+# 6. Verify that disruptions allowed has returned to 1
+kubectl get pdb booking-pdb -n apollo-airlines-apps
+```
+
 - **What Concept This Reinforces**:
   `PodDisruptionBudgets` constrain voluntary disruptions such as eviction and
-  node drain. They do not prevent crashes, guarantee capacity, or repair an
-  unhealthy workload.
-- **Verification command**: Watch `kubectl get pdb booking-pdb -n
-  apollo-airlines-apps -w` until `ALLOWED DISRUPTIONS` returns to 1.
-- **Troubleshooting hints**: This experiment is timing-sensitive. If the
-  replacement becomes Ready before the second request, the second eviction may
-  be allowed; repeat only after restoring two healthy replicas and watching the
-  budget transition.
+  node drain (`kubectl drain`). Note that direct administrative scaling or Pod deletion bypasses the Eviction API, but voluntary operations (node drains, cluster upgrades, cluster autoscaler scale-downs) honor the PDB budget.
+- **Verification command**: `kubectl get pdb booking-pdb -n apollo-airlines-apps` confirms `ALLOWED DISRUPTIONS: 1` after scaling back to 2 replicas.
+- **Troubleshooting hints**: If `ALLOWED DISRUPTIONS` remains `0` after restoring replicas, inspect `kubectl get pods -n apollo-airlines-apps -l app=booking` to ensure both replicas passed their `/readyz` probes.
 
 ---
 

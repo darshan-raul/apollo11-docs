@@ -80,13 +80,13 @@ Chart templates can generate unexpected YAML through misconfigured indentation o
   ```
 - **2. Release revision history**: Inspect deployed release versions:
   ```bash
-  helm history apollo-airlines -n apollo-airlines-apps
+  helm history apollo11 -n apollo-airlines-apps
   ```
 - **3. Active release status**:
   ```bash
-  helm status apollo-airlines -n apollo-airlines-apps
+  helm status apollo11 -n apollo-airlines-apps
   ```
 - **4. Rollback execution**: Revert to a known good revision:
   ```bash
-  helm rollback apollo-airlines 2 -n apollo-airlines-apps
+  helm rollback apollo11 2 -n apollo-airlines-apps
   ```

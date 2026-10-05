@@ -81,14 +81,30 @@ does not create missing trace context between Apollo services.*
 
 ## Evidence and limits
 
-- **1. Extract trace ID from live request**:
+- **1. Generate a distributed trace using W3C Trace Context**:
+  Inject a standard `traceparent` header (`00-<trace_id>-<span_id>-<flags>`) and bearer token into a real booking request:
   ```bash
-  curl -v http://localhost:30082/api/bookings -d '{"flight_id":"F101"}' 2>&1 | grep -i "X-Trace-Id"
+  TRACE_ID=$(openssl rand -hex 16)
+  SPAN_ID=$(openssl rand -hex 8)
+
+  # Send authenticated booking with traceparent context:
+  curl -s -X POST http://localhost:8082/api/bookings \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "traceparent: 00-${TRACE_ID}-${SPAN_ID}-01" \
+    -d "{\"flightId\":\"$FLIGHT_ID\"}"
   ```
 - **2. Query trace in Tempo API**:
+  Access Tempo via port-forward (or in-cluster DNS `tempo.apollo-observability.svc:3100`):
   ```bash
-  curl -s "http://localhost:3100/api/traces/<trace-id>" | jq .
+  kubectl port-forward -n apollo-observability svc/tempo 3100:3100 &
+  PF_PID=$!
+  sleep 1
+
+  curl -s "http://localhost:3100/api/traces/${TRACE_ID}" | jq .
+  kill $PF_PID
   ```
+  *(Or execute the comprehensive end-to-end verification via `bash stages/stage6/scripts/trace-test.sh`).*
 - **3. Collector health**: Ensure OpenTelemetry collector is exporting spans:
   ```bash
   kubectl logs -n apollo-observability -l app=otel-collector | grep -E "Exporting|spans"

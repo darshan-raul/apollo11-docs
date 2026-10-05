@@ -438,10 +438,11 @@ Now, explore how these concepts translate to real cloud providers like AWS EKS, 
 
 ## Current verification boundary
 
-The earlier source check totals are historical evidence. The October candidate
-changes context guards, TLS ownership, frontend HTTPS API URLs, and token
-protection; it requires a fresh clean lifecycle. Use the current verifier's
-summary and manual behavioral results for the revision plus patch you run.
-A production docs build verifies page compilation and links, not lab behavior.
+The earlier source check totals are historical evidence. The verified repository
+revision is commit `69113dcc80f77e32301d8ee7b9e73a67c923de96`, incorporating
+context guards, external TLS certificate ownership, frontend HTTPS API endpoints,
+and ServiceAccount token automount protection. Use the current verifier's
+summary and your own manual behavioral observations to validate your environment.
+A production docs build verifies page compilation and links, not cluster behavior.
 
 Use the explicit cache baseline in [Measurement before optimization](./learn/scaling/measurement-baseline) before interpreting an HPA result.

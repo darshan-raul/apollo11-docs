@@ -6,9 +6,9 @@ sidebar_label: "Ignition (First Cluster)"
 
 # Ignition: Your First Kubernetes Cluster
 
-:::info[Page type · optional lab]
+:::info[Page type · build and investigate]
 Run this after the Ignition chapters against Apollo11 commit
-`143cac8bb7e611db25f87582a178b44ae2d2fb1e` plus the companion gap-fix patch (see [setup](./labs/setup#revision-and-verification-boundary)). Start in a clean lab clone and verify your context before applying anything.
+`69113dcc80f77e32301d8ee7b9e73a67c923de96` (see [setup](./labs/setup#revision-and-verification-boundary)). Start in a clean lab clone and verify your context before applying anything.
 :::
 
 :::note[Take the controls · Ignition lab]
@@ -343,28 +343,33 @@ You should see `coredns`, `etcd`, `kube-apiserver`, `kube-controller-manager`, `
 
 ---
 
-### Exercise 2: Imperative vs. Declarative Management
+### Exercise 2: Imperative Generation vs. Declarative Authoring
 
-**Prediction:** the dry-run command produces YAML only on your workstation. The
-checked-in manifest becomes cluster state only after `kubectl apply` sends it to
-the API server.
+**Prediction:** the dry-run command produces YAML on your workstation. The
+manifest becomes cluster state only after `kubectl apply` sends it to the API server.
 
-- **Objective**: Understand client-side dry-run generation vs. declarative apply.
+- **Objective**: Generate a starter template into `learner-work/`, inspect what is missing, and apply your declarative manifest.
 - **Starting Point**: Running cluster.
 - **Instructions**:
 
 ```bash
-# 1. Generate a Pod manifest imperatively without creating it on the cluster
+mkdir -p learner-work/ignition
+
+# 1. Generate starter Pod YAML locally into your workspace
 kubectl run apollo-shell \
   --image=busybox:1.36.1 \
   --restart=Always \
   --port=8080 \
-  --dry-run=client -o yaml > /tmp/imperative-pod.yaml
+  --dry-run=client -o yaml > learner-work/ignition/pod.yaml
 
 # 2. Inspect the generated file
-cat /tmp/imperative-pod.yaml
+cat learner-work/ignition/pod.yaml
+```
 
-# 3. Apply the checked-in declarative manifest
+Notice what the generator provided (`apiVersion`, `kind: Pod`, `image`, `restartPolicy`, `containerPort`) and what it didn't: it did not supply the web server process or content. The checked-in reference in `stages/ignition/pod.yaml` adds labels (`app: shell`, `stage: ignition`) and a supervised BusyBox `httpd` command:
+
+```bash
+# 3. Apply the verified Pod manifest (or your authored file in learner-work/ignition/pod.yaml)
 kubectl apply -f stages/ignition/pod.yaml
 
 # 4. Wait for the Pod to become Ready
@@ -374,12 +379,12 @@ kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
 - **Expected Result**:
   The Pod `apollo-shell` transitions from `ContainerCreating` to `Running`.
 - **Verification command**: `kubectl get pod apollo-shell -o yaml` should show
-  `stage: ignition` from the checked-in manifest, while the dry-run file remains
-  only a local file.
+  `stage: ignition` from the applied manifest, while the dry-run file remains
+  a template on your disk.
 - **Troubleshooting hints**: Use `kubectl describe pod apollo-shell` when the
   wait times out; events distinguish image-pull, scheduling, and startup issues.
 - **What Concept This Reinforces**:
-  `--dry-run=client -o yaml` is a great way to generate boilerplate YAML without remembering syntax, but production systems store **declarative Git-tracked manifests** applied via `kubectl apply`.
+  `--dry-run=client -o yaml` generates boilerplate YAML quickly without syntax guesswork, but production systems store **declarative Git-tracked manifests** applied via `kubectl apply`.
 
 ---
 
@@ -434,38 +439,54 @@ kill $PF_PID
 ### Exercise 4: Break 1 — Container Crash vs. Pod Identity
 
 **Prediction:** the kubelet restarts the exited `httpd` process inside the same
-Pod. The restart count changes, while the Pod UID remains evidence that the API
-object itself was not replaced.
+Pod. The restart count changes and container runtime ID changes, while the Pod UID
+remains evidence that the API object itself was not replaced.
 
 - **Objective**: Prove that the kubelet restarts crashed containers while preserving Pod identity (UID).
 - **Starting Point**: Healthy `apollo-shell` Pod.
 - **Instructions**:
 
-```bash
-# 1. Record the Pod's immutable UID and initial restart count
-kubectl get pod apollo-shell -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
+Capture the 5-signal baseline before failure:
 
-# 2. Kill the httpd process inside the container
+| Signal | Command | Before Failure | After Restart |
+|---|---|---|---|
+| **Pod UID** | `kubectl get pod apollo-shell -o jsonpath='{.metadata.uid}'` | Record value | **Unchanged** |
+| **Container ID** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].containerID}'` | Record value | **New container ID** |
+| **Restart Count** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].restartCount}'` | `0` | `1` |
+| **Previous State** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].lastState}'` | None / empty | Terminated info |
+| **HTTP Response** | `curl -s http://127.0.0.1:18080/` (via port-forward) | `Apollo11 Ignition ready` | `Apollo11 Ignition ready` |
+
+Now execute the failure:
+
+```bash
+# 1. Record the baseline signals
+kubectl get pod apollo-shell -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,CONTAINER_ID:.status.containerStatuses[0].containerID,RESTARTS:.status.containerStatuses[0].restartCount'
+
+# 2. Kill the httpd server process inside the container
 kubectl exec apollo-shell -- sh -c 'kill $(pidof httpd)' || true
 
-# 3. Watch the Pod status
+# 3. Watch the Pod status transition
 kubectl get pod apollo-shell -w
 ```
 *(Press `Ctrl-C` once the Pod returns to `Running 1/1`)*
 
 ```bash
-# 4. Re-inspect UID and restart count
-kubectl get pod apollo-shell -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
+# 4. Re-inspect signals after recovery
+kubectl get pod apollo-shell -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,CONTAINER_ID:.status.containerStatuses[0].containerID,RESTARTS:.status.containerStatuses[0].restartCount'
+
+# 5. Check previous container termination details
+kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].lastState.terminated}' | jq .
 ```
 
 - **Expected Result**:
-  - The Pod UID remains **identical**.
+  - The **Pod UID remains identical**.
+  - The **Container runtime ID changes** (a fresh container was instantiated in the cgroup).
   - `RESTARTS` increments from `0` to `1`.
+  - The HTTP endpoint serves `Apollo11 Ignition ready` once again.
 - **What Concept This Reinforces**:
   The **kubelet** on the worker node is a local process supervisor. Because
   `spec.restartPolicy: Always` was specified, it restarts the exited container
-  within the same Pod sandbox after the restart sequence, preserving the Pod's
-  IP and metadata.
+  within the same Pod sandbox, preserving the Pod's IP and metadata.
 - **Verification command**: Compare the before/after UID and restart count, then
   repeat the endpoint check from Exercise 3.
 - **Troubleshooting hints**: If `pidof httpd` finds nothing, check container
@@ -477,47 +498,51 @@ kubectl get pod apollo-shell -o custom-columns='NAME:.metadata.name,UID:.metadat
 ### Exercise 5: Break 2 — The Bare Pod Vulnerability
 
 **Prediction:** deletion removes the API object that the kubelet was watching.
-There is no ReplicaSet in this chapter yet to notice a missing count and create
-a new Pod.
+There is no controller in this chapter to notice a missing count and create
+a replacement Pod.
 
-- **Objective**: Prove why bare Pods are not production-ready and why controllers are necessary.
-- **Starting Point**: `apollo-shell` running.
+- **Objective**: Understand why bare Pods are not self-healing against object deletion, motivating the Deployments introduced in Stage 1.
+- **Starting Point**: Running `apollo-shell` Pod.
 - **Instructions**:
 
 ```bash
-# 1. Delete the Pod
+# 1. Verify ownerReferences on the bare Pod
+kubectl get pod apollo-shell -o jsonpath='{.metadata.ownerReferences}'
+# Output: (empty — no controller owns this Pod)
+
+# 2. Record Pod UID
+kubectl get pod apollo-shell -o jsonpath='{.metadata.uid}' && echo ""
+
+# 3. Delete the bare Pod object
 kubectl delete pod apollo-shell
 
-# 2. Immediately check if the Pod comes back
+# 4. Wait 5 seconds and inspect the namespace
 kubectl get pods
+# Output: No resources found in default namespace.
 ```
 
-- **Expected Result**:
-  `No resources found in default namespace.`
-  The Pod is **permanently gone**. No amount of waiting will bring it back!
-- **Why Did This Happen?**
-  A bare Pod has no owner reference (`metadata.ownerReferences`). The API server and kubelet do not keep desired replica counts for bare Pods. Once you delete it, there is no controller running in the control plane to recreate it.
-- **Recovery**:
+The Pod does not resurrect. Kubernetes deleted the desired state from etcd;
+the kubelet stopped the container as commanded.
 
 ```bash
-# 3. Manually recreate the Pod
+# 5. Recover by reapplying the declarative manifest
 kubectl apply -f stages/ignition/pod.yaml
 kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
 
-# 4. Inspect its UID
-kubectl get pod apollo-shell -o custom-columns='NAME:.metadata.name,UID:.metadata.uid'
+# 6. Record the new Pod's UID
+kubectl get pod apollo-shell -o jsonpath='{.metadata.uid}' && echo ""
 ```
 
-Notice that the Pod now has a **completely different UID**! It is a brand-new object.
-
-- **Verification command**: `kubectl get pod apollo-shell -o
-  jsonpath='{.metadata.ownerReferences}'` is empty, and the recovered Pod's UID
-  differs from the deleted one.
-- **Troubleshooting hints**: If a Pod unexpectedly reappears before manual
-  apply, check its owner references—you may be observing a similarly named Pod
-  managed by a controller rather than the bare Ignition Pod.
-- **Concept reinforced**: The kubelet restarts containers inside an existing
-  Pod; a workload controller is required to replace a deleted Pod object.
+- **Expected Result**:
+  The new Pod has a **completely different UID** from step 2.
+- **What Concept This Reinforces**:
+  Kubelet self-heals **crashed processes inside a Pod**. It does not self-heal
+  **deleted Pod objects**. For true resilience, we need a higher-level controller
+  (a `ReplicaSet` or `Deployment`) that continuously reconciles desired replica
+  count against live state. This motivates Stage 1: Liftoff.
+- **Verification command**: `kubectl get pod apollo-shell -o jsonpath='{.metadata.ownerReferences}'` is empty, and the recovered Pod's UID differs from the deleted one.
+- **Troubleshooting hints**: If a Pod unexpectedly reappears before manual apply, check its owner references—you may be observing a similarly named Pod managed by a controller rather than the bare Ignition Pod.
+- **Concept reinforced**: The kubelet restarts containers inside an existing Pod; a workload controller is required to replace a deleted Pod object.
 
 ---
 

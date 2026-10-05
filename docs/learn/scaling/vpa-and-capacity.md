@@ -70,14 +70,17 @@ flowchart LR
 whether those replicas can run and become ready.*
 
 - **1. Inspect VPA recommendations**:
+  In Stage 7, VPA is enabled in recommendation-only (`Off`) mode via `--set autoscaling.vpa.enabled=true --set autoscaling.vpa.updateMode=Off`:
   ```bash
-  kubectl get vpa search -n apollo-airlines-apps -o yaml
+  kubectl get vpa search-vpa -n apollo-airlines-apps -o yaml
   ```
+  *(Note: VPA requires a warm-up sampling period before `status.recommendation` populates).*
 - **2. Compare recommendations against live requests**:
   ```bash
   kubectl top pods -n apollo-airlines-apps -l app=search
   ```
 - **3. Check for VPA evictions**:
+  In `Off` mode, VPA provides sizing intelligence without restarting or evicting pods. Confirm that zero VPA evictions occurred:
   ```bash
   kubectl get events -n apollo-airlines-apps --field-selector reason=EvictedByVPA
   ```

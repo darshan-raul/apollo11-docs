@@ -53,16 +53,23 @@ flowchart TD
 ## Evidence and limits
 
 - **1. Redis hit/miss ratio**:
+  Inspect cache statistics on the Redis StatefulSet:
   ```bash
-  kubectl exec -n apollo-airlines-apps deploy/redis -- \
+  kubectl exec -n apollo-airlines-apps statefulset/redis -- \
     redis-cli INFO stats | grep -E "keyspace_hits|keyspace_misses"
   ```
 - **2. Verify key TTL expiration**:
+  The search service uses the key pattern `search:<origin>:<destination>:<date>`:
   ```bash
-  kubectl exec -n apollo-airlines-apps deploy/redis -- \
-    redis-cli TTL "route:JFK:LHR:2024-10-01"
+  kubectl exec -n apollo-airlines-apps statefulset/redis -- \
+    redis-cli TTL "search:BOM:DEL:$(date +%Y-%m-%d)"
   ```
-- **3. Header verification**: Confirm response headers indicate cache state:
+- **3. Header verification**: Confirm response headers indicate cache state (`MISS` on first query, `HIT` on second query):
   ```bash
-  curl -v http://localhost:30083/api/search?departure=JFK&arrival=LHR 2>&1 | grep -i "x-cache"
+  kubectl port-forward -n apollo-airlines-apps svc/search 8083:8083 &
+  PF_PID=$!
+  sleep 1
+
+  curl -v "http://localhost:8083/api/search?origin=BOM&destination=DEL&date=$(date +%Y-%m-%d)" 2>&1 | grep -i "x-cache"
+  kill $PF_PID
   ```

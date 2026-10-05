@@ -71,12 +71,27 @@ namespace.
 | Part of journey | Primary application namespace | Extra namespaces |
 | --- | --- | --- |
 | Launchpad | Docker Compose; no namespace | None |
-| Ignition and early workloads | `apollo-airlines` | `kube-system` |
-| Networking onward | `apollo-airlines-apps` | `apollo-airlines-ui`; stage-specific system namespaces |
-| Observability | `apollo-airlines-apps` | `apollo-observability` |
+| Ignition | `default` (no namespace flag) | `kube-system` |
+| Stage 1 (Liftoff) | `apollo-airlines` | `kube-system` |
+| Networking onward (Stages 2–5) | `apollo-airlines-apps` | `apollo-airlines-ui`; stage-specific system namespaces |
+| Observability (Stage 6) | `apollo-airlines-apps` | `apollo-observability`, `apollo-airlines-ui` |
+| Scaling (Stage 7) | `apollo-airlines-apps` | `apollo-observability`, `apollo-airlines-ui` |
 
 Treat the stage page as authoritative when it gives a more specific boundary.
 Do not replace a namespace merely because another stage used a different one.
+
+## The learner-work directory
+
+To practice authoring manifests rather than just reading pre-built files, create a
+workspace directory inside the Apollo11 repository:
+
+```bash
+mkdir -p learner-work/ignition learner-work/stage1
+```
+
+`learner-work/` is listed in Apollo11's `.gitignore` so your experimental files
+will never dirty your git status or interfere with repository revisions. Keep the
+checked-in files in `stages/<stage>/k8s/` as your verified reference solutions.
 
 ## Run the first preflight
 
@@ -108,7 +123,7 @@ commands from different snapshots.
 
 Check these in order before changing the cluster:
 
-1. `git rev-parse HEAD` — are you on the documented base revision with the companion patch applied?
+1. `git rev-parse HEAD` — are you on the documented base revision (`69113dcc80f77e32301d8ee7b9e73a67c923de96`)?
 2. `pwd` — are you in the repository and stage directory named by the lab?
 3. `kubectl config current-context` — are you on the disposable kind cluster?
 4. `kubectl get namespaces` — does the stage's namespace exist?

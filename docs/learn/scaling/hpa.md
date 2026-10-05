@@ -78,11 +78,11 @@ uses the highest relevant value instead of sleeping for a fixed period.*
 
 - **1. HPA operational status**: Inspect current vs. target metric values:
   ```bash
-  kubectl get hpa search -n apollo-airlines-apps
+  kubectl get hpa search-hpa -n apollo-airlines-apps
   ```
 - **2. Detailed evaluation events**: Review scaling decisions:
   ```bash
-  kubectl describe hpa search -n apollo-airlines-apps
+  kubectl describe hpa search-hpa -n apollo-airlines-apps
   ```
 - **3. Watch real-time replica scaling**:
   ```bash

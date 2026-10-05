@@ -610,30 +610,6 @@ The three requests should return HTTP 200 readiness responses.
 
 ---
 
-## 🏁 What You Learned
-
-- How CoreDNS resolves internal cluster names (`<svc>.<ns>.svc.cluster.local`) and why short names fail across namespaces.
-- The role of `Endpoints` and `EndpointSlices` in dynamically tracking ready Pod IPs.
-- How `type: NodePort` forwards host traffic into containers, and why high ports are clunky.
-- How Layer 7 Ingress controllers evaluate Host headers and terminate wildcard TLS.
-- How MetalLB provisions real Layer 2 IP addresses in local and bare-metal clusters.
-- Why the modern **Gateway API** (`GatewayClass`, `Gateway`, `HTTPRoute`, `ReferenceGrant`) provides cleaner role separation and cross-namespace security than legacy Ingress.
-
----
-
-## ✈️ Before Continuing: Checkpoint
-
-Before moving to Stage 3, ensure you understand:
-1. What component maintains iptables rules on worker nodes for ClusterIP services?
-2. If an `HTTPRoute` attaches to a Service in another namespace without a `ReferenceGrant`, what status condition appears on the route?
-3. Why did we need MetalLB in kind before `type: LoadBalancer` would work?
-4. What happens to traffic when a Pod fails its readiness probe?
-
-Now that you have verified the networking ladder and recorded its evidence,
-continue to the persistent data problem exposed in Stage 1.
-
-👉 **Continue to [Stage 3: Mission Data (Persistent Storage & StatefulSets)](./stage-3)**
-
 ## 🔒 Hands-On Lab: Complete Client-to-Application TLS & Failure Drill
 
 In the canonical Envoy Gateway baseline (Substage 5), TLS is not an inert manifest—it is actively terminated on port 443 with `apollo-tls-secret`, and frontend API URLs use HTTPS.
@@ -668,10 +644,21 @@ curl --cacert /tmp/apollo-ca.crt --resolve booking.apollo.local:443:${GATEWAY_IP
 curl --cacert /tmp/apollo-ca.crt --resolve untrusted.apollo.invalid:443:${GATEWAY_IP} https://untrusted.apollo.invalid/healthz || echo "Exit code: $?"
 # Expected result: curl fails with exit code 60 (SSL peer certificate was not issued for hostname)
 
-# D. Run the full automated end-to-end HTTPS API workflow
+# D. Manual passenger workflow over trusted HTTPS:
+# Step 1: Login to identity service
+TOKEN=$(curl -fsS --cacert /tmp/apollo-ca.crt --resolve identity.apollo.local:443:${GATEWAY_IP} \
+  -H "Content-Type: application/json" \
+  -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' \
+  https://identity.apollo.local/api/users/login | jq -r .token)
+echo "JWT Token acquired: ${TOKEN:0:15}..."
+
+# Step 2: Query flight inventory through the Gateway
+curl -fsS --cacert /tmp/apollo-ca.crt --resolve flight.apollo.local:443:${GATEWAY_IP} \
+  https://flight.apollo.local/api/flights | jq '.[0]'
+
+# E. Optional maintainer verification script:
 bash stages/stage2/scripts/verify-tls.sh
 ```
-`verify-tls.sh` logs in via `identity`, fetches `flight` inventory, queries `search`, creates a reservation on `booking`, and performs an authorized cancellation.
 
 ### 3. Break: Break TLS by Removing the Certificate Secret
 Simulate a certificate storage failure or accidental secret deletion:
@@ -710,3 +697,30 @@ The script completes with: `Trusted HTTPS login, populated search, booking, canc
 - **`curl -k` is deceptive**: An untrusted or expired certificate connects via `-k`, but real browsers block requests with mixed-content errors or security warnings.
 - **SNI and SAN boundaries**: The certificate wildcard `*.apollo.local` protects all Apollo microservices while properly rejecting untrusted domains.
 - **Gateway listener isolation**: When the TLS secret is deleted, only the HTTPS listener is invalidated (`ResolvedRefs=False`); independent HTTP listeners remain available to traffic.
+
+---
+
+## 🏁 What You Learned
+
+- How CoreDNS resolves internal cluster names (`<svc>.<ns>.svc.cluster.local`) and why short names fail across namespaces.
+- The role of `Endpoints` and `EndpointSlices` in dynamically tracking ready Pod IPs.
+- How `type: NodePort` forwards host traffic into containers, and why high ports are clunky.
+- How Layer 7 Ingress controllers evaluate Host headers and terminate wildcard TLS.
+- How MetalLB provisions real Layer 2 IP addresses in local and bare-metal clusters.
+- Why the modern **Gateway API** (`GatewayClass`, `Gateway`, `HTTPRoute`, `ReferenceGrant`) provides cleaner role separation and cross-namespace security than legacy Ingress.
+- How Envoy Gateway terminates TLS and routes traffic across namespaces.
+
+---
+
+## ✈️ Before Continuing: Checkpoint
+
+Before moving to Stage 3, ensure you understand:
+1. What component maintains iptables rules on worker nodes for ClusterIP services?
+2. If an `HTTPRoute` attaches to a Service in another namespace without a `ReferenceGrant`, what status condition appears on the route?
+3. Why did we need MetalLB in kind before `type: LoadBalancer` would work?
+4. What happens to traffic when a Pod fails its readiness probe?
+
+Now that you have verified the networking ladder and recorded its evidence,
+continue to the persistent data problem exposed in Stage 1.
+
+👉 **Continue to [Stage 3: Mission Data (Persistent Storage & StatefulSets)](./stage-3)**

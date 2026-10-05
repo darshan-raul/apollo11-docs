@@ -88,13 +88,13 @@ When multiple automation systems (e.g. HPA, manual scripts, and Argo CD) write t
 
 - **1. Application sync and health check**:
   ```bash
-  kubectl get application apollo-airlines -n argocd
+  kubectl get application apollo11-dev -n argocd
   ```
 - **2. Review live differences**:
   ```bash
-  argocd app diff apollo-airlines
+  argocd app diff apollo11-dev
   ```
 - **3. Trigger manual sync**:
   ```bash
-  argocd app sync apollo-airlines
+  argocd app sync apollo11-dev
   ```

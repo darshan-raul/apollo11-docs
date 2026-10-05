@@ -73,11 +73,11 @@ flowchart LR
   ```bash
   kubectl logs -n apollo-airlines-apps deploy/booking --tail=50
   ```
-- **2. Query Loki via LogQL**: Filter errors in Grafana Explore:
+- **2. Query Loki via LogQL**: Filter errors in Grafana Explore (Alloy relabels `app` to `service`):
   ```logql
-  {app="booking", namespace="apollo-airlines-apps"} |= "error" | json | level="error"
+  {service="booking", namespace="apollo-airlines-apps"} |= "error" | json | level="error"
   ```
-- **3. Search by booking reference**:
+- **3. Search by booking reference or request ID**:
   ```logql
-  {app="booking"} |= "AA-2024-001234"
+  {service="booking"} |= "stage6-"
   ```

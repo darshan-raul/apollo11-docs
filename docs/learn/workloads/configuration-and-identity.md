@@ -113,13 +113,14 @@ When configuration fails, processes rarely fail with obvious errors. Verify each
   ```bash
   kubectl describe configmap apollo-airlines-config -n apollo-airlines
   ```
-- **2. Reference integrity**: Ensure the Deployment's `valueFrom` references the exact key name and secret name without typos.
-- **3. Startup timing**: Check if the Pod started before the ConfigMap was applied (causing environment variables to remain empty or stale).
+- **2. Reference integrity & missing inputs**: Ensure the Deployment's `valueFrom` references the exact key and ConfigMap/Secret name. If a required ConfigMap or key is missing, the kubelet blocks container startup with `CreateContainerConfigError`.
+- **3. Immutability of injected environment variables**: Environment variables are injected into the container process at start time. Modifying a ConfigMap does *not* dynamically update environment variables in already-running Pods; the Deployment must be rolled out (`kubectl rollout restart`) to pick up new values.
 - **4. Runtime verification**: Inspect what the process actually received inside the container:
   ```bash
   kubectl exec -n apollo-airlines deploy/booking -- env | grep -E "PORT|URL"
   ```
-- **5. Token mount verification**: Ensure no unexpected tokens are mounted:
+- **5. Token mount verification**: Ensure no unexpected ServiceAccount tokens are mounted into the filesystem:
   ```bash
-  kubectl exec -n apollo-airlines deploy/booking -- ls -la /var/run/secrets/kubernetes.io/serviceaccount
+  kubectl exec -n apollo-airlines deploy/booking -- ls -la /var/run/secrets/kubernetes.io/serviceaccount || echo "No token mounted (directory absent)"
   ```
+  When `automountServiceAccountToken: false` is active, the directory does not exist, proving tokens are not exposed to the container.

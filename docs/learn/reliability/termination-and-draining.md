@@ -90,7 +90,11 @@ A resilient service must implement explicit signal handlers:
   ```bash
   kubectl describe pod <booking-pod> -n apollo-airlines-apps | grep -E "Killing|Stopping"
   ```
-- **3. Application shutdown logs**: Confirm graceful connection draining:
+- **3. Application shutdown logs**:
+  Follow container logs while the Pod is in `Terminating` state to confirm signal receipt:
   ```bash
-  kubectl logs -n apollo-airlines-apps <booking-pod> --previous | tail -15
+  kubectl logs -n apollo-airlines-apps <booking-pod> -f
   ```
+  *(Note: `kubectl logs --previous` only retrieves logs from a previous container execution within the **same** Pod after a container crash; once a Pod is deleted and replaced by a Deployment, its logs are only preserved if shipped to centralized logging like Loki).*
+- **4. Proving request draining**:
+  Observing a log line that says "graceful shutdown" proves the process caught `SIGTERM`, but does not prove requests completed without interruption. True draining verification requires running an active traffic sampler across the termination window and measuring zero 502/504 errors.

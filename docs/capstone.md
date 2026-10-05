@@ -226,44 +226,52 @@ the Deployment, endpoint, Gateway, and application evidence if a request fails.
 - **Starting point**: `GATEWAY_IP` is still set from Mission 4.
 - **Instructions**:
 
-In terminal 1:
-
-```bash
-failures=0
-for request in $(seq 1 150); do
-  status=$(curl -sS -o /dev/null -w '%{http_code}' \
-    -H 'Host: booking.apollo.local' \
-    "http://${GATEWAY_IP}/healthz/ready" || true)
-  if [ "$status" != 200 ]; then
-    failures=$((failures + 1))
-    printf 'request=%s status=%s\n' "$request" "${status:-curl-error}"
-  fi
-  sleep 0.1
-done
-printf 'non_200=%s\n' "$failures"
-```
-
-In terminal 2, while that loop runs:
+In terminal 2, first scale booking to two replicas and confirm readiness:
 
 ```bash
 kubectl scale deployment/booking -n apollo-airlines-apps --replicas=2
 kubectl rollout status deployment/booking -n apollo-airlines-apps --timeout=120s
+```
+
+In terminal 1, start the timestamped request sampler:
+
+```bash
+failures=0
+total=0
+for request in $(seq 1 300); do
+  ts=$(date +%H:%M:%S.%3N)
+  status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 1 \
+    -H 'Host: booking.apollo.local' \
+    "http://${GATEWAY_IP}/healthz/ready" || true)
+  total=$((total + 1))
+  if [ "$status" != 200 ]; then
+    failures=$((failures + 1))
+    printf '[%s] request=%s status=%s\n' "$ts" "$request" "${status:-curl-error}"
+  fi
+  sleep 0.1
+done
+printf 'Finished %s requests: non_200=%s\n' "$total" "$failures"
+```
+
+In terminal 2, while the sampler is running:
+
+```bash
+# Trigger the rolling restart
 kubectl rollout restart deployment/booking -n apollo-airlines-apps
 kubectl rollout status deployment/booking -n apollo-airlines-apps --timeout=120s
 kubectl get pods -n apollo-airlines-apps -l app=booking -o wide
 
-# Restore the dev value after the observation.
+# Restore the dev baseline after the observation.
 kubectl scale deployment/booking -n apollo-airlines-apps --replicas=1
 ```
 
 - **Expected result**: The Deployment replaces Pods gradually and returns to
-  Available. A zero value is the desired local observation, not a universal
+  Available. A zero failure count is the desired local observation, not a universal
   guarantee.
-- **Verification**: Keep the `non_200` count and rollout output as evidence.
+- **Verification**: Keep the `non_200` count, timestamps, and rollout output as evidence.
 - **Troubleshooting**: For any failure, correlate its timestamp with Pod
-  readiness, events, Envoy logs, and booking logs. Do not hide failures with
-  `|| true` outside the request sampler.
-- **Concept reinforced**: Readiness and rolling strategy protect traffic during
+  readiness, events, Envoy logs, and booking logs.
+- **Concept reinforced**: Readiness probes and rolling update strategy protect traffic during
   updates. The dev environment has no PDB, and the Stage 7 chart does not define
   the Stage 4 `preStop` hook, so neither may be credited for this result.
 
@@ -290,20 +298,25 @@ kubectl get pods -n apollo-airlines-ui \
 # Dev intentionally has no application PDBs.
 kubectl get pdb -A
 
-# Audit the ServiceAccount and Pod template fields instead of assuming them.
-kubectl get serviceaccount booking -n apollo-airlines-apps -o yaml
+# Audit the ServiceAccount: verify automountServiceAccountToken: false is implemented
+kubectl get serviceaccount booking -n apollo-airlines-apps -o yaml | grep automountServiceAccountToken
+# Output: automountServiceAccountToken: false (demonstrated in Stage 7)
+
+# Audit Pod template security hardening: check for planned Stage 8 controls
 kubectl get deployment booking -n apollo-airlines-apps -o yaml | \
-  grep -E 'automountServiceAccountToken|runAsNonRoot|readOnlyRootFilesystem|seccompProfile' || \
-  echo 'planned Stage 8 hardening fields are not present on this Deployment'
+  grep -E 'runAsNonRoot|readOnlyRootFilesystem|seccompProfile' || \
+  echo 'planned Stage 8 container hardening fields are not present on this Deployment'
 ```
 
-- **Expected result**: The ten charted workloads use equal requests and limits,
-  but the Stage 7 snapshot does not prove the planned Stage 8 token, security
-  context, NetworkPolicy enforcement, external-secret, or admission controls.
+- **Expected result**: The ten charted workloads use equal requests and limits (Guaranteed QoS)
+  and their ServiceAccounts disable token automount (`automountServiceAccountToken: false`). However,
+  the Stage 7 snapshot does not implement the planned Stage 8 security controls: Pod Security Admission (PSA),
+  read-only root filesystems, Calico NetworkPolicy enforcement, External Secrets Operator (Vault/ESO),
+  or Kyverno admission policies.
 - **Troubleshooting**: Avoid broad statements such as “all Pods are
   Guaranteed”; add-on and temporary Pods can have different QoS. Always state
   the selector and workload set you inspected.
-- **Concept reinforced**: An audit reports both controls and gaps. Security
+- **Concept reinforced**: An audit reports both demonstrated controls and remaining gaps. Security
   properties do not automatically carry forward from an earlier stage.
 
 ## Cleanup and final explanation
