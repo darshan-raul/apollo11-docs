@@ -129,22 +129,34 @@ Go-based `booking` service:
 *Source: `stages/launchpad/code/booking/Dockerfile`*
 
 ```dockerfile
-# Stage 1: Build binary using official Go toolchain
 FROM golang:1.22-alpine AS builder
+
 WORKDIR /app
+
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o booking .
 
-# Stage 2: Minimal runtime image
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /booking-service
+
 FROM alpine:3.19
-RUN adduser -D -u 1000 appuser
+
+RUN apk --no-cache add ca-certificates \
+    && addgroup -S apollo \
+    && adduser -S -G apollo apollo
+
 WORKDIR /app
-COPY --from=builder --chown=appuser:appuser /app/booking .
-USER appuser
+
+COPY --from=builder --chown=apollo:apollo /booking-service /app/booking-service
+
+ENV DATABASE_URL=postgresql://postgres:postgres@booking-db:5432/booking
+
 EXPOSE 8082
-ENTRYPOINT ["/app/booking"]
+
+USER apollo
+
+CMD ["/app/booking-service"]
 ```
 
 ### The Dockerfile describes two environments
@@ -155,15 +167,17 @@ answers two separate questions: *how do we build it?* and *what has to be there
 when it serves a request?*
 
 1. **Multi-stage build:**
-   - The build stage uses `golang:1.22-alpine`, which contains the Go compiler, the SDK, and Git (about 300 MB).
-   - The final stage copies *only* the compiled static binary into a clean `alpine:3.19` image (about 15 MB).
+   - The build stage uses `golang:1.22-alpine`, which contains the Go compiler and SDK.
+   - The final stage copies *only* the compiled static binary into a clean `alpine:3.19` image, which is much smaller.
    - The result is a smaller attack surface, no compiler tools in the running image, and faster downloads.
 2. **Layer caching:**
    - `COPY go.mod go.sum ./` comes **before** `COPY . .`.
    - Docker caches each image layer. When you edit the Go code in `main.go`, Docker reuses the cached layer from `go mod download`. It downloads dependencies again only when they change.
-3. **Running as a non-root user (`USER appuser`):**
-   - The running process has UID 1000 inside the container instead of UID 0. This limits what an attacker who takes over the process can do *inside that container*.
-   - It is one layer of defense. It does not guarantee anything about whether an attacker could escape the container and reach the host. Launchpad later adds a read-only root filesystem and dropped Linux capabilities for the same process.
+3. **Running as a non-root user (`USER apollo`):**
+   - The `adduser -S` line creates a system user named `apollo`, and `USER apollo` makes the process run as that user instead of root. This limits what an attacker who takes over the process can do *inside that container*.
+   - It is one layer of defense. It does not guarantee anything about whether an attacker could escape the container and reach the host. The Compose file adds a read-only root filesystem and dropped Linux capabilities for the same process, as you will see below.
+4. **A default `DATABASE_URL`:**
+   - The `ENV DATABASE_URL=...` line is only a default for running the image on its own. Compose overrides it with the value from `.env`, so the real credentials do not come from the image.
 
 ---
 

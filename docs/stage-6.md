@@ -296,13 +296,13 @@ bash stages/stage6/scripts/apply.sh --mode helm --env dev
 # 2. Inspect pods in apollo-observability
 kubectl get pods -n apollo-observability
 
-# 3. Verify DaemonSets are running on all worker nodes
+# 3. Check that the DaemonSets have a ready Pod on every eligible node
 kubectl get daemonsets -n apollo-observability
 ```
 
 - **Expected result**:
   - The Prometheus Operator creates a Pod for the `Prometheus` object named `apollo`, and `tempo`, `loki`, and `grafana` are running.
-  - The `otel-collector` and `alloy` DaemonSets show `DESIRED: 3, CURRENT: 3, READY: 3`.
+  - The `otel-collector` and `alloy` DaemonSets have `READY` equal to `DESIRED`. In the default kind cluster the control-plane node is tainted and these DaemonSets do not tolerate the taint, so you should see one Pod per worker (`DESIRED: 2`). The verification script checks only that every desired Pod is ready.
 - **Verification script**:
 
 ```bash
@@ -337,16 +337,18 @@ bash stages/stage6/scripts/trace-test.sh
 
 - **Expected result**:
   The script does the following:
-  1. Logs in to `identity` and gets a JWT.
-  2. Asks `flight` for available flights.
-  3. Creates a booking through `booking`.
-  4. Prints the generated `TRACE_ID` (for example `4bf92f3577b34da6a3ce929d0e0e4736`).
+  1. Starts a temporary `curl` Pod inside the cluster to act as the client.
+  2. Logs in to `identity` and gets a JWT, then lists the seeded flights from `flight`.
+  3. Generates a random trace ID, and sends a booking request to `booking` with a `traceparent` header that carries it. The trace ID is printed as `trace_id=...`.
+  4. Checks that the number of available seats dropped by one.
+  5. Polls Tempo until it returns a trace that contains `booking`, `identity`, `flight`, and `notification`.
+  6. Cancels the booking and checks that the seat is restored.
 - **Verification command**: The script queries Tempo itself and exits with an error
   unless one trace contains all four service names. Keep its
   `trace_id=... services=...` line.
 - **Troubleshooting hints**: Find the step that failed, then check that service
-  and the telemetry pipeline. The script also cancels its booking and restores the
-  seat, so you can run it again safely.
+  and the telemetry pipeline. The script also deletes its temporary client Pod,
+  cancels its booking, and restores the seat, so you can run it again safely.
 - **Concept reinforced**: Every outbound call must pass the trace context along,
   or its spans will not join the same trace.
 

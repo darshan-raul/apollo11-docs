@@ -106,11 +106,13 @@ helm/apollo11/
 ├── values-dev.yaml         # Dev overrides (1 replica, :latest tag, no PDBs)
 ├── values-staging.yaml     # Staging overrides (2 replicas, :latest tag)
 ├── values-prod.yaml        # Prod overrides (3 replicas, :v1.0.0 tag, full PDBs)
+├── values.schema.json      # JSON schema that validates the values
 ├── bundles/                # Static dependencies (Envoy Gateway, MetalLB)
 └── templates/              # Go-templated Kubernetes manifests
     ├── _helpers.tpl        # Reusable template functions (labels, names)
     ├── config/             # ConfigMap, Secret, ServiceAccounts
     ├── infra/              # PostgreSQL & Redis StatefulSets + Headless SVCs
+    ├── jobs/               # Database schema setup
     ├── apps/               # Application Deployments & Services
     ├── ui/                 # Frontend Deployment & Service
     ├── gateway/            # Gateway, HTTPRoutes, ReferenceGrant
@@ -197,7 +199,7 @@ round: it starts from existing YAML objects and applies changes to them. It also
 produces ordinary Kubernetes YAML, but the differences between environments are
 written as overlays instead of template expressions.
 
-*Source: `stages/stage5/overlays/dev/kustomization.yaml`*
+*Source: `stages/stage5/overlays/dev/kustomization.yaml`. This is abridged: the real file has an `images` entry for each of the six services, and this excerpt shows only `booking`.*
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -433,15 +435,17 @@ Kustomize added the label `environment: dev` to every resource without any Go te
 
 **Prediction:** Helm finishes when its command finishes, but Argo CD keeps running. If someone changes the live cluster by hand (for example, by scaling a Deployment with `kubectl`), Argo CD sees the difference (`OutOfSync`) and automatically restores what Git declares.
 
-- **Objective**: Bootstrap Argo CD, deploy the `apollo11-dev` Application that tracks the Git repository, and watch it correct drift automatically.
+- **Objective**: Install and bootstrap Argo CD, deploy the `apollo11-dev` Application that tracks the Git repository, and watch it correct drift automatically.
 - **Starting Point**: A healthy `kind-apollo11` cluster.
 - **Note: you do not need to push to Git.** Argo CD runs inside the cluster and tracks the upstream repository (`https://github.com/darshan-raul/Apollo11.git`). To test it, you change the live cluster yourself and watch Argo CD undo the change.
 
 - **Instructions**:
 
 ```bash
-# 1. Bootstrap Argo CD and apply the dev application
-bash stages/stage5/argocd/scripts/bootstrap.sh
+# 1. Install Argo CD, then register the Applications and sync dev and staging.
+#    Without --sync, bootstrap registers the Applications but does not sync them yet.
+bash stages/stage5/argocd/install.sh
+bash stages/stage5/argocd/scripts/bootstrap.sh --sync
 
 # 2. Check the Application status
 kubectl get application apollo11-dev -n argocd
@@ -454,13 +458,13 @@ kubectl scale deployment/booking -n apollo-airlines-dev-apps --replicas=5
 kubectl get deployment booking -n apollo-airlines-dev-apps
 # Output: 5 replicas
 
-# 5. Wait for Argo CD's next reconciliation (or force a sync)
-argocd app sync apollo11-dev --core 2>/dev/null || \
-  kubectl get application apollo11-dev -n argocd -w
+# 5. Watch Argo CD notice the drift and correct it (this can take up to about 3 minutes)
+kubectl get application apollo11-dev -n argocd -w
 
 # 6. Check the Deployment again
 kubectl get deployment booking -n apollo-airlines-dev-apps
 # Output: 1 replica. Argo CD restored what Git declares.
+# For a one-line check, you can also use: kubectl get deployment booking -n apollo-airlines-dev-apps -o jsonpath='{.spec.replicas}'
 ```
 
 - **Expected result**: Argo CD notices the manual change, marks the Application `OutOfSync`, and scales `booking` back to 1 replica, the value in Git.

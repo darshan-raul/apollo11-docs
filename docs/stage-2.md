@@ -502,13 +502,25 @@ spec:
       kind: EnvoyProxy
       name: envoyproxy-lb-config
   listeners:
-    - name: web
+    - name: http
       port: 80
       protocol: HTTP
       allowedRoutes:
         namespaces:
           from: All
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: apollo-tls-secret
+      allowedRoutes:
+        namespaces:
+          from: All
 ```
+
+The Gateway has two listeners. The `http` listener serves plain HTTP on port 80. The `https` listener terminates TLS on port 443 with the `apollo-tls-secret` Secret. The TLS lab at the end of this stage uses the `https` listener.
 
 After applying this object, read its status. `Accepted=True` means the
 implementation accepted the configuration. `Programmed=True` is stronger: it

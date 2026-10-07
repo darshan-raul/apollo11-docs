@@ -7,7 +7,7 @@ sidebar_label: "Stage 7: Scaling & Scheduling"
 # Stage 7: Orbital Maneuvering — Autoscaling & Scheduling
 
 :::info[Page type · optional lab]
-This lab uses the pinned Apollo11 revision and requires k6. Capture a baseline
+This lab uses the pinned Apollo11 revision. The optional cache benchmark needs k6. Capture a baseline
 before changing cache or scaling controls, and run the documented cleanup after interruption.
 :::
 
@@ -361,11 +361,11 @@ bash stages/stage7/scripts/scaling-lab.sh run
 ```
 
 - **What the script does**:
-  1. Taints `apollo11-worker` with `workload=search:NoSchedule` and labels it `apollo11.io/search-pool=dedicated`.
+  1. Takes the first node labeled `node-role=worker` (normally `apollo11-worker`) and taints it with `workload=search:NoSchedule` and labels it `apollo11.io/search-pool=dedicated`. The lab stops with an error if fewer than two worker nodes exist.
   2. Recreates the `search` Pods so the scheduler evaluates their toleration and
      preferred node affinity. `NoSchedule` stops new Pods that lack a toleration
      from landing on the node. It does not evict Pods that are already running there.
-  3. Lowers the HPA's CPU threshold to `10%` and starts HTTP load-generator Pods inside the cluster.
+  3. Lowers the HPA's CPU target to `10%` and its scale-down window to 30 seconds, then starts a `search-load` Deployment (4 replicas) that sends HTTP load from inside the cluster.
   4. Watches the `search` replicas **scale out from 1 to 3** across the worker nodes.
   5. Stops the load and checks that the HPA **scales back in to the baseline** once the stabilization window has passed.
   6. Restores the original node labels, taints, and HPA threshold.
