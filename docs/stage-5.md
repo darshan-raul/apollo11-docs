@@ -19,21 +19,22 @@ For the explanation before the experiment, start with the
 Already read them? [Jump to the investigations](#-investigations-inspect-the-generated-request-before-trusting-the-tool).
 :::
 
-Stages 1–4 made the resource graph visible: Deployments refer to templates,
-Services refer to labels, and databases refer to claims. Copying that graph for
-each environment creates a new failure mode—two copies that look similar but
-quietly drift apart. Stage 5 asks how the same intent can be rendered and
-tracked without hiding what Kubernetes will actually receive.
+In Stages 1–4 you saw how the pieces connect: Deployments use Pod templates,
+Services use labels, and databases use claims. If you copy all of that YAML for
+every environment, the copies slowly drift apart without anyone noticing. Stage 5
+shows how to generate and track the same configuration for each environment while
+still being able to see exactly what Kubernetes receives.
 
-The practical questions are:
-- How do you deploy the exact same application to `dev` (1 replica, minimal memory), `staging` (2 replicas), and `production` (3 replicas, strict PDBs, production images) without copy-pasting hundreds of lines of YAML?
-- How do you version releases and restore a prior revision if an upgrade fails?
-- How do you detect and reconcile drift between cluster state and Git?
+It answers three practical questions:
+- How do you deploy the same application to `dev` (1 replica, minimal memory), `staging` (2 replicas), and `production` (3 replicas, strict PDBs, production images) without copying hundreds of lines of YAML?
+- How do you version releases and go back to an earlier revision when an upgrade fails?
+- How do you detect and correct differences between the cluster and Git?
 
-In **Stage 5 (Payload Integration)**, we package Apollo Airlines into a Helm
-chart, contrast it with Kustomize overlays, inspect the repository's GitHub
-Actions CI, and reconcile state with Argo CD GitOps. These are delivery
-building blocks; the chart alone does not make the platform production-ready.
+In **Stage 5 (Payload Integration)** you will package Apollo Airlines as a Helm
+chart, compare that with Kustomize overlays, look at the repository's GitHub
+Actions CI, and use Argo CD to keep the cluster in line with Git. These are
+building blocks for delivery. A chart alone does not make the platform
+production-ready.
 
 <details>
 <summary><strong>Optional conceptual refresher</strong></summary>
@@ -77,25 +78,24 @@ flowchart TD
 ## 🎯 Learning Goals
 
 By the end of this stage, you will be able to:
-1. Understand the architecture of a **Helm chart** (`Chart.yaml`, `values.yaml`, `templates/`, `_helpers.tpl`).
-2. Read and write Go template expressions, conditionals, and indentation helpers (`nindent`).
-3. Manage multi-environment configurations using **values files** (`values-dev.yaml` vs `values-prod.yaml`).
-4. Contrast Helm's templating model with **Kustomize's overlay and patching model**.
-5. Inspect Helm release history and perform automated rollbacks.
-6. Understand GitOps principles and observe **Argo CD drift detection and self-healing**.
+1. Describe how a **Helm chart** is organised (`Chart.yaml`, `values.yaml`, `templates/`, `_helpers.tpl`).
+2. Read Go template expressions, conditionals, and the `nindent` indentation helper.
+3. Manage several environments with **values files** (`values-dev.yaml` and `values-prod.yaml`).
+4. Compare Helm's templating with **Kustomize's overlays and patches**.
+5. Read a Helm release's history and roll back to an earlier revision.
+6. Explain the principles of GitOps, and see **Argo CD detect drift and self-heal**.
 
 ---
 
 ## 📦 Helm has two outputs: YAML and a release record
 
-A **Chart** is source material: templates plus values. `helm template` renders
-that source into ordinary Kubernetes YAML without contacting the cluster.
-`helm install` or `helm upgrade` additionally sends the rendered objects to the
-API server and records a release revision. Do not collapse those two actions
-into “Helm deploys YAML”; Exercise 1 and Exercise 2 deliberately let you inspect
-the boundary.
+A **chart** is the source: templates plus values. `helm template` turns it into
+ordinary Kubernetes YAML without contacting the cluster. `helm install` and
+`helm upgrade` do the same rendering, then also send the objects to the API
+server and record a release revision. These are two different steps, not just
+"Helm deploys YAML". Exercises 1 and 2 let you look at each one separately.
 
-### Chart Anatomy
+### Chart layout
 
 *Source: `stages/stage5/helm/apollo11/`*
 
@@ -117,14 +117,15 @@ helm/apollo11/
     └── pdb/                # PodDisruptionBudgets
 ```
 
-### A template is a program that emits YAML
+### A template is a program that produces YAML
 
-In Helm, YAML files inside `templates/` are Go-template programs evaluated against values.
+Each YAML file in `templates/` is a Go template. Helm runs it against the values
+to produce the final YAML.
 
-Let's examine how the `booking` Deployment is templated:
+Here is how the `booking` Deployment is templated:
 
-*Source: `stages/stage5/helm/apollo11/templates/apps/booking.yaml`; abridged
-template with environment and probe blocks explicitly omitted.*
+*Source: `stages/stage5/helm/apollo11/templates/apps/booking.yaml`. This is
+abridged: the environment variables and probes are left out.*
 
 ```yaml
 {{- $name := "booking" -}}
@@ -165,34 +166,36 @@ spec:
 
 ### Trace one value to a rendered field
 
-Start with the dev value for `apps.booking.replicas`, then find
-`$appCfg.replicas` in the template, then inspect `spec.replicas` in the rendered
-Deployment. That three-step trace is more reliable than trying to mentally
-evaluate a chart from braces alone.
+Do it in three steps: find `apps.booking.replicas` in the dev values file, find
+`$appCfg.replicas` in the template, then read `spec.replicas` in the rendered
+Deployment. Following one value like this is more reliable than trying to
+evaluate a whole chart in your head.
 
-1. **`{{-` and `-}}` (Whitespace Trimming)**:
-   The hyphen strips leading or trailing whitespace. In YAML, unintended extra spaces or newlines can corrupt the indentation structure.
-2. **`nindent 4` / `nindent 8`**:
-   `nindent N` inserts a newline followed by $N$ spaces before every line of rendered text.
-   Notice: `metadata.labels` needs 4 spaces of indentation, while `spec.template.metadata.labels` needs 8 spaces! Using `nindent` ensures helper outputs align perfectly with the surrounding YAML hierarchy.
-3. **Environment Values Hierarchy**:
-   When you run `helm install -f values.yaml -f values-prod.yaml`, Helm merges values from left to right. Keys defined in `values-prod.yaml` override identical keys in `values.yaml`.
+These three template features appear in the example:
+
+1. **`{{-` and `-}}` (whitespace trimming):**
+   the hyphen removes the whitespace before or after the tag. In YAML, stray spaces or blank lines can break the indentation.
+2. **`nindent 4` and `nindent 8`:**
+   `nindent N` adds a newline and then indents every line of the output by N spaces.
+   `metadata.labels` sits 4 spaces deep and `spec.template.metadata.labels` sits 8 spaces deep, so `nindent` makes each helper's output line up with the YAML around it.
+3. **Order of values files:**
+   with `helm install -f values.yaml -f values-prod.yaml`, Helm merges the files from left to right. A key in `values-prod.yaml` overrides the same key in `values.yaml`.
 
 | Configuration | `values-dev.yaml` | `values-prod.yaml` |
 |---|---|---|
 | Replicas per app | `1` | `3` |
 | Image tag | `latest` | `v1.0.0` (immutable) |
 | PodDisruptionBudgets | `enabled: false` | `enabled: true` |
-| Resource Tier | `low` / `default` | `flagship` / `default` |
+| Resource tier | `low` / `default` | `flagship` / `default` |
 
 ---
 
-## 🔧 Kustomize changes an object graph after reading it
+## 🔧 Kustomize modifies existing objects
 
-While Helm evaluates templates before objects exist, **Kustomize** starts from
-objects and composes transformations over them. It still produces Kubernetes
-YAML; it simply moves the variation mechanism from template expressions to an
-overlay declaration.
+Helm evaluates templates to create objects. **Kustomize** works the other way
+round: it starts from existing YAML objects and applies changes to them. It also
+produces ordinary Kubernetes YAML, but the differences between environments are
+written as overlays instead of template expressions.
 
 *Source: `stages/stage5/overlays/dev/kustomization.yaml`*
 
@@ -227,21 +230,21 @@ images:
     newTag: latest
 ```
 
-### When to use Helm vs. Kustomize?
-- **Use Helm** when creating reusable, distributable packages for other teams, or when complex logic (conditionals, dynamic loops) is needed.
-- **Use Kustomize** when managing environment variations within a single Git repository without wanting template syntax errors, or when tweaking third-party vendor manifests.
+### When to use Helm and when to use Kustomize
+- **Helm** suits reusable packages that other teams install, and configuration that needs logic such as conditionals and loops.
+- **Kustomize** suits environment differences inside a single Git repository when you want to avoid template syntax, and tweaking manifests that someone else wrote.
 
 ---
 
 ## 🐙 GitOps moves reconciliation from your terminal into the cluster
 
-In earlier stages, you ran `kubectl` or Helm and then inspected the result.
-GitOps keeps the desired configuration in Git and gives a controller the job of
-performing the same desired-versus-observed comparison continuously. This is the
-same reconciliation idea from ReplicaSets at a larger scope: compare, report
-drift, and—when configured—act.
+In the earlier stages you ran `kubectl` or Helm yourself and then checked the
+result. With GitOps, the desired configuration lives in Git, and a controller
+continuously compares it with what is running in the cluster. This is the same
+reconciliation idea as a ReplicaSet, applied to the whole application: compare,
+report any drift, and, if configured to, correct it.
 
-Instead of human engineers running `helm install` or `kubectl apply` from their laptops, an in-cluster controller (**Argo CD**) continuously synchronizes the live cluster with Git:
+Instead of engineers running `helm install` or `kubectl apply` from their laptops, a controller inside the cluster (**Argo CD**) keeps the live cluster in sync with Git:
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -256,16 +259,16 @@ Instead of human engineers running `helm install` or `kubectl apply` from their 
 │     ┌──────────────────────┘                           │
 │     ▼                                                  │
 │  4. SELF-HEAL / PRUNE                                  │
-│     Overwrites rogue manual kubectl changes and        │
-│     deletes orphaned cluster resources!                │
+│     Overwrites manual kubectl changes and              │
+│     deletes cluster resources that are not in Git      │
 └────────────────────────────────────────────────────────┘
 ```
 
-In `stages/stage5/argocd/`, Apollo11 defines separate Argo CD Applications.
-Dev and staging enable automated sync and self-heal with a documented drift
-window of up to three minutes; prod intentionally requires manual sync. A
-deletion in a self-healing environment is reconciled, but the same claim must
-not be made for prod.
+`stages/stage5/argocd/` defines a separate Argo CD Application for each
+environment. Dev and staging use automated sync with self-heal, and drift is
+corrected within about three minutes. Prod deliberately requires a manual sync.
+So a deleted resource is restored automatically in dev and staging, but not in
+prod.
 
 ---
 
@@ -273,18 +276,18 @@ not be made for prod.
 
 ## 🧪 Investigations: inspect the generated request before trusting the tool
 
-Package tooling can make a large application feel like one command. Keep asking
-what that command generated, which revision it recorded, and whether a later
-controller is authorised to change live state.
+Packaging tools can make a large application feel like a single command. Keep
+asking what that command generated, which revision it recorded, and whether a
+controller is allowed to change the live state later.
 
-### Exercise 1: Local Template Rendering with Helm
+### Exercise 1: Render templates locally with Helm
 
-**Prediction:** rendering changes files in `/tmp`, not the cluster. The booking
-Deployment in each rendered file should reveal exactly how a values file affects
-the desired replica count.
+**Prediction:** rendering writes files to `/tmp` and does not touch the cluster.
+The booking Deployment in each rendered file shows exactly how a values file
+changes the replica count.
 
-- **Objective**: Inspect the rendered Kubernetes YAML generated by Helm without applying it to the cluster.
-- **Starting Point**: Terminal in the Apollo11 repository.
+- **Objective**: Read the Kubernetes YAML that Helm generates, without applying it to the cluster.
+- **Starting Point**: A terminal in the Apollo11 repository.
 - **Instructions**:
 
 ```bash
@@ -293,7 +296,7 @@ cd Apollo11
 # 1. Lint the chart to catch syntax or schema errors
 helm lint stages/stage5/helm/apollo11
 
-# 2. Render the dev environment manifests to stdout
+# 2. Render the dev manifests into a file
 helm template apollo11 stages/stage5/helm/apollo11 \
   -f stages/stage5/helm/apollo11/values-dev.yaml > /tmp/rendered-dev.yaml
 
@@ -301,70 +304,65 @@ helm template apollo11 stages/stage5/helm/apollo11 \
 grep -A 10 "name: booking" /tmp/rendered-dev.yaml | grep "replicas:"
 # Output: replicas: 1
 
-# 4. Render the prod environment manifests
+# 4. Render the prod manifests
 helm template apollo11 stages/stage5/helm/apollo11 \
   -f stages/stage5/helm/apollo11/values-prod.yaml > /tmp/rendered-prod.yaml
 
-# Check rendered replicas for prod
+# Check the rendered replicas for prod
 grep -A 10 "name: booking" /tmp/rendered-prod.yaml | grep "replicas:"
 # Output: replicas: 3
 ```
 
-- **What Concept This Reinforces**:
-  `helm template` is client-side rendering. It lets you inspect every generated line of YAML before it ever touches the API server.
-- **Expected result**: Both renders succeed; booking is 1 replica in dev and 3
-  in prod.
-- **Verification command**: `helm lint` exits zero and the two grep commands
-  show their environment-specific counts.
-- **Troubleshooting hints**: If grep is ambiguous, inspect the rendered
-  Deployment by kind/name with a YAML-aware tool; text proximity is only a
-  convenient lab check.
+- **Concept reinforced**:
+  `helm template` renders on your machine. You can read every line of generated YAML before anything reaches the API server.
+- **Expected result**: Both renders succeed. Booking has 1 replica in dev and 3 in prod.
+- **Verification command**: `helm lint` exits with status zero, and the two `grep` commands show the replica count for each environment.
+- **Troubleshooting hints**: If `grep` matches more than one place, open the rendered Deployment by kind and name with a YAML-aware tool. Matching on nearby text is only a quick check for this lab.
 
 ---
 
-### Exercise 2: Deploying Apollo Airlines with Helm
+### Exercise 2: Deploy Apollo Airlines with Helm
 
-**Prediction:** the API server receives normal Kubernetes objects, while Helm
-adds a release history that `kubectl apply` alone would not create. Inspect both
-the Deployment and `helm history` to see the difference.
+**Prediction:** the API server receives ordinary Kubernetes objects, and Helm adds
+a release history that plain `kubectl apply` would not create. Look at both the
+Deployment and `helm history` to see the difference.
 
-- **Objective**: Install Apollo Airlines as a Helm release and inspect its revision history.
-- **Starting Point**: Running `kind-apollo11` cluster.
+- **Objective**: Install Apollo Airlines as a Helm release and read its revision history.
+- **Starting Point**: A running `kind-apollo11` cluster.
 - **Instructions**:
 
 ```bash
-# 1. Run the verified Stage 5 apply script in Helm mode
+# 1. Run the Stage 5 apply script in Helm mode
 bash stages/stage5/scripts/apply.sh --mode helm --env dev
 
-# 2. Inspect Helm release list
+# 2. List the Helm releases
 helm list -A
 
-# 3. Check release revision history
+# 3. Read the release's revision history
 helm history apollo11 -n apollo-airlines-apps
 ```
 
-- **Expected Result**:
+- **Expected result**:
   `helm list` shows `apollo11` with `STATUS: deployed` at revision `1`.
-  All 10 workloads, 2 namespaces, Gateway, and MetalLB resources are active!
+  All 10 workloads, both namespaces, the Gateway, and the MetalLB resources are running.
 - **Verification command**: `bash stages/stage5/scripts/verify.sh --mode helm`
-  runs the Helm-path contract.
-- **Troubleshooting hints**: If the release is `failed` or `pending-*`, inspect
-  `helm status`, release history, Pod events, and hook Jobs before retrying.
-- **Concept reinforced**: Helm stores a release revision that groups many
-  rendered Kubernetes resources into one upgrade/rollback unit.
+  runs the checks for the Helm path.
+- **Troubleshooting hints**: If the release is `failed` or `pending-*`, check
+  `helm status`, the release history, the Pod events, and any hook Jobs before you retry.
+- **Concept reinforced**: Helm records a release revision that groups many
+  rendered resources into one unit that you can upgrade or roll back.
 
 ---
 
 ### Exercise 3: Upgrades and Rollbacks
 
-**Prediction:** rollback does not travel back in time or undo unrelated objects.
-It renders and applies the selected recorded release configuration as a new
-revision, then the Deployment controller carries out the resulting replica
-change.
+**Prediction:** a rollback does not rewind the cluster or undo unrelated
+objects. Helm takes the configuration stored with the chosen earlier revision and
+applies it as a new revision. The Deployment controller then makes the replica
+count match.
 
-- **Objective**: Upgrade the Helm release, inspect its revision history, and
-  roll back to a known prior revision.
-- **Starting Point**: Healthy Helm release from Exercise 2.
+- **Objective**: Upgrade the Helm release, read its revision history, and roll back to an earlier revision.
+- **Starting Point**: The healthy Helm release from Exercise 2.
 - **Instructions**:
 
 ```bash
@@ -374,70 +372,70 @@ helm upgrade apollo11 stages/stage5/helm/apollo11 \
   --set apps.booking.replicas=4 \
   -n apollo-airlines-apps
 
-# Verify booking now has 4 pods:
+# Check that booking now has 4 Pods:
 kubectl get deployment booking -n apollo-airlines-apps
 
-# 2. Inspect history (now revision 2!)
+# 2. Read the history (this is now revision 2)
 helm history apollo11 -n apollo-airlines-apps
 
 # 3. Roll back to revision 1
 helm rollback apollo11 1 -n apollo-airlines-apps
 
-# 4. Confirm booking scaled back down to 1 replica
+# 4. Check that booking is back to 1 replica
 kubectl get deployment booking -n apollo-airlines-apps
 ```
 
-- **Expected Result**: Helm creates an upgrade revision and then a rollback
-  revision. The booking Deployment returns to the replica count stored in the
-  selected prior release revision; unrelated releases are unchanged.
-- **Verification command**: Wait for `deployment/booking` rollout completion and
-  confirm one Ready replica after rollback.
-- **Troubleshooting hints**: Revision numbers are release-specific. Read `helm
-  history` and roll back to the actual prior good revision rather than assuming
-  it is always `1` in a reused cluster.
-- **Concept reinforced**: Rollback creates a new release revision from stored
-  prior configuration; it does not rewind unrelated cluster state.
+- **Expected result**: Helm records an upgrade revision and then a rollback
+  revision. The booking Deployment returns to the replica count stored with the
+  earlier revision. Other releases are not affected.
+- **Verification command**: Wait for the `deployment/booking` rollout to finish and
+  confirm there is one Ready replica after the rollback.
+- **Troubleshooting hints**: Revision numbers belong to one release. Read `helm
+  history` and roll back to the revision that was actually good, rather than
+  assuming it is `1` in a cluster you have used before.
+- **Concept reinforced**: A rollback creates a new release revision from the
+  stored earlier configuration. It does not rewind unrelated cluster state.
 
 ---
 
-### Exercise 4: Kustomize Inspection
+### Exercise 4: Inspect Kustomize output
 
-**Prediction:** the overlay changes the rendered object graph without creating
-a Helm release. Compare the label and image in its output with the base rather
-than treating Kustomize as a second deployment controller.
+**Prediction:** the overlay changes the rendered objects without creating a Helm
+release. Compare the label and image in its output with the base. Kustomize is
+not a second deployment controller.
 
-- **Objective**: Render and inspect Kustomize overlays.
-- **Starting Point**: Stage 5 directory.
+- **Objective**: Render a Kustomize overlay and read its output.
+- **Starting Point**: The Apollo11 repository root.
 - **Instructions**:
 
 ```bash
-# Render dev overlay using kubectl's built-in kustomize engine
+# Render the dev overlay with kubectl's built-in Kustomize
 kubectl kustomize stages/stage5/overlays/dev > /tmp/kustomize-dev.yaml
 
-# Verify image tags and replicas
+# Check the image tag
 grep -B 2 -A 5 "image: apollo11/booking:latest" /tmp/kustomize-dev.yaml
 ```
 
-Notice that Kustomize injected `labels: environment: dev` into all resources without needing a single Go template curly brace!
+Kustomize added the label `environment: dev` to every resource without any Go template syntax.
 
-- **Expected result**: Rendering succeeds, the booking image uses `latest`, and
-  environment labels appear in the output.
+- **Expected result**: Rendering succeeds, the booking image uses `latest`, and the
+  environment label appears in the output.
 - **Verification command**: `kubectl kustomize stages/stage5/overlays/dev >/dev/null`
-  exits zero without mutating the cluster.
-- **Troubleshooting hints**: Inspect `overlays/dev/kustomization.yaml` and its
-  referenced base if a resource or patch cannot be resolved.
-- **Concept reinforced**: Kustomize composes and patches Kubernetes objects;
-  Helm evaluates templates and records releases.
+  exits with status zero and does not change the cluster.
+- **Troubleshooting hints**: If a resource or patch cannot be found, check
+  `overlays/dev/kustomization.yaml` and the base it refers to.
+- **Concept reinforced**: Kustomize combines and patches Kubernetes objects. Helm
+  evaluates templates and records releases.
 
 ---
 
 ### Exercise 5 (Optional): Argo CD GitOps & Drift Self-Healing
 
-**Prediction:** unlike Helm, which exits once an apply command completes, Argo CD runs continuously. If an operator manually mutates the live cluster out of band (e.g. scales a deployment directly via `kubectl`), Argo CD will detect the divergence (`OutOfSync`) and automatically self-heal the cluster back to the Git declaration.
+**Prediction:** Helm finishes when its command finishes, but Argo CD keeps running. If someone changes the live cluster by hand (for example, by scaling a Deployment with `kubectl`), Argo CD sees the difference (`OutOfSync`) and automatically restores what Git declares.
 
-- **Objective**: Bootstrap Argo CD, deploy the `apollo11-dev` Application tracking the Git repository, and observe automated drift self-healing.
-- **Starting Point**: Healthy `kind-apollo11` cluster.
-- **Note on the Local GitOps Paradox**: Argo CD runs inside the cluster and tracks the upstream repository (`https://github.com/darshan-raul/Apollo11.git`). You do not need push access to verify GitOps: we test reconciliation by intentionally creating drift *inside* the cluster and watching Argo CD heal it!
+- **Objective**: Bootstrap Argo CD, deploy the `apollo11-dev` Application that tracks the Git repository, and watch it correct drift automatically.
+- **Starting Point**: A healthy `kind-apollo11` cluster.
+- **Note: you do not need to push to Git.** Argo CD runs inside the cluster and tracks the upstream repository (`https://github.com/darshan-raul/Apollo11.git`). To test it, you change the live cluster yourself and watch Argo CD undo the change.
 
 - **Instructions**:
 
@@ -449,25 +447,25 @@ bash stages/stage5/argocd/scripts/bootstrap.sh
 kubectl get application apollo11-dev -n argocd
 # Expected: STATUS: Synced, HEALTH: Healthy
 
-# 3. Intentionally introduce out-of-band cluster drift!
+# 3. Change the live cluster by hand to create drift
 kubectl scale deployment/booking -n apollo-airlines-dev-apps --replicas=5
 
-# 4. Confirm the manual change was applied locally
+# 4. Confirm the manual change took effect
 kubectl get deployment booking -n apollo-airlines-dev-apps
-# Output: Replicas: 5
+# Output: 5 replicas
 
-# 5. Wait for Argo CD's automated reconciliation loop (or force immediate sync)
+# 5. Wait for Argo CD's next reconciliation (or force a sync)
 argocd app sync apollo11-dev --core 2>/dev/null || \
   kubectl get application apollo11-dev -n argocd -w
 
-# 6. Check the deployment again
+# 6. Check the Deployment again
 kubectl get deployment booking -n apollo-airlines-dev-apps
-# Output: Replicas: 1 (Argo CD self-healed and restored the Git contract!)
+# Output: 1 replica. Argo CD restored what Git declares.
 ```
 
-- **Expected Result**: Argo CD detects the manual replica change, flags the state as `OutOfSync`, and enforces the Git source of truth by scaling `booking` back to 1 replica.
-- **Verification Command**: `kubectl get application apollo11-dev -n argocd` reports `Synced` and `Healthy`.
-- **Concept reinforced**: GitOps establishes Git as the sole authority. Cluster drift is automatically corrected rather than tolerated.
+- **Expected result**: Argo CD notices the manual change, marks the Application `OutOfSync`, and scales `booking` back to 1 replica, the value in Git.
+- **Verification command**: `kubectl get application apollo11-dev -n argocd` reports `Synced` and `Healthy`.
+- **Concept reinforced**: In GitOps, Git is the single source of truth. Drift in the cluster is corrected instead of accepted.
 
 ---
 
@@ -490,15 +488,17 @@ Before moving to Stage 6, test your understanding:
 3. How does `helm rollback` know what configuration existed in an earlier revision?
 4. What happens when an engineer manually deletes a Pod in an Argo CD-managed cluster with self-healing enabled?
 
-Now that Apollo Airlines is packaged and deployable across any environment, let's turn on full observability: metrics, distributed tracing, and centralized logging!
+Apollo Airlines is now packaged and can be deployed to each environment. Stage 6
+adds observability: metrics, distributed tracing, and centralized logging.
 
 👉 **Continue to [Stage 6: Mission Operations (Observability & Tracing)](./stage-6)**
 
 ## Current verification boundary
 
-The earlier source check totals are historical evidence. The verified repository
-revision is commit `69113dcc80f77e32301d8ee7b9e73a67c923de96`, incorporating
-context guards, external TLS certificate ownership, frontend HTTPS API endpoints,
-and ServiceAccount token automount protection. Use the current verifier's
-summary and your own manual behavioral observations to validate your environment.
-A production docs build verifies page compilation and links, not cluster behavior.
+The check counts quoted in earlier stages are historical. The verified repository
+revision is commit `69113dcc80f77e32301d8ee7b9e73a67c923de96`. It includes
+context guards, external ownership of the TLS certificate, HTTPS API endpoints in
+the frontend, and ServiceAccount token automount protection. To validate your own
+environment, use the summary from the current verification script together with
+what you observe yourself. A production docs build only checks that the pages
+compile and the links work. It does not test the cluster.
