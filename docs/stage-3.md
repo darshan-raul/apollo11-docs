@@ -19,16 +19,16 @@ For the explanation before the experiment, start with the
 Already read them? [Jump to the investigations](#-investigations-watch-identity-and-storage-stay-connected).
 :::
 
-In Stage 1, deleting a database Pod proved two things at once: the Deployment
-could replace a process, and the replacement had nowhere durable to find the
-old database directory. Reconciliation fixed the replica count; it could not
-recover data that was declared as `emptyDir`.
+In Stage 1, deleting a database Pod showed two things. The Deployment replaced the
+Pod, but the new Pod had no way to find the old data, because it lived in an
+`emptyDir`. Reconciliation restored the replica count; it could not restore the
+data.
 
-Stage 3 separates a database's *identity* from one temporary Pod and gives that
-identity a claim on storage. `identity-db-0` may be replaced, but its claim is
-named for that ordinal and can be mounted again. This is a stronger contract
-than Stage 1, not a permanent cure for every data failure: the kind
-`local-path` backend remains local to a node and is not a backup or HA system.
+Stage 3 gives each database a stable identity and a claim on storage that outlasts
+any single Pod. `identity-db-0` can be replaced, and the new Pod mounts the same
+claim, named after its ordinal. This is a stronger guarantee than Stage 1, but it
+does not protect against every kind of data loss. The kind `local-path` storage
+lives on a single node and is neither a backup nor a high-availability setup.
 
 <details>
 <summary><strong>Optional conceptual refresher</strong></summary>
@@ -85,12 +85,13 @@ By the end of this stage, you will be able to:
 
 ## 💾 What survives which kind of replacement?
 
-Start by separating three lifetimes. A **container** can restart inside the same
-Pod. A **Pod** can be deleted and recreated. A **node or cluster** can disappear.
-No single volume type answers all three failure modes. The earlier `emptyDir`
-experiment only tested Pod deletion.
+Start by separating three things that can fail. A **container** can restart inside
+the same Pod. A **Pod** can be deleted and recreated. A **node or the whole
+cluster** can disappear. No single kind of volume protects against all three. The
+`emptyDir` experiment in Stage 1 only tested Pod deletion.
 
-To share storage between containers in a Pod or survive container restarts, Kubernetes provides Volumes. But not all volumes are persistent:
+Kubernetes Volumes let containers in a Pod share storage and keep it across
+container restarts. Not all volumes last longer than that:
 
 | Storage Type | Survives Container Restart? | Survives Pod Deletion? | Survives Worker Node Reboot? | Use Case in Apollo11 |
 |---|---|---|---|---|
@@ -98,20 +99,21 @@ To share storage between containers in a Pod or survive container restarts, Kube
 | **`hostPath`** | ✅ Yes | ✅ Yes (on *that* node) | ⚠️ Node-dependent | Local testing only; breaks portability |
 | **Persistent volume through a PVC** | ✅ Yes | ✅ when the claim and backend remain | Backend-dependent | Relational databases (`PostgreSQL`), Redis |
 
-For Apollo11's local-path backend, the final column is deliberately
-node-dependent. The lab proves a claim can follow a recreated Pod; it does not
-prove that storage follows a failed kind node or survives deleting the cluster.
+With Apollo11's `local-path` storage, whether the data survives a node loss
+depends on that node. The lab shows that a claim can be mounted again by a
+recreated Pod. It does not show that the data survives the loss of a kind node or
+the deletion of the cluster.
 
-### A claim is a request; a volume is the fulfilment
+### A claim is a request; a volume is what fulfils it
 
-An application author should be able to say “this database needs one GiB with
-this access mode” without embedding a host path in its Pod spec. Kubernetes
-records that request as a claim. A StorageClass tells a provisioner how to
-fulfil eligible claims, and the provisioner creates or binds a concrete volume.
+An application author should be able to say "this database needs 1 GiB with this
+access mode" without putting a host path in the Pod spec. Kubernetes stores that
+request as a claim. A StorageClass tells a provisioner how to satisfy claims, and
+the provisioner creates a real volume and binds it to the claim.
 
-1. **`PersistentVolumeClaim` (PVC)**: The *request* for storage written by the application author. It specifies: *"I need 1 GiB of disk space with `ReadWriteOnce` access."*
-2. **`PersistentVolume` (PV)**: The actual piece of storage in the cluster (e.g. an AWS EBS volume, a GCP Persistent Disk, or a local directory on kind).
-3. **`StorageClass`**: The *provisioner* that dynamically creates PVs on demand when a PVC is submitted.
+1. **`PersistentVolumeClaim` (PVC):** the *request* for storage, written by the application author. For example: "I need 1 GiB of disk with `ReadWriteOnce` access."
+2. **`PersistentVolume` (PV):** the actual storage in the cluster, such as an AWS EBS volume, a GCP Persistent Disk, or a local directory on kind.
+3. **`StorageClass`:** describes how to create PVs automatically when a PVC is submitted.
 
 ```
 Application Author                 Cluster Administrator / Cloud Provider
@@ -130,33 +132,33 @@ Application Author                 Cluster Administrator / Cloud Provider
                    └─────────────────────────────┘
 ```
 
-#### Access Modes Explained:
-- **`ReadWriteOnce` (RWO)**: The volume can be mounted as read-write by a **single node** at a time. This is standard for block storage (EBS, local disks) and databases like PostgreSQL.
-- **`ReadOnlyMany` (ROX)**: The volume can be mounted read-only by many nodes simultaneously.
-- **`ReadWriteMany` (RWX)**: The volume can be mounted read-write by many nodes at once (requires networked file systems like NFS or AWS EFS).
+#### Access modes
+- **`ReadWriteOnce` (RWO):** one node at a time can mount the volume read-write. This is typical for block storage (EBS, local disks) and for databases such as PostgreSQL.
+- **`ReadOnlyMany` (ROX):** many nodes can mount the volume read-only at the same time.
+- **`ReadWriteMany` (RWX):** many nodes can mount the volume read-write at the same time. This needs a network file system such as NFS or AWS EFS.
 
 ---
 
 ## 🏛️ Why a StatefulSet changes the question
 
-Stage 1's Deployment treated its replicas as interchangeable. That is ideal for
-two booking API Pods. A database replica needs a stable ordinal, a predictable
-claim name, and controlled lifecycle. A StatefulSet gives the controller a way
-to derive those names from the replica ordinal.
+In Stage 1, a Deployment treated its replicas as interchangeable. That suits two
+booking API Pods. A database replica needs a fixed number, a predictable claim
+name, and a controlled lifecycle. A StatefulSet derives all of these from the
+replica's ordinal (its index).
 
 | Property | Deployment | StatefulSet |
 |---|---|---|
-| **Pod Naming** | Random hash suffix: `booking-68697c45bf-x9z2p` | Deterministic ordinal index: `identity-db-0`, `identity-db-1` |
-| **Identity Contract** | Pods are completely interchangeable and disposable | Pods have unique, persistent identity across restarts |
-| **Storage Binding** | All replicas share the exact same volume (or none) | Each replica gets its own dedicated PVC via `volumeClaimTemplates` |
-| **Scaling Order** | Replicas scale up/down in parallel | Strict sequential order: Pod 1 starts only after Pod 0 is Ready |
-| **DNS Contract** | Replicas behind a shared virtual ClusterIP | Each Pod gets its own addressable DNS FQDN via Headless Service |
+| **Pod names** | Random suffix: `booking-68697c45bf-x9z2p` | Fixed ordinal: `identity-db-0`, `identity-db-1` |
+| **Identity** | Pods are interchangeable and disposable | Each Pod keeps its identity when it is replaced |
+| **Storage** | All replicas share one volume, or have none | Each replica gets its own PVC from `volumeClaimTemplates` |
+| **Scaling order** | Replicas start and stop in parallel | One at a time, in order: Pod 1 starts only after Pod 0 is Ready |
+| **DNS** | Replicas sit behind one shared virtual ClusterIP | Each Pod gets its own DNS name through a headless Service |
 
 ---
 
 ## 🔍 Read `identity-db` from identity to disk
 
-Let's examine how `identity-db` is defined in Stage 3:
+Here is how Stage 3 defines `identity-db`:
 
 *Source: `stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml`*
 
@@ -227,33 +229,35 @@ spec:
 
 ### Follow the objects this template creates
 
-When you apply this StatefulSet, Kubernetes does not immediately create “a
-database plus a disk” as one opaque unit. The StatefulSet controller derives
-`identity-db-0` and the PVC name `pg-data-identity-db-0`. The storage
-provisioner fulfils the PVC using the selected StorageClass. Once the Pod is
-scheduled and its volume is attached or mounted, the kubelet starts PostgreSQL.
-That object chain is what you will inspect in Exercise 1.
-
-1. **`serviceName: identity-db-headless`**:
-   Connects the StatefulSet to its companion Headless Service. This grants `identity-db-0` a dedicated DNS A-record:
-   `identity-db-0.identity-db-headless.apollo-airlines-apps.svc.cluster.local`.
-2. **`volumeClaimTemplates`**:
-   Unlike a standard `volumes` block, this is a **template** that instructs the StatefulSet controller to generate a unique PVC for each ordinal pod:
+Applying this StatefulSet does not create a database and a disk as a single unit.
+Several objects are created, one after another:
+1. The StatefulSet controller creates the Pod `identity-db-0` and the PVC
    `pg-data-identity-db-0`.
-   If you scaled `replicas: 3`, it would automatically generate `pg-data-identity-db-1` and `pg-data-identity-db-2`.
-3. **`PGDATA: /var/lib/postgresql/data/pgdata`**:
-   PostgreSQL requires its data directory to be a subdirectory within the mounted volume to avoid permission conflicts with filesystem metadata (`lost+found`).
+2. The storage provisioner creates a volume for the PVC, using the StorageClass.
+3. Once the Pod is scheduled and the volume is mounted, the kubelet starts
+   PostgreSQL.
+
+You will inspect this chain in Exercise 1. These fields in the manifest drive it:
+
+1. **`serviceName: identity-db-headless`:**
+   links the StatefulSet to its headless Service. This gives `identity-db-0` its own DNS record:
+   `identity-db-0.identity-db-headless.apollo-airlines-apps.svc.cluster.local`.
+2. **`volumeClaimTemplates`:**
+   unlike a regular `volumes` entry, this is a **template**. The StatefulSet controller uses it to create one PVC per replica, such as `pg-data-identity-db-0`.
+   With `replicas: 3` it would also create `pg-data-identity-db-1` and `pg-data-identity-db-2`.
+3. **`PGDATA: /var/lib/postgresql/data/pgdata`:**
+   PostgreSQL needs its data directory to be a subdirectory of the mounted volume. Using the volume's root can fail because of the `lost+found` directory that some filesystems create there.
 
 ---
 
 ## ⚡ Two names solve two different database problems
 
-A normal `identity-db` Service is for clients that simply need a healthy
-database endpoint. A Headless Service is for a caller that needs the identity
-of a particular StatefulSet replica. It intentionally has no virtual ClusterIP
-to hide that Pod address.
+A normal `identity-db` Service is for clients that just need to reach a healthy
+database. A headless Service is for callers that need to reach one specific
+StatefulSet replica. It deliberately has no virtual ClusterIP, so the Pod's own
+address is not hidden.
 
-A **Headless Service** explicitly sets `clusterIP: None`:
+A **headless Service** sets `clusterIP: None`:
 
 *Source: `stages/stage3/k8s/apps/identity-db/identity-db-svc-headless.yaml`*
 
@@ -273,33 +277,37 @@ spec:
       targetPort: 5432
 ```
 
-### How DNS Differs:
-- **Normal Service (`identity-db`)**: A DNS lookup for `identity-db` returns the virtual IP `10.96.140.50`.
-- **Headless Service (`identity-db-headless`)**: A DNS lookup returns the **direct IP address of the Pod** (`10.244.1.15`).
-- Furthermore, CoreDNS automatically publishes predictable per-pod records:
+### How DNS differs
+- **Normal Service (`identity-db`):** a lookup of `identity-db` returns the Service's virtual IP, for example `10.96.140.50`.
+- **Headless Service (`identity-db-headless`):** a lookup returns the **IP of the Pod itself**, for example `10.244.1.15`.
+- CoreDNS also publishes a predictable record for each Pod:
   `identity-db-0.identity-db-headless.apollo-airlines-apps.svc.cluster.local`.
 
-:::note[Why We Keep Both Services]
-Apollo microservices (like `identity`) connect to the normal `identity-db:5432` Service. The headless service is used by Kubernetes for pod identity and is essential for clustered database replication (like Patroni or repmgr).
+(These IPs are examples; yours will differ.)
+
+:::note[Why keep both Services]
+Apollo services such as `identity` connect to the normal `identity-db:5432` Service. The headless Service gives each Pod a stable DNS name, which clustered databases (for example Patroni or repmgr) need for replication.
 :::
 
 ---
 
 ## ⚠️ An attractive design that cannot start
 
-During the development of Stage 3, an intuitive architecture was attempted:
-*Add an `initContainers` block that waits for PostgreSQL to start, then runs `psql -f /init.sql`.*
+While building Stage 3, an obvious approach was tried first: add an
+`initContainers` entry that waits for PostgreSQL to start and then runs
+`psql -f /init.sql`.
 
 ### Why it deadlocks
-1. Kubernetes strictly guarantees that **`initContainers` must run to successful completion before main containers start**.
-2. If the init container executes `until pg_isready -h 127.0.0.1; do sleep 1; done`, it will loop forever.
-3. Why? Because PostgreSQL is inside the **main container**, which the kubelet will not start until the init container exits!
-4. Result: Init waits for Main; Main waits for Init. The Pod is stuck in `Init:0/1` forever.
+1. Kubernetes runs **every init container to successful completion before it starts any main container**.
+2. The init container would run `until pg_isready -h 127.0.0.1; do sleep 1; done`, and keep waiting.
+3. But PostgreSQL runs in the **main container**, which does not start until the init container exits.
+4. Each waits for the other, and the Pod stays in `Init:0/1` forever.
 
-### Use the process that owns the data directory
-Official PostgreSQL Docker images include a built-in lifecycle hook:
-Any `.sql` or `.sh` script placed in `/docker-entrypoint-initdb.d/` is executed **only once during database initialization** (when the data directory is completely empty).
-By mounting our schema ConfigMap to `/docker-entrypoint-initdb.d/`, PostgreSQL runs the SQL schema automatically on first boot, and cleanly skips it on every subsequent restart!
+### Let the database initialise itself
+The official PostgreSQL image has a built-in hook for this. It runs any `.sql` or
+`.sh` file in `/docker-entrypoint-initdb.d/` **once**, when the data directory is
+empty. By mounting the schema ConfigMap at that path, PostgreSQL creates the
+schema on first start and skips it on every later restart.
 
 ---
 
@@ -307,18 +315,18 @@ By mounting our schema ConfigMap to `/docker-entrypoint-initdb.d/`, PostgreSQL r
 
 ## 🧪 Investigations: watch identity and storage stay connected
 
-The key question is no longer “does Kubernetes make a new database Pod?” Stage
-1 already proved it can. Ask instead: *which named claim does the new Pod mount,
-and what failure boundary does that claim actually cover?*
+The question is no longer whether Kubernetes will create a new database Pod;
+Stage 1 showed that it will. Ask instead: *which claim does the new Pod mount,
+and which failures does that claim actually protect against?*
 
-### Exercise 1: Deploy Stage 3 and Inspect Storage
+### Exercise 1: Deploy Stage 3 and inspect storage
 
-**Prediction:** a StatefulSet controller creates a Pod with ordinal `0` and a
-PVC whose name includes that ordinal. A `Bound` PVC is evidence that the claim
-has been matched to storage; it is not evidence of backup or replication.
+**Prediction:** the StatefulSet controller creates a Pod with ordinal `0` and a
+PVC whose name contains that ordinal. A `Bound` PVC shows that the claim has been
+matched to storage. It does not mean the data is backed up or replicated.
 
-- **Objective**: Deploy StatefulSets and inspect dynamic PV/PVC provisioning.
-- **Starting Point**: Running `kind-apollo11` cluster.
+- **Objective**: Deploy the StatefulSets and inspect how PVs and PVCs are provisioned.
+- **Starting Point**: A running `kind-apollo11` cluster.
 - **Instructions**:
 
 ```bash
@@ -336,32 +344,34 @@ kubectl get pvc,pv -n apollo-airlines-apps
 
 - **Expected Result**:
   - `identity-db-0`, `flight-db-0`, `booking-db-0`, and `redis-0` all report `1/1 Running`.
-  - PVCs (`pg-data-identity-db-0`, etc.) show `STATUS: Bound` to dynamically created `PersistentVolume` objects.
-  - StorageClass is `standard (default)` using kind's `rancher.io/local-path` provisioner.
-- **Verification Script**:
+  - The PVCs (`pg-data-identity-db-0` and so on) show `STATUS: Bound`, each to a `PersistentVolume` that was created automatically.
+  - The StorageClass is `standard (default)`, which uses kind's `rancher.io/local-path` provisioner.
+- **Verification script**:
 
 ```bash
 bash stages/stage3/scripts/verify.sh
 ```
-The source README records 68 checks for this verifier. Use its live result as a
-baseline, then inspect the PVC/PV relationship yourself; a passing script is
-evidence, not a substitute for understanding the storage chain.
+The repository README says this script runs 68 checks. Use its result as a
+baseline, then look at the PVC and PV yourself. A passing script is not a
+substitute for understanding how the pieces connect.
 
-- **Troubleshooting hints**: For a Pending PVC, inspect the claim, StorageClass,
-  Pod scheduling events, and local-path provisioner before changing manifests.
-- **Concept reinforced**: A PVC is a request, a StorageClass describes dynamic
-  provisioning, and a PV is the bound storage resource.
+- **Troubleshooting hints**: If a PVC stays `Pending`, check the claim, the
+  StorageClass, the Pod's scheduling events, and the local-path provisioner before
+  you change any manifest.
+- **Concept reinforced**: A PVC is a request, a StorageClass describes how to
+  provision storage automatically, and a PV is the storage that gets bound to the
+  claim.
 
 ---
 
-### Exercise 2: Verifying Headless Service DNS Resolution
+### Exercise 2: Check headless Service DNS
 
-**Prediction:** the normal Service and headless Service are not redundant. The
-headless lookup should expose the current Pod address for a named replica,
-whereas a normal Service gives clients a virtual, load-balanced identity.
+**Prediction:** the normal Service and the headless Service do different jobs. A
+headless lookup returns the current address of one named replica. A normal
+Service gives clients a single virtual address that is load-balanced.
 
-- **Objective**: Prove that CoreDNS resolves the Headless Service directly to Pod IPs.
-- **Starting Point**: Stage 3 running.
+- **Objective**: Show that CoreDNS resolves the headless Service directly to Pod IPs.
+- **Starting Point**: Stage 3 is running.
 - **Instructions**:
 
 ```bash
@@ -374,26 +384,26 @@ kubectl exec -n apollo-airlines-apps deploy/identity -- getent hosts identity-db
 ```
 
 - **Expected Result**:
-  The command prints `${POD_IP} identity-db-0.identity-db-headless...`.
-  The DNS query bypassed virtual ClusterIPs and returned the direct Pod IP!
-- **Verification command**: Compare the address returned by `getent` with
-  `${POD_IP}` captured from the Pod object.
-- **Troubleshooting hints**: If `getent` is unavailable or returns nothing,
-  inspect the headless Service selector, its EndpointSlice, and the Pod's
-  readiness before blaming CoreDNS.
-- **Concept reinforced**: Headless Service DNS publishes backend addresses
-  rather than a virtual load-balancing ClusterIP.
+  The command prints `${POD_IP} identity-db-0.identity-db-headless...`. The
+  lookup did not go through a virtual ClusterIP; it returned the Pod's own IP.
+- **Verification command**: Compare the address from `getent` with `${POD_IP}`,
+  which you read from the Pod object.
+- **Troubleshooting hints**: If `getent` is missing or returns nothing, check the
+  headless Service's selector, its EndpointSlice, and the Pod's readiness before
+  suspecting CoreDNS.
+- **Concept reinforced**: A headless Service publishes the backend Pods'
+  addresses instead of a single virtual ClusterIP.
 
 ---
 
-### Exercise 3: The Persistence Proof (The Core Lab)
+### Exercise 3: Prove the data persists (the core lab)
 
-**Prediction:** the Pod UID changes after deletion, but the PVC name does not.
-The row survives only if the replacement mounts that same claim; record both
-pieces of evidence before concluding that storage is persistent.
+**Prediction:** the Pod's UID changes after you delete it, but the PVC name does
+not. The row survives only if the new Pod mounts the same claim. Record both
+facts before you conclude that the storage is persistent.
 
-- **Objective**: Prove that data written to `identity-db` survives Pod destruction.
-- **Starting Point**: Healthy `identity-db-0` Pod.
+- **Objective**: Show that data written to `identity-db` survives the deletion of its Pod.
+- **Starting Point**: A healthy `identity-db-0` Pod.
 - **Instructions**:
 
 ```bash
@@ -409,7 +419,7 @@ kubectl exec -n apollo-airlines-apps identity-db-0 -- \
 kubectl exec -n apollo-airlines-apps identity-db-0 -- \
   psql -U postgres -d identity -c "SELECT email FROM users WHERE id='99999999-9999-4999-8999-999999999999';"
 
-# 4. Delete only the Pod. The StatefulSet recreates it; this does not delete the PVC.
+# 4. Delete only the Pod. The StatefulSet recreates it, and the PVC is not deleted.
 kubectl delete pod identity-db-0 -n apollo-airlines-apps
 
 # 5. Wait for the StatefulSet controller to recreate identity-db-0
@@ -425,32 +435,32 @@ kubectl exec -n apollo-airlines-apps identity-db-0 -- \
 ```
 
 - **Expected Result**:
-  Before cleanup, the query returns `persisted@apollo.local | Persistence | Test`.
-- **Verification command**: Confirm `pg-data-identity-db-0` stays `Bound` and
-  the recreated Pod mounts that claim before deleting the lab row.
-- **Troubleshooting hints**: If the row is absent, compare the Pod's mounted PVC
-  and PV before/after replacement and inspect PostgreSQL logs. Do not rerun seed
-  jobs until you understand which data directory was mounted.
-- **What Concept This Reinforces**:
-  When `identity-db-0` was deleted, its container was destroyed, but its
-  `PersistentVolumeClaim` (`pg-data-identity-db-0`) remained. The recreated Pod
-  mounted that same claim, so the row survived.
+  Before the cleanup step, the query returns `persisted@apollo.local | Persistence | Test`.
+- **Verification command**: Before deleting the lab row, confirm that
+  `pg-data-identity-db-0` is still `Bound` and that the new Pod mounts it.
+- **Troubleshooting hints**: If the row is missing, compare the PVC and PV that
+  the Pod mounted before and after the replacement, and read the PostgreSQL logs.
+  Do not rerun any seed Jobs until you know which data directory was mounted.
+- **Concept reinforced**:
+  Deleting `identity-db-0` destroyed its container, but its
+  `PersistentVolumeClaim` (`pg-data-identity-db-0`) remained. The new Pod mounted
+  the same claim, so the row survived.
 
-  In this kind lab, the `local-path` volume is tied to storage on one kind node.
-  This proves **Pod-replacement persistence**, not node-loss recovery, backups,
-  database replication, or high availability. If the node or cluster storage
-  disappears, the data may disappear too.
+  In this kind lab, the `local-path` volume lives on one kind node. The lab
+  therefore shows persistence across **Pod replacement** only. It does not show
+  recovery from node loss, backups, replication, or high availability. If the node
+  or its storage is lost, the data can be lost too.
 
 ---
 
-### Exercise 4: Volume Reclaim Policy & PVC Lifecycle
+### Exercise 4: Reclaim policy and the PVC lifecycle
 
-**Question:** what action actually risks this data? Deleting a Pod and deleting
-its PVC are not equivalent. Inspecting reclaim policy explains the latter path
-without performing a destructive test.
+**Question:** which action actually puts this data at risk? Deleting a Pod and
+deleting its PVC are very different. Reading the reclaim policy shows what the
+second one would do, without destroying anything.
 
-- **Objective**: Understand what happens to PVs when PVCs are deleted.
-- **Starting Point**: Stage 3 running.
+- **Objective**: Understand what happens to a PV when its PVC is deleted.
+- **Starting Point**: Stage 3 is running.
 - **Instructions**:
 
 ```bash
@@ -459,21 +469,22 @@ kubectl get pv $(kubectl get pvc pg-data-identity-db-0 -n apollo-airlines-apps -
 ```
 
 - **Analysis**:
-  Notice `RECLAIM POLICY: Delete`.
-  - If `ReclaimPolicy: Delete`: Deleting the **PVC** automatically deletes the underlying physical storage disk.
-  - If `ReclaimPolicy: Retain`: Deleting the PVC keeps the PV in `Released` state, preventing accidental data destruction until an administrator manually cleans it up.
-:::danger[Deleting a StatefulSet Does Not Delete PVCs]
-In Kubernetes, running `kubectl delete statefulset identity-db` deliberately leaves PVCs intact! This safety mechanism prevents accidental data loss during application uninstalls.
+  The output shows `RECLAIM POLICY: Delete`.
+  - With `Delete`, deleting the **PVC** also deletes the underlying storage and its data.
+  - With `Retain`, deleting the PVC leaves the PV in the `Released` state, so the data is kept until an administrator cleans it up by hand.
+
+:::danger[Deleting a StatefulSet does not delete its PVCs]
+Running `kubectl delete statefulset identity-db` deliberately leaves the PVCs in place. This protects your data when an application is uninstalled.
 :::
 
-- **Expected result**: The bound PV reports reclaim policy `Delete`.
-- **Verification command**: Record the PVC's `.spec.volumeName` and match it to
-  the PV row; this exercise does not delete either object.
-- **Troubleshooting hints**: A different provisioner may use another default
-  StorageClass or reclaim policy. Report the live value instead of assuming
+- **Expected result**: The bound PV has reclaim policy `Delete`.
+- **Verification command**: Note the PVC's `.spec.volumeName` and match it to the
+  PV in the output. This exercise does not delete either object.
+- **Troubleshooting hints**: Another provisioner may use a different default
+  StorageClass or reclaim policy. Report the value you see rather than assuming
   kind's local-path default.
-- **Concept reinforced**: Reclaim policy governs what happens after claim
-  deletion; it says nothing about backups or database replication.
+- **Concept reinforced**: The reclaim policy decides what happens to the storage
+  after the claim is deleted. It does not provide backups or replication.
 
 ---
 
@@ -496,8 +507,8 @@ Before moving to Stage 4, confirm:
 3. What is the difference between deleting a StatefulSet Pod and deleting its PVC?
 4. How does an application decide whether to connect via a Headless Service or a normal ClusterIP Service?
 
-Now that the data layer survives ordinary Pod replacement—and its remaining
-failure boundaries are explicit—let's explore resource limits, health probes,
-and graceful shutdown.
+The data layer now survives ordinary Pod replacement, and you know which failures
+it still does not cover. Stage 4 turns to resource limits, health probes, and
+graceful shutdown.
 
 👉 **Continue to [Stage 4: Flight Control (Reliability, Probes & QoS)](./stage-4)**

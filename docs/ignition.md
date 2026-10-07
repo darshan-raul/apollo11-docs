@@ -19,14 +19,14 @@ For the explanation before the experiment, start with the
 Already read them? [Jump to the investigations](#-investigations-separate-process-recovery-from-object-recovery).
 :::
 
-In **Ignition**, you create a small real cluster on your workstation using
-**kind** (Kubernetes in Docker). The goal is not to memorise component names.
-It is to answer a practical question: after you ask Kubernetes for a Pod, which
-parts of the cluster turn that stored request into a running process?
+In **Ignition**, you create a small, real cluster on your workstation using
+**kind** (Kubernetes in Docker). The aim is not to memorise component names. It
+is to answer a practical question: after you ask Kubernetes for a Pod, which parts
+of the cluster turn that request into a running process?
 
-Most importantly, you will perform two controlled experiments that reveal the core contract of Kubernetes:
+You will also run two experiments that show what Kubernetes does and does not do for you:
 1. What the **kubelet** recovers automatically when a process crashes inside an existing Pod.
-2. Why a **bare Pod** does not recover when deleted, illustrating why production systems require controllers (Deployments) introduced in Stage 1.
+2. Why a **bare Pod** is not recreated when you delete it. This is why real systems use controllers such as Deployments, which you meet in Stage 1.
 
 <details>
 <summary><strong>Optional conceptual refresher</strong></summary>
@@ -39,23 +39,23 @@ want the older all-in-one account beside the lab.
 ## 🎯 Learning Goals
 
 By the end of this stage, you will be able to:
-1. Explain the role of each Kubernetes control plane component (`kube-apiserver`, `etcd`, `kube-scheduler`, `kube-controller-manager`) and node component (`kubelet`, `kube-proxy`, container runtime).
-2. Understand how `kind` runs full Kubernetes nodes inside Docker containers on your machine.
-3. Contrast imperative CLI commands (`kubectl run`) with declarative state management (`kubectl apply`).
-4. Read and dissect a Pod manifest using the 4-pass YAML habit.
-5. Systematically apply the 5-Rung Evidence Ladder to diagnose workloads before touching code.
-6. Observe how container restarts preserve Pod UID while Pod deletion destroys identity.
+1. Explain what each control plane component (`kube-apiserver`, `etcd`, `kube-scheduler`, `kube-controller-manager`) and each node component (`kubelet`, `kube-proxy`, container runtime) does.
+2. Describe how `kind` runs Kubernetes nodes as Docker containers on your machine.
+3. Compare imperative commands (`kubectl run`) with declarative management (`kubectl apply`).
+4. Read a Pod manifest using the 4-pass YAML habit.
+5. Use the 5-rung evidence ladder to diagnose a workload before you change any code.
+6. Show that a container restart keeps the Pod's UID, while deleting the Pod destroys its identity.
 
 ---
 
-## 🏛️ One request travels through several hands
+## 🏛️ One request passes through several components
 
-When you later apply an Apollo Airlines Deployment, `kubectl` does not ssh to a
+When you later apply an Apollo Airlines Deployment, `kubectl` does not log in to a
 worker and start a container. It sends a desired-state object to the API server.
-The scheduler, controllers, and kubelet each see different parts of that object
-and have different authority. That separation makes the system inspectable: an
-unscheduled Pod and a crashing container are different failures with different
-evidence.
+The scheduler, the controllers, and the kubelet each act on a different part of
+that object. Because the work is split this way, you can investigate each part on
+its own. A Pod that was never scheduled and a container that keeps crashing are
+different failures, and each leaves different evidence.
 
 ```mermaid
 flowchart TD
@@ -99,18 +99,18 @@ flowchart TD
 
 ### 1. The Control Plane Components
 
-- **`kube-apiserver`**: The front door of the cluster. Every `kubectl` command, every controller update, and every node heartbeat sends an HTTPS JSON request to the API server. It validates requests, enforces authentication/authorization, runs admission plugins, and is the **only** component that writes directly to `etcd`.
-- **`etcd`**: A consistent, highly-available key-value store based on the Raft consensus algorithm. It stores the authoritative state of every object in the cluster (Pods, Services, Secrets, ConfigMaps).
-- **`kube-scheduler`**: Watches for newly created Pods that have no node assigned (`spec.nodeName` is empty). It filters eligible nodes based on resource requests, taints, and affinity rules, scores the candidates, and binds the Pod to the winning node.
-- **`kube-controller-manager`**: Runs continuous reconciliation control loops. For example, the ReplicaSet controller compares desired replica count against actual running Pods, and requests the API server to create or delete Pods to match desired state.
+- **`kube-apiserver`:** the front door of the cluster. Every `kubectl` command, every controller update, and every node heartbeat reaches it as an HTTPS request with a JSON body. It checks requests, enforces authentication and authorization, runs admission plugins, and is the **only** component that writes to `etcd`.
+- **`etcd`:** a consistent key-value store that uses the Raft consensus algorithm and can run on several machines for high availability. It holds the authoritative state of every object in the cluster (Pods, Services, Secrets, ConfigMaps).
+- **`kube-scheduler`:** watches for new Pods that have no node assigned (`spec.nodeName` is empty). It filters out nodes that cannot take the Pod, based on resource requests, taints, and affinity rules, scores the remaining nodes, and binds the Pod to the best one.
+- **`kube-controller-manager`:** runs the reconciliation loops. For example, the ReplicaSet controller compares the desired replica count with the Pods that are actually running, and asks the API server to create or delete Pods until they match.
 
-### 2. The Worker Node Components
+### 2. The worker node components
 
-- **`kubelet`**: The primary node agent. It watches the API server for Pods assigned to its node. It instructs the container runtime (`containerd`) to pull images, create container namespaces, mount volumes, and execute probes. If a container dies, the kubelet restarts it according to its `restartPolicy`.
-- **`kube-proxy`**: A network proxy running on each node. It programs host kernel packet filtering rules (`iptables` or `IPVS`) so that virtual Service IPs (ClusterIPs) forward traffic to the real IP addresses of healthy Pods.
-- **Container Runtime (`containerd`)**: The low-level runtime that manages Linux cgroups, namespaces, and image storage via the Container Runtime Interface (CRI).
+- **`kubelet`:** the main agent on each node. It watches the API server for Pods assigned to its node. It tells the container runtime (`containerd`) to pull images, create containers, mount volumes, and run probes. If a container dies, the kubelet restarts it according to the Pod's `restartPolicy`.
+- **`kube-proxy`:** a network proxy on each node. It sets up packet-filtering rules in the node's kernel (`iptables` or `IPVS`) so that traffic sent to a Service's virtual IP (ClusterIP) is forwarded to the real IP of a healthy Pod.
+- **Container runtime (`containerd`):** the low-level runtime that manages Linux cgroups, namespaces, and image storage, through the Container Runtime Interface (CRI).
 
-For the `apollo-shell` Pod in this chapter, follow this sequence:
+For the `apollo-shell` Pod in this chapter, the sequence is:
 
 ```text
 kubectl apply → API server stores Pod spec → scheduler binds Pod to a node
@@ -118,19 +118,22 @@ kubectl apply → API server stores Pod spec → scheduler binds Pod to a node
 → kubelet reports status and runs the requested restart policy
 ```
 
-The API server records the desired object and status updates. It does not run
-the HTTP server. The scheduler chooses a node but does not pull the image. The
-kubelet runs the Pod on its assigned node but does not decide that a deleted bare
-Pod deserves a replacement. The two break experiments below make those
-boundaries concrete.
+Each component has a limited role. The API server stores the desired object and
+status updates, but it does not run the HTTP server in the Pod. The scheduler picks
+a node but does not pull the image. The kubelet runs the Pod on its node but does
+not decide that a deleted bare Pod needs a replacement. The two break experiments
+below make these limits concrete.
 
 ---
 
-## 🐳 The lab is small; the roles are real
+## 🐳 The lab is small, but the roles are real
 
-In production or on cloud providers (like AWS EKS or GCP GKE), each Kubernetes node is an EC2 instance or virtual machine.
+In production, or on a cloud provider such as AWS EKS or GCP GKE, each Kubernetes
+node is an EC2 instance or a virtual machine.
 
-In Apollo11, we use **kind** (Kubernetes in Docker). Instead of spinning up 3 heavy virtual machines that would consume 16 GB of RAM, `kind` launches **Docker containers that pretend to be Linux nodes**:
+Apollo11 uses **kind** (Kubernetes in Docker). Starting three full virtual machines
+would need about 16 GB of RAM. Instead, `kind` starts **Docker containers that act
+as Linux nodes**:
 
 ```
 Your Host Laptop (Docker Engine)
@@ -139,12 +142,12 @@ Your Host Laptop (Docker Engine)
   └── Docker Container: apollo11-worker2       (Runs kubelet, containerd, pods)
 ```
 
-Inside each kind node container, Kubernetes components still perform their
-normal roles. This is why a local lab can teach the control-plane flow without
-claiming to model cloud availability. Losing the Docker host would still remove
-every kind node at once.
+Inside each kind node container, the Kubernetes components do their normal jobs.
+This is why a local lab can teach how the control plane works, even though it
+does not model the availability of a cloud cluster: if the Docker host goes away,
+every kind node goes with it.
 
-Let's examine the Apollo11 kind configuration:
+Here is the Apollo11 kind configuration:
 
 *Source: `stages/ignition/kind-config.yaml`*
 
@@ -196,30 +199,32 @@ nodes:
       workload: app
 ```
 
-### Important Fields Explained:
-- **`extraPortMappings`**:
-  Maps ports `30080`–`30084` and `30443` from your laptop into the control-plane container. In Stage 2, when we expose Apollo Airlines via `NodePort` or Traefik Ingress, your laptop will reach them through these forwarded ports!
-- **`nodes`**:
-  Defines a 3-node cluster: 1 control plane + 2 workers. The workers are pre-labeled with `workload: app`, which we will target with scheduling constraints in Stage 4 and Stage 7.
+### Key fields
+- **`extraPortMappings`:**
+  forwards ports `30080`–`30084` and `30443` from your laptop to the control-plane container. In Stage 2, when Apollo Airlines is exposed through a `NodePort` or a Traefik Ingress, your laptop reaches it through these forwarded ports.
+- **`nodes`:**
+  defines a 3-node cluster: 1 control plane and 2 workers. The workers are labeled `workload: app`, which Stage 4 and Stage 7 use in their scheduling rules.
 
 ---
 
-## 📦 A Pod is the unit Kubernetes places on a node
+## 📦 A Pod is the unit that Kubernetes places on a node
 
-A container is one process boundary. A **Pod** is the scheduling and networking
-unit Kubernetes creates for one or more tightly coupled containers. It is the
-object the scheduler assigns to a node and the kubelet maintains there.
+A container is a single isolated process. A **Pod** is the unit that Kubernetes
+schedules and gives a network identity to. It holds one or more tightly coupled
+containers. The scheduler assigns a Pod to a node, and the kubelet keeps it
+running there.
 
-A Pod represents a single instance of a running process in your cluster. While a container is a single execution boundary, a Pod can contain **one or more tightly coupled containers** that:
-- Share the same **network namespace** (they share the same Pod IP address and can communicate with each other over `localhost`).
-- Share the same **storage volumes** (mounted into each container).
-- Are scheduled together on the **same physical node**.
+A Pod is one running instance of your workload. It can hold **one or more
+tightly coupled containers** that:
+- Share one **network namespace**: they have the same Pod IP address and can talk to each other over `localhost`.
+- Share the same **storage volumes**, which are mounted into each container.
+- Always run together on the **same node**.
 
-In Apollo11, every microservice runs in its own single-container Pod. That does
-not make “Pod” a synonym for “container”: the distinction matters as soon as a
-container restarts but the Pod UID and IP remain the same.
+In Apollo11, each microservice runs in its own Pod with a single container. That
+does not make "Pod" mean the same as "container". The difference shows up as soon
+as a container restarts while the Pod's UID and IP stay the same.
 
-### Dissecting `pod.yaml` with the 4-Pass YAML Habit
+### Reading `pod.yaml` with the 4-pass YAML habit
 
 *Source: `stages/ignition/pod.yaml`*
 
@@ -253,38 +258,38 @@ spec:
           protocol: TCP
 ```
 
-Let's read this manifest through our 4 passes:
+Read the manifest in four passes:
 
-1. **Pass 1 — Identity**:
-   - `apiVersion: v1`: Core API group (where Pods, Services, Namespaces live).
-   - `kind: Pod`: Declares this resource is a Pod.
-   - `metadata.name: apollo-shell`: The unique name for this object within its namespace.
-2. **Pass 2 — Ownership & Labels**:
-   - `labels: { app: shell, stage: ignition }`: Arbitrary key-value metadata. Used by Services and controllers to query and group related resources.
-3. **Pass 3 — Runtime Specification**:
-   - `spec.restartPolicy: Always`: Tells the node's **kubelet** to restart the container if its main process exits or crashes.
-   - `spec.containers[0].image: busybox:1.36.1`: The container image to run.
-   - `command: [...]`: Overrides the image's default entrypoint to start a simple HTTP daemon (`httpd`) serving static HTML on port 8080.
-   - `containerPort: 8080`: Documents that the application listens on port 8080. *(Note: This does not publish the port to your laptop! It is informational metadata for Kubernetes.)*
-4. **Pass 4 — Relationships**:
-   - No volumes or Secrets are referenced here; this is a standalone Pod.
+1. **Pass 1: identity**
+   - `apiVersion: v1`: the core API group, which holds Pods, Services, and Namespaces.
+   - `kind: Pod`: the type of object.
+   - `metadata.name: apollo-shell`: the name, which must be unique within its namespace.
+2. **Pass 2: ownership and labels**
+   - `labels: { app: shell, stage: ignition }`: free-form key-value pairs. Services and controllers use them to find and group related objects.
+3. **Pass 3: runtime specification**
+   - `spec.restartPolicy: Always`: tells the **kubelet** to restart the container whenever its main process exits or crashes.
+   - `spec.containers[0].image: busybox:1.36.1`: the container image to run.
+   - `command: [...]`: replaces the image's default command so that it starts a small HTTP server (`httpd`) that serves a static page on port 8080.
+   - `containerPort: 8080`: states that the application listens on port 8080. *(This does not publish the port to your laptop. It is only information for Kubernetes.)*
+4. **Pass 4: relationships**
+   - The manifest refers to no volumes or Secrets. This is a standalone Pod.
 
 ---
 
 ## 🪜 Build an explanation from evidence
 
-When something is not working, start with the least invasive question and move
-toward user-visible behavior. The rungs are not a ritual and you need not always
-run all five. They are a way to avoid using a log line to answer a scheduling
-question, or assuming a `Running` status proves an HTTP endpoint works.
+When something is not working, start with the least intrusive check and work up
+to what a user would see. The rungs are not a ritual, and you do not always need
+all five. They help you avoid answering a scheduling question with a log line, or
+assuming that a `Running` status means the HTTP endpoint works.
 
-| Rung | Diagnostic Scope | What to Check |
+| Rung | What it covers | What to check |
 |---|---|---|
-| **Rung 1: Snapshot** | `kubectl get pod <name> -o wide` | Is the Pod `Running`, `Pending`, or `CrashLoopBackOff`? Which node is it on? What is its IP? |
-| **Rung 2: Events** | `kubectl get events --field-selector involvedObject.name=<name>` | Did scheduling succeed? Was the image pulled? Did a volume mount fail? |
-| **Rung 3: Detail & Spec** | `kubectl describe pod <name>` | Container status, exit codes, reason strings (`OOMKilled`), probe status, and recent events. |
-| **Rung 4: Container Logs** | `kubectl logs <name>` | Application stdout/stderr output. Did an unhandled exception or database connection error occur? |
-| **Rung 5: Live Endpoint** | `kubectl port-forward` + `curl` | Can a real client establish a TCP handshake and receive the expected HTTP payload? |
+| **Rung 1: snapshot** | `kubectl get pod <name> -o wide` | Is the Pod `Running`, `Pending`, or `CrashLoopBackOff`? Which node is it on? What is its IP? |
+| **Rung 2: events** | `kubectl get events --field-selector involvedObject.name=<name>` | Was the Pod scheduled? Was the image pulled? Did a volume fail to mount? |
+| **Rung 3: details** | `kubectl describe pod <name>` | Container status, exit codes, reasons such as `OOMKilled`, probe status, and recent events. |
+| **Rung 4: logs** | `kubectl logs <name>` | The application's stdout and stderr. Is there an unhandled exception or a database connection error? |
+| **Rung 5: live endpoint** | `kubectl port-forward` + `curl` | Can a real client connect and get the expected HTTP response? |
 
 ---
 
@@ -292,19 +297,19 @@ question, or assuming a `Running` status proves an HTTP endpoint works.
 
 ## 🧪 Investigations: separate process recovery from object recovery
 
-Before each command, predict which component will react. Afterward, use the UID,
-restart count, owner references, and endpoint response together; one signal is
-rarely the whole explanation.
+Before each command, predict which component will react. Afterwards, look at the
+UID, the restart count, the owner references, and the endpoint response together.
+One signal is rarely the whole explanation.
 
-### Exercise 1: Provisioning the Local Cluster
+### Exercise 1: Create the local cluster
 
-**Question:** can you identify the control plane and two workers before any
-Apollo application workload exists? Their roles explain the later scheduling
-and routing observations.
+**Question:** can you identify the control plane and the two workers before any
+Apollo application is running? Their roles explain what you will see later when
+Pods are scheduled and traffic is routed.
 
-- **Objective**: Create the multi-node `kind` cluster and verify control plane components.
-- **Starting Point**: Docker running on your host machine; terminal inside the cloned `Apollo11` repository.
-- **What happens under the hood**: `kind` reads `stages/ignition/kind-config.yaml` and starts three Docker containers on your machine: one control plane (`apollo11-control-plane`) and two worker nodes (`apollo11-worker`, `apollo11-worker2`). It also forwards ports `30080`–`30084` and `30443` into the control-plane container for later web access.
+- **Objective**: Create the multi-node `kind` cluster and check the control plane components.
+- **Starting Point**: Docker is running on your machine, and your terminal is inside the cloned `Apollo11` repository.
+- **What happens under the hood**: `kind` reads `stages/ignition/kind-config.yaml` and starts three Docker containers: one control plane (`apollo11-control-plane`) and two workers (`apollo11-worker`, `apollo11-worker2`). It also forwards ports `30080`–`30084` and `30443` to the control-plane container, so you can reach web services from your laptop later.
 - **Instructions**:
 
 ```bash
@@ -313,49 +318,50 @@ cd Apollo11
 # 1. Create the 3-node cluster
 kind create cluster --config stages/ignition/kind-config.yaml
 
-# 2. Verify current context points to the new cluster
+# 2. Check that the current context points to the new cluster
 kubectl config current-context
 
-# 3. Check node readiness
+# 3. Check that the nodes are ready
 kubectl get nodes -o wide
 ```
 
-- **Expected Result**:
-  `kubectl config current-context` outputs `kind-apollo11`.
+- **Expected result**:
+  `kubectl config current-context` prints `kind-apollo11`.
   `kubectl get nodes` shows three nodes:
   - `apollo11-control-plane` (Ready, role: control-plane)
   - `apollo11-worker` (Ready, role: worker)
   - `apollo11-worker2` (Ready, role: worker)
-- **Verification Command**:
+- **Verification command**:
 
 ```bash
-# Check system pods running in kube-system
+# List the system Pods in kube-system
 kubectl get pods -n kube-system
 ```
 
-You should see `coredns`, `etcd`, `kube-apiserver`, `kube-controller-manager`, `kube-proxy`, and `kube-scheduler` all in `Running` state.
+`coredns`, `etcd`, `kube-apiserver`, `kube-controller-manager`, `kube-proxy`, and `kube-scheduler` should all be `Running`.
 
-- **Troubleshooting hints**: If nodes remain `NotReady`, inspect `kubectl get
-  pods -n kube-system` and `docker ps --filter name=apollo11` before recreating
+- **Troubleshooting hints**: If the nodes stay `NotReady`, run `kubectl get pods
+  -n kube-system` and `docker ps --filter name=apollo11` before you recreate
   anything.
-- **Concept reinforced**: kind runs Kubernetes nodes as containers, but the
-  control-plane and worker responsibilities are still Kubernetes roles.
+- **Concept reinforced**: kind runs the Kubernetes nodes as containers, but the
+  control plane and worker roles are still the usual Kubernetes roles.
 
 ---
 
-### Exercise 2: Imperative Generation vs. Declarative Authoring
+### Exercise 2: Imperative generation and declarative authoring
 
-**Prediction:** the dry-run command produces YAML on your workstation. The
-manifest becomes cluster state only after `kubectl apply` sends it to the API server.
+**Prediction:** the dry-run command only writes YAML on your workstation. The
+manifest becomes cluster state only after `kubectl apply` sends it to the API
+server.
 
-- **Objective**: Generate a starter template into `learner-work/`, inspect what is missing, and apply your declarative manifest.
-- **Starting Point**: Running cluster.
+- **Objective**: Generate a starter template into `learner-work/`, see what it is missing, and apply the declarative manifest.
+- **Starting Point**: A running cluster.
 - **Instructions**:
 
 ```bash
 mkdir -p learner-work/ignition
 
-# 1. Generate starter Pod YAML locally into your workspace
+# 1. Generate starter Pod YAML into your workspace
 kubectl run apollo-shell \
   --image=busybox:1.36.1 \
   --restart=Always \
@@ -366,166 +372,169 @@ kubectl run apollo-shell \
 cat learner-work/ignition/pod.yaml
 ```
 
-Notice what the generator provided (`apiVersion`, `kind: Pod`, `image`, `restartPolicy`, `containerPort`) and what it didn't: it did not supply the web server process or content. The checked-in reference in `stages/ignition/pod.yaml` adds labels (`app: shell`, `stage: ignition`) and a supervised BusyBox `httpd` command:
+The generator supplied `apiVersion`, `kind: Pod`, `image`, `restartPolicy`, and `containerPort`. It did not supply the web server process or any content. The reference file `stages/ignition/pod.yaml` in the repository adds the labels (`app: shell`, `stage: ignition`) and a BusyBox `httpd` command that keeps the server running:
 
 ```bash
-# 3. Apply the verified Pod manifest (or your authored file in learner-work/ignition/pod.yaml)
+# 3. Apply the Pod manifest from the repository (or your own file in learner-work/ignition/pod.yaml)
 kubectl apply -f stages/ignition/pod.yaml
 
 # 4. Wait for the Pod to become Ready
 kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
 ```
 
-- **Expected Result**:
-  The Pod `apollo-shell` transitions from `ContainerCreating` to `Running`.
+- **Expected result**:
+  The Pod `apollo-shell` goes from `ContainerCreating` to `Running`.
 - **Verification command**: `kubectl get pod apollo-shell -o yaml` should show
-  `stage: ignition` from the applied manifest, while the dry-run file remains
-  a template on your disk.
-- **Troubleshooting hints**: Use `kubectl describe pod apollo-shell` when the
-  wait times out; events distinguish image-pull, scheduling, and startup issues.
-- **What Concept This Reinforces**:
-  `--dry-run=client -o yaml` generates boilerplate YAML quickly without syntax guesswork, but production systems store **declarative Git-tracked manifests** applied via `kubectl apply`.
+  `stage: ignition` from the manifest you applied. The dry-run file on your disk is
+  still only a template.
+- **Troubleshooting hints**: If the wait times out, run `kubectl describe pod
+  apollo-shell`. The events show whether the problem is the image pull,
+  scheduling, or startup.
+- **Concept reinforced**:
+  `--dry-run=client -o yaml` quickly produces boilerplate YAML so you do not have
+  to guess the syntax. Real systems keep **declarative manifests in Git** and apply
+  them with `kubectl apply`.
 
 ---
 
-### Exercise 3: Climbing the Evidence Ladder
+### Exercise 3: Climb the evidence ladder
 
-**Prediction:** all five rungs describe the same Pod from different angles.
-If the endpoint succeeds but a log line is absent, that is a logging question,
-not proof that the HTTP server failed.
+**Prediction:** all five rungs describe the same Pod from different angles. If the
+endpoint responds but you see no log line, that is a question about logging. It
+does not mean the HTTP server failed.
 
-- **Objective**: Gather complete proof that `apollo-shell` is running and serving traffic.
-- **Starting Point**: `apollo-shell` Pod running.
+- **Objective**: Collect complete evidence that `apollo-shell` is running and serving requests.
+- **Starting Point**: The `apollo-shell` Pod is running.
 - **Instructions**:
 
 ```bash
-# Rung 1: Check Pod snapshot
+# Rung 1: snapshot of the Pod
 kubectl get pod apollo-shell -o wide
 
-# Rung 2: Check chronological cluster events
+# Rung 2: cluster events in time order
 kubectl get events --field-selector involvedObject.name=apollo-shell --sort-by=.metadata.creationTimestamp
 
-# Rung 3: Inspect Pod detail and conditions
+# Rung 3: Pod details and conditions
 kubectl describe pod apollo-shell | grep -A 5 Conditions:
 
-# Rung 4: Check stdout logs
+# Rung 4: the container's stdout
 kubectl logs apollo-shell
 
-# Rung 5: Port-forward and curl the endpoint
+# Rung 5: forward a port and call the endpoint
 kubectl port-forward pod/apollo-shell 18080:8080 &
 PF_PID=$!
 sleep 2
 
 curl -s http://127.0.0.1:18080/
 
-# Terminate background port-forward
+# Stop the background port-forward
 kill $PF_PID
 ```
 
-- **Expected Result**:
-  - Events show `Scheduled` -> `Pulling image` -> `Pulled image` -> `Created container` -> `Started container`.
-  - Conditions show `Initialized=True`, `Ready=True`, `ContainersReady=True`, `PodScheduled=True`.
-  - Logs show: `ignition HTTP server started`.
-  - `curl` prints: `Apollo11 Ignition ready`.
-- **Verification command**: The endpoint response is the top rung; preserve the
-  lower-rung output so you can explain how the Pod reached that state.
-- **Troubleshooting hints**: If port-forward exits, inspect the Pod first and
-  rerun it in the foreground to see binding errors.
-- **Concept reinforced**: No single `kubectl get` line proves application
-  behavior; confidence comes from several independent evidence layers.
+- **Expected result**:
+  - The events show `Scheduled`, `Pulling image`, `Pulled image`, `Created container`, and `Started container`, in that order.
+  - The conditions show `Initialized=True`, `Ready=True`, `ContainersReady=True`, and `PodScheduled=True`.
+  - The logs show `ignition HTTP server started`.
+  - `curl` prints `Apollo11 Ignition ready`.
+- **Verification command**: The endpoint response is the top rung. Keep the output
+  from the lower rungs too, so you can explain how the Pod got to this state.
+- **Troubleshooting hints**: If `port-forward` exits, check the Pod first, then run
+  `port-forward` in the foreground to see any error about binding the port.
+- **Concept reinforced**: No single `kubectl get` line proves that the application
+  works. You gain confidence by combining several independent kinds of evidence.
 
 ---
 
-### Exercise 4: Break 1 — Container Crash vs. Pod Identity
+### Exercise 4: Break 1, a container crash versus Pod identity
 
 **Prediction:** the kubelet restarts the exited `httpd` process inside the same
-Pod. The restart count changes and container runtime ID changes, while the Pod UID
-remains evidence that the API object itself was not replaced.
+Pod. The restart count and the container runtime ID change. The Pod's UID stays
+the same, which shows that the API object was not replaced.
 
-- **Objective**: Prove that the kubelet restarts crashed containers while preserving Pod identity (UID).
-- **Starting Point**: Healthy `apollo-shell` Pod.
+- **Objective**: Show that the kubelet restarts a crashed container and keeps the Pod's identity (its UID).
+- **Starting Point**: A healthy `apollo-shell` Pod.
 - **Instructions**:
 
-Capture the 5-signal baseline before failure:
+Record these five signals before you cause the failure:
 
-| Signal | Command | Before Failure | After Restart |
+| Signal | Command | Before the failure | After the restart |
 |---|---|---|---|
-| **Pod UID** | `kubectl get pod apollo-shell -o jsonpath='{.metadata.uid}'` | Record value | **Unchanged** |
-| **Container ID** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].containerID}'` | Record value | **New container ID** |
-| **Restart Count** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].restartCount}'` | `0` | `1` |
-| **Previous State** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].lastState}'` | None / empty | Terminated info |
-| **HTTP Response** | `curl -s http://127.0.0.1:18080/` (via port-forward) | `Apollo11 Ignition ready` | `Apollo11 Ignition ready` |
+| **Pod UID** | `kubectl get pod apollo-shell -o jsonpath='{.metadata.uid}'` | Write it down | **Unchanged** |
+| **Container ID** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].containerID}'` | Write it down | **A new ID** |
+| **Restart count** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].restartCount}'` | `0` | `1` |
+| **Previous state** | `kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].lastState}'` | Empty | Details of the terminated container |
+| **HTTP response** | `curl -s http://127.0.0.1:18080/` (through a port-forward) | `Apollo11 Ignition ready` | `Apollo11 Ignition ready` |
 
-Now execute the failure:
+Now cause the failure:
 
 ```bash
 # 1. Record the baseline signals
 kubectl get pod apollo-shell -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,CONTAINER_ID:.status.containerStatuses[0].containerID,RESTARTS:.status.containerStatuses[0].restartCount'
 
-# 2. Kill the httpd server process inside the container
+# 2. Kill the httpd process inside the container
 kubectl exec apollo-shell -- sh -c 'kill $(pidof httpd)' || true
 
-# 3. Watch the Pod status transition
+# 3. Watch the Pod's status change
 kubectl get pod apollo-shell -w
 ```
-*(Press `Ctrl-C` once the Pod returns to `Running 1/1`)*
+*(Press `Ctrl-C` once the Pod is back to `Running 1/1`.)*
 
 ```bash
-# 4. Re-inspect signals after recovery
+# 4. Check the signals again after recovery
 kubectl get pod apollo-shell -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,CONTAINER_ID:.status.containerStatuses[0].containerID,RESTARTS:.status.containerStatuses[0].restartCount'
 
-# 5. Check previous container termination details
+# 5. Look at the details of the previous container's termination
 kubectl get pod apollo-shell -o jsonpath='{.status.containerStatuses[0].lastState.terminated}' | jq .
 ```
 
-- **Expected Result**:
-  - The **Pod UID remains identical**.
-  - The **Container runtime ID changes** (a fresh container was instantiated in the cgroup).
-  - `RESTARTS` increments from `0` to `1`.
-  - The HTTP endpoint serves `Apollo11 Ignition ready` once again.
-- **What Concept This Reinforces**:
-  The **kubelet** on the worker node is a local process supervisor. Because
-  `spec.restartPolicy: Always` was specified, it restarts the exited container
-  within the same Pod sandbox, preserving the Pod's IP and metadata.
-- **Verification command**: Compare the before/after UID and restart count, then
-  repeat the endpoint check from Exercise 3.
-- **Troubleshooting hints**: If `pidof httpd` finds nothing, check container
-  logs and the exact command in `stages/ignition/pod.yaml` before injecting the
+- **Expected result**:
+  - The **Pod UID is identical**.
+  - The **container runtime ID changes**: the kubelet started a new container.
+  - `RESTARTS` goes from `0` to `1`.
+  - The HTTP endpoint serves `Apollo11 Ignition ready` again.
+- **Concept reinforced**:
+  The **kubelet** on the worker node supervises the processes on its node. Because
+  the Pod sets `spec.restartPolicy: Always`, the kubelet restarts the exited
+  container inside the same Pod, so the Pod's IP and metadata do not change.
+- **Verification command**: Compare the UID and the restart count from before and
+  after, then repeat the endpoint check from Exercise 3.
+- **Troubleshooting hints**: If `pidof httpd` finds nothing, check the container
+  logs and the command in `stages/ignition/pod.yaml` before you try to cause the
   failure again.
 
 ---
 
-### Exercise 5: Break 2 — The Bare Pod Vulnerability
+### Exercise 5: Break 2, the bare Pod problem
 
-**Prediction:** deletion removes the API object that the kubelet was watching.
-There is no controller in this chapter to notice a missing count and create
-a replacement Pod.
+**Prediction:** deleting the Pod removes the API object that the kubelet was
+watching. Nothing in this chapter compares the Pod count with a desired count, so
+nothing creates a replacement.
 
-- **Objective**: Understand why bare Pods are not self-healing against object deletion, motivating the Deployments introduced in Stage 1.
-- **Starting Point**: Running `apollo-shell` Pod.
+- **Objective**: See why a bare Pod is not replaced when it is deleted. This is the reason for the Deployments in Stage 1.
+- **Starting Point**: The `apollo-shell` Pod is running.
 - **Instructions**:
 
 ```bash
-# 1. Verify ownerReferences on the bare Pod
+# 1. Check the ownerReferences of the bare Pod
 kubectl get pod apollo-shell -o jsonpath='{.metadata.ownerReferences}'
-# Output: (empty — no controller owns this Pod)
+# Output: (empty, so no controller owns this Pod)
 
-# 2. Record Pod UID
+# 2. Record the Pod's UID
 kubectl get pod apollo-shell -o jsonpath='{.metadata.uid}' && echo ""
 
-# 3. Delete the bare Pod object
+# 3. Delete the bare Pod
 kubectl delete pod apollo-shell
 
-# 4. Wait 5 seconds and inspect the namespace
+# 4. Wait 5 seconds and list the Pods in the namespace
 kubectl get pods
 # Output: No resources found in default namespace.
 ```
 
-The Pod does not resurrect. Kubernetes deleted the desired state from etcd;
-the kubelet stopped the container as commanded.
+The Pod does not come back. Its desired state was deleted from etcd, and the
+kubelet stopped the container because it was told to.
 
 ```bash
-# 5. Recover by reapplying the declarative manifest
+# 5. Recover by applying the manifest again
 kubectl apply -f stages/ignition/pod.yaml
 kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
 
@@ -533,37 +542,38 @@ kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
 kubectl get pod apollo-shell -o jsonpath='{.metadata.uid}' && echo ""
 ```
 
-- **Expected Result**:
-  The new Pod has a **completely different UID** from step 2.
-- **What Concept This Reinforces**:
-  Kubelet self-heals **crashed processes inside a Pod**. It does not self-heal
-  **deleted Pod objects**. For true resilience, we need a higher-level controller
-  (a `ReplicaSet` or `Deployment`) that continuously reconciles desired replica
-  count against live state. This motivates Stage 1: Liftoff.
-- **Verification command**: `kubectl get pod apollo-shell -o jsonpath='{.metadata.ownerReferences}'` is empty, and the recovered Pod's UID differs from the deleted one.
-- **Troubleshooting hints**: If a Pod unexpectedly reappears before manual apply, check its owner references—you may be observing a similarly named Pod managed by a controller rather than the bare Ignition Pod.
-- **Concept reinforced**: The kubelet restarts containers inside an existing Pod; a workload controller is required to replace a deleted Pod object.
+- **Expected result**:
+  The new Pod has a **different UID** from the one you recorded in step 2.
+- **Concept reinforced**:
+  The kubelet recovers **crashed processes inside a Pod**. It does not recover
+  **deleted Pod objects**. To survive deletion, you need a higher-level controller
+  (a `ReplicaSet` or `Deployment`) that keeps comparing the desired replica count
+  with what is actually running. That is the subject of Stage 1: Liftoff.
+- **Verification command**: `kubectl get pod apollo-shell -o jsonpath='{.metadata.ownerReferences}'` prints nothing, and the new Pod's UID differs from the deleted one's.
+- **Troubleshooting hints**: If a Pod reappears before you apply the manifest, check its owner references. You may be looking at a similarly named Pod that a controller manages, not the bare Ignition Pod.
 
 ---
 
 ## 🏁 What You Learned
 
-- How `kube-apiserver`, `etcd`, `kube-scheduler`, `kube-controller-manager`, and `kubelet` cooperate to run workloads.
-- How `kind` creates multi-node clusters using Docker containers and forwards NodePorts via `extraPortMappings`.
-- The difference between imperative generation (`--dry-run=client -o yaml`) and declarative desired-state management (`kubectl apply`).
-- How to systematically debug workloads using the 5-Rung Evidence Ladder.
-- The fundamental difference between a **container restart** (managed locally by `kubelet`, preserving Pod UID) and a **Pod deletion** (destroying Pod identity).
+- How `kube-apiserver`, `etcd`, `kube-scheduler`, `kube-controller-manager`, and `kubelet` work together to run workloads.
+- How `kind` builds a multi-node cluster from Docker containers and forwards NodePorts with `extraPortMappings`.
+- The difference between generating YAML imperatively (`--dry-run=client -o yaml`) and managing desired state declaratively (`kubectl apply`).
+- How to debug a workload step by step with the 5-rung evidence ladder.
+- The difference between a **container restart** (handled by the kubelet, and the Pod keeps its UID) and a **Pod deletion** (the Pod's identity is gone).
 
 ---
 
 ## ✈️ Before Continuing: Checkpoint
 
-Before moving to Stage 1, ensure you can answer:
+Before you move to Stage 1, make sure you can answer these questions:
 1. Which component decides *which node* a Pod runs on?
-2. Which component is responsible for restarting a failed container on a node?
-3. If you delete a bare Pod, why doesn't Kubernetes automatically recreate it?
+2. Which component restarts a failed container on a node?
+3. If you delete a bare Pod, why does Kubernetes not recreate it?
 4. When should you run `kubectl describe` instead of `kubectl logs`?
 
-Now that you have mastered cluster fundamentals and the evidence ladder, you are ready to deploy the entire Apollo Airlines fleet using self-healing controllers!
+You now understand the basics of the cluster and the evidence ladder. In Stage 1
+you will deploy the whole Apollo Airlines fleet with controllers that replace
+failed Pods.
 
 👉 **Continue to [Stage 1: Liftoff (Workloads & Deployments)](./stage-1)**

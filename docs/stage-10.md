@@ -7,9 +7,10 @@ sidebar_label: "Stage 10: Missions (Planned)"
 # Stage 10: Optional Operations Missions
 
 :::warning[Status: not implemented]
-Do not apply the current files in `stages/stage10/`. Its README identifies them
-as unverified legacy scaffolding from a different application. Stage 10 will be
-a catalog of independent missions, not the next required deployment snapshot.
+Do not apply the files currently in `stages/stage10/`. Its README describes them
+as unverified legacy scaffolding from a different application. Stage 10 will be a
+catalog of independent missions. It will not be the next required deployment
+snapshot.
 :::
 
 Source: `stages/stage10/README.md` and the Stage 10 section of `ROADMAP.md`.
@@ -23,24 +24,29 @@ Source: `stages/stage10/README.md` and the Stage 10 section of `ROADMAP.md`.
 - Chaos Mesh controlled-failure experiments
 - advanced disaster recovery building on the required Stage 9 Velero exercise
 
-These names describe intended topics only. Apollo11 does not yet contain
+These are only the topics Apollo11 intends to cover. It does not yet have
 verified manifests, commands, traffic percentages, service-level objectives, or
-recovery procedures for them.
+recovery procedures for any of them.
 
 Lifecycle hooks already belong to Stage 4, and the planned DevSecOps baseline
-belongs to Stage 8. They must not be presented as new Stage 10 capabilities.
+belongs to Stage 8. Do not present either of them as a new Stage 10 capability.
 
-## How a future mission earns “runnable” status
+## How a future mission becomes runnable
 
-Each mission must declare its prerequisites, start from a trusted Apollo
-Airlines snapshot, introduce one mechanism, expose observable behavior, perform
-a safe break/recover exercise, and cleanly return the cluster to baseline. A
-tool being listed or installed is not proof that Apollo11 teaches it.
+A mission must:
+- declare its prerequisites;
+- start from a trusted Apollo Airlines snapshot;
+- introduce one mechanism;
+- make the behavior observable;
+- include a safe break-and-recover exercise; and
+- return the cluster cleanly to its baseline.
+
+A tool that is listed or installed does not mean Apollo11 teaches it.
 
 ## Safe exercise: inspect, classify, stop
 
-- **Objective**: Distinguish a mission catalog from an implemented lab.
-- **Starting point**: A local Apollo11 clone; no cluster is required.
+- **Objective**: Tell a mission catalog apart from a lab that is actually implemented.
+- **Starting point**: A local Apollo11 clone. You do not need a cluster.
 - **Instructions**:
 
 ```bash
@@ -50,8 +56,8 @@ sed -n '197,210p' ROADMAP.md
 find stages/stage10 -maxdepth 2 -type f | sort
 ```
 
-- **Expected result**: The README says not to apply the files, and the roadmap
-  describes independent future missions.
+- **Expected result**: The README tells you not to apply the files, and the
+  roadmap describes independent missions for the future.
 - **Verification**:
 
 ```bash
@@ -59,16 +65,16 @@ grep -n "not implemented" stages/stage10/README.md
 grep -n "different application" stages/stage10/README.md
 ```
 
-- **Troubleshooting**: If either check fails because the repository evolved,
-  read the new README and require lifecycle evidence before treating the stage
-  as runnable.
-- **Concept reinforced**: Installed artifacts and roadmap entries are not the
-  same as verified application behavior.
+- **Troubleshooting**: If a check fails because the repository has changed, read
+  the new README. Do not treat the stage as runnable until it has lifecycle
+  evidence.
+- **Concept reinforced**: Installed files and roadmap entries are not the same as
+  application behavior that has been verified.
 
 ## Before continuing
 
-You should be able to explain why optional missions need independent
-prerequisites and cleanup, and why completing one must not require installing
-all of them.
+You should be able to explain why each optional mission needs its own
+prerequisites and cleanup, and why finishing one must not require installing all
+of them.
 
 Continue to [Stage 11: Platform Specializations](./stage-11).
