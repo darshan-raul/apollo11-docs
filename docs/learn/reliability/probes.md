@@ -1,10 +1,26 @@
 ---
 title: "Probes: startup, liveness, and readiness"
+description: "What each probe asks, what the kubelet does on failure, and how thresholds turn samples into actions."
 ---
 
 # Probes: startup, liveness, and readiness
 
-The kubelet runs probes. A startup probe delays liveness and readiness evaluation until startup succeeds; its failureThreshold multiplied by periodSeconds must cover the stated worst-case startup time. Liveness failure can restart a container. Readiness failure removes a Pod from eligible endpoints without restarting it. These are sampled signals, not instantaneous truths.
+*Stage 4 · Flight Control*
+
+**You will be able to:** pick the right probe for a question, set a startup budget, and predict the kubelet's action.
+
+## Key points
+
+- The **kubelet** runs probes and applies thresholds. A controller does not interpret them.
+- Each probe has a different authority:
+
+| Probe | Question | On failure | Apollo path |
+|---|---|---|---|
+| **startup** | Has it finished starting? | Waits; budget exhausted ⇒ **restart**. Holds off liveness/readiness until it passes | `/healthz/startup` |
+| **liveness** | Should this container be restarted? | **Restart** the container | `/healthz/live` |
+| **readiness** | Should it receive new traffic? | **Remove from endpoints**; no restart | `/healthz/ready` |
+
+- Probes are **sampled** signals, not instant truth.
 
 ```mermaid
 stateDiagram-v2
@@ -16,48 +32,52 @@ stateDiagram-v2
   Running --> Restarting: liveness threshold reached
 ```
 
-*Diagram RL-01 — each probe has a different kubelet action.*
+## Timing fields
 
-## Begin with the three questions
+| Field | Meaning |
+|---|---|
+| `initialDelaySeconds` | Wait before the first sample |
+| `periodSeconds` | Time between samples |
+| `failureThreshold` | **Consecutive** failures before acting |
+| `successThreshold` | Consecutive successes to become ready again |
+| `timeoutSeconds` | Per-sample timeout |
 
-Apollo’s process can start slowly while its database is still initializing. A
-**startup probe** asks whether startup has completed. A **liveness probe** asks
-whether a running container should be restarted. A **readiness probe** asks
-whether a Pod should receive new traffic. The kubelet runs these checks and
-applies their configured thresholds; a controller does not magically interpret
-the probe itself.
+- **Startup budget = `periodSeconds × failureThreshold`.** Booking: 5 s × 6 = 30 s. It must cover the worst-case start.
+- One failed sample ≠ a threshold reached.
 
-A startup probe pauses liveness and readiness evaluation until it succeeds. Its
-failure budget must cover the stated worst-case startup, including the probe
-period and threshold. A liveness failure can restart the container. A readiness
-failure normally leaves it running but makes it ineligible for new Service
-traffic.
+## Why a startup probe
 
-```mermaid
-flowchart LR
-  Start[Container starts] --> S1[Probe at 10s: fail]
-  S1 --> S2[Probe at 20s: fail]
-  S2 --> S3[Probe at 30s: fail]
-  S3 --> Decision{failureThreshold = 4?}
-  Decision -->|yes; one attempt remains| S4[Probe at 40s]
-  S4 -->|success| Enable[Enable liveness and readiness]
-  S4 -->|failure| Restart[Startup budget exhausted; restart container]
+| Without it | With it |
+|---|---|
+| App needs 45 s; liveness starts at 15 s, fails, kills it; loop → `CrashLoopBackOff` | Liveness does not run until startup passes; no false kills |
+
+## Readiness is "stop routing", not "repair"
+
+- `booking-db` down ⇒ booking's `/healthz/ready` fails ⇒ endpoint removed ⇒ **no restart** (restarting cannot fix the DB). DB back ⇒ endpoint returns.
+- Liveness should check only the process itself. Putting a dependency check there creates restart storms.
+
+## Try it
+
+```bash
+kubectl get deploy booking -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.containers[0].startupProbe}{"\n"}'
+kubectl describe pod -n apollo-airlines-apps -l app=booking | grep -E 'Liveness|Readiness|Startup|Restart Count'
 ```
 
-*Diagram RL-02 — with a 10-second period and failure threshold of four, the
-startup probe allows roughly four failed samples before kubelet acts.*
+## Gotchas
 
-## Read the result as a state transition
+- Green readiness = true for that check at that moment, not for every dependency or future request.
+- A restart erases memory and repeats startup work.
 
-A single failed sample is not the same as a threshold being reached. Consecutive
-failure and success thresholds, initial delays, and periods decide when the
-kubelet changes its action. A restart can erase process memory and repeat startup
-work. Withholding traffic gives the process a chance to recover without creating
-a new container.
+## Check yourself
 
-## Evidence and limits
+<details>
+<summary>Readiness fails and <code>RESTARTS</code> stays 0. Is that a bug?</summary>
 
-Inspect probe configuration, Pod conditions, container restart counts, events,
-and the application endpoint itself. A green readiness condition is evidence for
-that check at that moment. It is not a proof that every dependency, request, or
-future interval will succeed.
+No. Readiness failure only removes the Pod from endpoints.
+</details>
+
+<details>
+<summary>5 s period, failureThreshold 6: how long may startup take?</summary>
+
+About 30 s before the kubelet restarts the container.
+</details>

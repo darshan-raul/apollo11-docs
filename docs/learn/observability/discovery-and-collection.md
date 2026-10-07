@@ -1,85 +1,63 @@
 ---
 title: "Discovery and collection"
-description: "Understand how Prometheus discovers scrape targets through ServiceMonitors, what the collection chain looks like, and how to diagnose when a metric is missing."
+description: "The four links from /metrics to a dashboard, ServiceMonitor anatomy, and diagnosing a missing metric."
 ---
 
 # Discovery and collection
 
 *Stage 6 · Mission Operations*
 
-When a metric is missing from a Grafana dashboard, the failure may lie in the application code, the ServiceMonitor target definition, the Prometheus scrape loop, or the PromQL query syntax.
+**You will be able to:** find which of four links is broken when a metric is missing.
 
-Investigate systematically across the four links in the collection chain.
+## The chain
 
----
-
-## The Prometheus collection pipeline
-
-~~~mermaid
+```mermaid
 flowchart LR
-  App["booking container\nExposes /metrics on :8082\nGo prometheus/client"] -->|HTTP scrape| Prom["Prometheus\n(scrapes every 30s)"]
-  SM["ServiceMonitor\nselects: app=booking\npath: /metrics\nport: http"] -->|configures| Prom
-  Prom -->|stores samples| TSDB["Prometheus TSDB\nhttp_requests_total{...}"]
-  TSDB -->|query| Grafana["Grafana dashboard\nhttp_requests_total"]
-~~~
+  App["booking /metrics"] --> Prom[Prometheus scrape]
+  SM[ServiceMonitor] -->|tells| Prom
+  Prom --> TSDB --> G[Grafana query]
+```
 
-*Diagram OB-02 — four sequential links: app exposes HTTP endpoint, ServiceMonitor targets service, Prometheus scrapes TSDB, Grafana queries.*
+| Link | Owner | Break looks like |
+|---|---|---|
+| 1 App exposes `/metrics` | App | `curl` of the endpoint fails |
+| 2 Discovery: ServiceMonitor matches a Service | You | Target **missing** from `/api/v1/targets` |
+| 3 Scrape | Prometheus | Target present, `health: down`, `up == 0` |
+| 4 Query/visualise | You / Grafana | Samples exist but panel is empty (wrong query) |
 
-- **1. Application exposure**: Container exposes an HTTP `/metrics` endpoint using standard Prometheus client formats.
-- **2. Target discovery**: `ServiceMonitor` custom resources match labels on the application's Kubernetes Service.
-- **3. Scrape execution**: Prometheus makes periodic HTTP requests to active endpoint IPs and commits samples to its local TSDB.
-- **4. Visualization**: Grafana executes PromQL queries against Prometheus APIs.
+- A ServiceMonitor **object existing** is not collection. Prometheus' Operator turns it into scrape config; only then are samples stored.
 
----
+## ServiceMonitor anatomy
 
-## ServiceMonitor anatomy and common pitfalls
-
-~~~yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+```yaml
 metadata:
-  name: booking
-  namespace: apollo-observability
-  labels:
-    app.kubernetes.io/part-of: apollo-airlines # Matches Apollo Prometheus selector
+  labels: {app.kubernetes.io/part-of: apollo-airlines}   # Prometheus selects monitors by this
 spec:
-  selector:
-    matchLabels:
-      app: booking        # Must match labels on the booking Service
-  namespaceSelector:
-    matchNames:
-      - apollo-airlines-apps
-  endpoints:
-    - port: http          # Must match a named port in the Service spec
-      path: /metrics
-      interval: 30s
-~~~
+  selector: {matchLabels: {app: booking}}                # labels on the Service
+  namespaceSelector: {matchNames: [apollo-airlines-apps]}
+  endpoints: [{port: http, path: /metrics, interval: 30s}]
+```
 
-### The two most frequent configuration errors:
-- **Mismatched selection labels**: Apollo's Prometheus resource selects ServiceMonitors with `app.kubernetes.io/part-of: apollo-airlines`. A `release` label is not required by this selector. Inspect the actual Prometheus selector before copying a convention from another chart.
-- **Unmatched port name**: The `endpoints[].port` must reference the textual `name:` of the Service port (`http`), not an unmapped number.
+| Common error | Fix |
+|---|---|
+| Monitor labels don't match the Prometheus `serviceMonitorSelector` | Check the real selector, not another chart's convention |
+| `port` is a number | Use the Service port **name** |
+| Wrong namespace selector | List the app's namespace |
 
----
+## Diagnose from the inside out
 
-## Evidence and limits
+```bash
+kubectl -n apollo-airlines-apps port-forward svc/booking 18082:8082 &
+curl -s localhost:18082/metrics | grep http_requests_total              # 1 app
+kubectl describe servicemonitor booking -n apollo-observability          # 2 selector
+curl -s localhost:19090/api/v1/targets | jq -r '.data.activeTargets[]|"\(.scrapePool) \(.health)"'  # 3 scrape
+curl -sG localhost:19090/api/v1/query --data-urlencode 'query=up == 0'   # 3 failed scrapes
+```
 
-Diagnose missing metrics from the inside out:
+## Check yourself
 
-- **1. Application endpoint**: The Booking image does not include curl. In a dedicated terminal, forward its Service:
-  ```bash
-  kubectl --context kind-apollo11 -n apollo-airlines-apps port-forward service/booking 18082:8082
-  ```
-  In another terminal, inspect raw metrics:
-  ```bash
-  curl -fsS http://localhost:18082/metrics | grep http_requests_total
-  ```
-  Stop the port-forward after inspection. This proves endpoint exposure; the next steps establish discovery and collection.
-- **2. ServiceMonitor selector**: Confirm the ServiceMonitor matches the Service:
-  ```bash
-  kubectl describe servicemonitor booking -n apollo-observability
-  ```
-- **3. Prometheus Target status**: Open Prometheus UI (`kubectl port-forward -n apollo-observability svc/prometheus 9090:9090`) and check **Status → Targets** for scrape errors.
-- **4. Scrape health metric**: An `up` value of zero records a failed scrape; it is a metric, not a log query:
-  ```promql
-  up{job="booking"} == 0
-  ```
+<details>
+<summary>The target is listed but <code>health: down</code>. Discovery or scrape?</summary>
+
+Scrape: discovery worked (it is listed). Check the endpoint, port and network.
+</details>

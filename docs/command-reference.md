@@ -6,7 +6,7 @@ sidebar_label: "Command Reference"
 
 # The Apollo11 Kubernetes Command Reference
 
-This reference organizes the most critical commands for operating Apollo Airlines by operational task.
+Commands grouped by task. Namespaces: `apollo-airlines` (Stage 1), `apollo-airlines-apps` / `-ui` (Stage 2+), `apollo-observability` (Stage 6+).
 
 ---
 
@@ -257,4 +257,42 @@ docker compose down
 
 # Stop containers and DESTROY all persistent volumes
 docker compose down -v
+```
+
+---
+
+## 🔬 10. Lab-specific one-liners
+
+```bash
+# Which container runtime view does a node have of a Pod? (kind nodes are containers)
+docker exec apollo11-worker crictl ps --name <container>
+
+# Which component produced these events? (From column)
+kubectl describe pod <pod> | sed -n '/^Events:/,$p'
+
+# EndpointSlice readiness per address
+kubectl get endpointslice -n <ns> -l kubernetes.io/service-name=<svc> \
+  -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]} ready={.conditions.ready}{"\n"}{end}'
+
+# Voluntary eviction through the Eviction API (respects PDBs)
+kubectl create --raw "/api/v1/namespaces/<ns>/pods/<pod>/eviction" -f - <<JSON
+{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"<pod>","namespace":"<ns>"}}
+JSON
+
+# Redis cache inspection
+kubectl exec -n apollo-airlines-apps redis-0 -- redis-cli keys 'search:*'
+kubectl exec -n apollo-airlines-apps redis-0 -- redis-cli ttl "search:BOM:SIN:$(date -u +%F)"
+
+# Helm: fail loudly and roll back automatically
+helm upgrade <rel> <chart> -f values.yaml --atomic --timeout 60s
+
+# Render without touching the cluster
+helm template <rel> <chart> -f values.yaml | grep -E 'replicas|image:'
+kubectl kustomize <overlay-dir>
+
+# Cordon / uncordon to test volume-node pinning
+kubectl cordon <node>; kubectl uncordon <node>
+
+# Gateway API conditions
+kubectl get httproute <name> -n <ns> -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status}({.reason}) {end}{"\n"}'
 ```

@@ -6,7 +6,7 @@ sidebar_label: "Kubernetes Glossary"
 
 # The Apollo11 Kubernetes Glossary
 
-This glossary provides beginner-friendly, technically exact definitions of all Kubernetes terminology used throughout the Apollo Airlines platform, cross-referenced with the stage where each concept is introduced.
+One-line definitions of the terms used across Apollo11, with the stage that introduces each.
 
 ---
 

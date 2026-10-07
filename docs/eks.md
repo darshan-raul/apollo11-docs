@@ -1,126 +1,76 @@
 ---
 title: "Cloud Appendix — EKS Research Boundary"
-description: "Understand what the current EKS prototype contains, why it is not a supported lab, and how local Kubernetes concepts map to AWS."
+description: "What the EKS prototype contains, why it is not a lab, and how local concepts map to AWS."
 sidebar_label: "Cloud Appendix: EKS Boundary"
 ---
 
-# Cloud Appendix: EKS Research Boundary
+# Cloud appendix: EKS research boundary
 
 :::danger[Do not run the EKS scripts as a learner lab]
-The Apollo11 source repository classifies `stages/eks/` as **research input
-only**. Its README and the project roadmap record unresolved Terraform,
-routing, and teardown defects. Running it can create billable AWS resources,
-and its cleanup path is not accepted as ownership-safe. This guide therefore
-does not instruct you to execute `up.sh`, `apply-workloads.sh`, or `down.sh`.
+- `stages/eks/` is classed **research input only**. Its README and the roadmap record unresolved Terraform, routing and teardown defects.
+- It can create billable AWS resources; its cleanup is not accepted as ownership-safe. Do not run `up.sh`, `apply-workloads.sh` or `down.sh`.
+- Sources: `stages/eks/README.md`, `README.md`, `ROADMAP.md`.
 :::
 
-This boundary matters as much as any Kubernetes mechanism: an operational guide
-must distinguish checked-in code from a verified lifecycle. Launchpad through
-Stage 7 is the current runnable spine. Stage 9 will eventually rebuild the AWS
-lab from the latest hardened Helm baseline; the current prototype trails that
-baseline and ports Stage 3 workloads instead.
+**You will be able to:** map each local mechanism to its AWS counterpart, and explain why the code is evidence of intent, not of a safe lifecycle.
 
-Sources:
+## Local → EKS prototype
 
-- `stages/eks/README.md`
-- `README.md` (the top-level current-stage status)
-- `ROADMAP.md` (Stage 9 and the migration/trust policy)
-
-## What the prototype contains
-
-Read-only inspection of `stages/eks/` shows the intended cloud translation:
-
-| Local learning mechanism | EKS prototype counterpart | Source path |
+| Local | EKS counterpart | File |
 |---|---|---|
-| kind control plane and workers | Amazon EKS and managed node groups | `stages/eks/terraform/cluster/eks.tf`, `node-groups.tf` |
-| Local Docker images | Amazon ECR repositories | `stages/eks/terraform/ecr.tf` |
-| kind Docker network | AWS VPC and subnets | `stages/eks/terraform/network/vpc.tf` |
-| local-path volumes | EBS CSI-backed storage | `stages/eks/terraform/storage/storageclass.tf` |
-| MetalLB address | AWS Network Load Balancer integration | `stages/eks/terraform/gateway/` |
-| local identity | EKS Pod Identity and IAM policies | `stages/eks/terraform/cluster/pod-identity.tf`, `iam-policies.tf` |
+| kind control plane + workers | EKS + managed node groups | `terraform/cluster/eks.tf`, `node-groups.tf` |
+| Local images | ECR repositories | `terraform/ecr.tf` |
+| kind Docker network | VPC + subnets | `terraform/network/vpc.tf` |
+| `local-path` volumes | EBS CSI storage | `terraform/storage/storageclass.tf` |
+| MetalLB address | AWS Network Load Balancer | `terraform/gateway/` |
+| Local kubeconfig identity | EKS Pod Identity + IAM | `terraform/cluster/pod-identity.tf`, `iam-policies.tf` |
 
-This table says what files attempt to model; it does **not** certify that the
-combined deployment is correct or safe to run.
+- The table says what the files **attempt**. It does not certify the combination is correct or safe.
+- The prototype ports Stage 3 workloads, not the latest hardened Helm baseline.
 
-## General Kubernetes context: what changes in a cloud
+## What changes in the cloud
 
-The Kubernetes resource relationships remain familiar: a Deployment still
-creates ReplicaSets and Pods; a Service still selects ready Pods; a StatefulSet
-still creates PVCs. The provider implementations beneath those abstractions
-change:
+| Unchanged | Changes |
+|---|---|
+| Deployment → ReplicaSet → Pods; Service selects ready Pods; StatefulSet → PVCs | `LoadBalancer` → real cloud LB (cost); PVC → EBS (zonal); Pods use AWS workload identity instead of long-lived keys; nodes/NAT/EBS/ECR cost money and can outlive a failed command |
 
-- A `LoadBalancer` Service can ask an AWS controller to provision a real cloud
-  load balancer instead of receiving an address from MetalLB.
-- A PVC can be dynamically backed by EBS instead of kind node-local storage.
-- Pods and controllers can use AWS workload identity rather than long-lived
-  access keys.
-- Nodes, load balancers, NAT gateways, EBS volumes, and registry storage can all
-  incur cost and can outlive a failed command.
+- EBS volumes are **zonal**: the Pod must run where the volume can attach. `WaitForFirstConsumer` aligns first placement; it is not replication.
 
-EBS volumes are zonal. A Pod using a bound EBS volume must run where that volume
-can attach. `volumeBindingMode: WaitForFirstConsumer` lets scheduling influence
-volume provisioning, but it does not create database replication or regional
-resilience.
+## Exercise: read-only trace (no AWS credentials)
 
-## A safe read-only investigation
+**Goal:** classify each resource as cluster-scoped, AWS-managed, stateful or billable, and explain why cleanup needs ownership-scoped discovery.
+**Time:** ~10 min
 
-### Objective
-
-Trace how the prototype expresses cluster, storage, and edge concerns without
-creating cloud resources.
-
-### Starting point
-
-Use a local clone of Apollo11. AWS credentials are neither needed nor wanted
-for this investigation.
-
-### Instructions
+1. **Predict:** which resources in a `down.sh` would be dangerous to delete by tag or region alone?
+2. **Do:**
 
 ```bash
 cd Apollo11
-
-sed -n '1,220p' stages/eks/README.md
-sed -n '1,220p' stages/eks/terraform/storage/storageclass.tf
-sed -n '1,220p' stages/eks/terraform/cluster/pod-identity.tf
-sed -n '1,220p' stages/eks/scripts/down.sh
-```
-
-### Expected result
-
-You can identify which resources would be cluster-scoped, AWS-managed, stateful,
-or billable, and you can explain why a cleanup script needs ownership-scoped
-discovery rather than broad regional deletion.
-
-### Verification
-
-Confirm the trust boundary directly:
-
-```bash
+sed -n '1,120p' stages/eks/README.md
+sed -n '1,120p' stages/eks/terraform/storage/storageclass.tf
+sed -n '1,120p' stages/eks/terraform/cluster/pod-identity.tf
+sed -n '1,120p' stages/eks/scripts/down.sh
 grep -n "research input only" stages/stage9/README.md
 grep -n "do not promote prototype scripts" ROADMAP.md
 ```
 
-### Troubleshooting
+3. **Check:** both `grep`s match. If not, the repo changed since this page was written: re-read the READMEs before relying on it.
+4. **Fill in:**
 
-If either phrase is absent, stop: the application repository has changed since
-this page was verified. Re-read its top-level `README.md`, `ROADMAP.md`,
-`stages/eks/README.md`, and `stages/stage9/README.md` before relying on this
-appendix.
+| Resource | Scope | Stateful? | Billable? |
+|---|---|---|---|
+| EKS cluster | AWS-managed | No | Yes |
+| EBS volume | Zonal | Yes | Yes |
+| NLB | AWS-managed | No | Yes |
+| ECR repo | Regional | Images | Storage |
+| IAM role | Account | No | No |
 
-### Concept reinforced
+5. **Your turn:** write the rule a safe teardown script must follow when choosing what to delete (hint: tags set by *your* Terraform run, not a broad regional sweep).
 
-Infrastructure code is evidence of intent, not evidence of a successful,
-reversible cloud lifecycle. Verification must cover provisioning, application
-behavior, failure recovery, teardown, and residual-cost auditing.
+## You can now
 
-## Before continuing
+- [ ] Map kind concepts to AWS ones.
+- [ ] Explain why Pod-replacement persistence is not AZ recovery.
+- [ ] Say why scripts in `stages/eks/` are reference-only.
 
-You should be able to answer:
-
-1. Which Kubernetes abstractions stay the same between kind and EKS?
-2. Which provider components implement networking, storage, and identity?
-3. Why does Pod-replacement persistence not prove availability-zone recovery?
-4. Why is the current `stages/eks/` tree reference-only despite having scripts?
-
-Continue to [Stage 8: Security Enforcement Roadmap](./stage-8) for the next
-planned curriculum boundary, or return to the runnable [Stage 7 lab](./stage-7).
+Next: [Stage 8](./stage-8) or back to [Stage 7](./stage-7).

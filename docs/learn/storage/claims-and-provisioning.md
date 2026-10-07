@@ -1,101 +1,80 @@
 ---
 title: "Claims and provisioning"
-description: "Understand how a PersistentVolumeClaim becomes a bound PersistentVolume through a StorageClass, what WaitForFirstConsumer binding means, and what access modes actually control."
+description: "PVC, PV and StorageClass; WaitForFirstConsumer; access modes."
 ---
 
 # Claims and provisioning
 
 *Stage 3 · Mission Data*
 
-Apollo's databases declare storage requirements through abstract claims rather than naming raw disks. By decoupling storage requests from physical infrastructure, the same manifest runs on local test nodes or cloud storage pools without modification.
+**You will be able to:** trace a PVC to its PV, explain `Pending` claims, and read access modes correctly.
 
----
+## Three objects
 
-## The three storage primitives
-
-Storage management relies on three distinct API objects:
-
-- **1. PersistentVolumeClaim (PVC)**:
-  - Namespaced user request for storage (capacity, access mode, StorageClass).
-  - Owned and managed by developers and workloads.
-- **2. PersistentVolume (PV)**:
-  - Cluster-scoped representation of physical storage (a local directory, AWS EBS volume, or NFS share).
-  - Bound 1-to-1 with a matching PVC.
-- **3. StorageClass**:
-  - Cluster-scoped configuration defining the provisioner plugin (e.g. `rancher.io/local-path`) and allocation policies.
-
-~~~mermaid
-flowchart LR
-  STS["StatefulSet: identity-db\nvolumeClaimTemplates:\n  name: pg-data\n  1Gi, ReadWriteOnce"] -->|creates| PVC["PVC: pg-data-identity-db-0\nStatus: Bound"]
-  PVC -->|requests from| SC["StorageClass: standard\nprovisioner: rancher.io/local-path"]
-  SC -->|instructs| Provisioner["local-path-provisioner\n(runs as a Pod)"]
-  Provisioner -->|creates| PV["PV: pvc-xxxxx\n/var/local-path-provisioner/...\nCapacity: 1Gi"]
-  PVC <-->|bound to| PV
-  PV --> Disk["Node filesystem\n(apollo11-worker)"]
-~~~
-
-*Diagram ST-02 — the StatefulSet creates the PVC; the StorageClass provisioner creates the PV; PVC and PV are bound together.*
-
----
-
-## Local workstation storage vs. cloud persistent storage
-
-Where do the physical bytes actually get stored? The answer depends entirely on your cluster environment:
-
-| Storage Type | Local `kind` Cluster | Cloud Production (AWS EKS, GCP GKE) |
+| Object | Scope | Role |
 |---|---|---|
-| **Provisioner Plugin** | `rancher.io/local-path` | CSI Driver (e.g. `ebs.csi.aws.com`, `pd.csi.storage.gke.io`) |
-| **Storage Medium** | A directory on the node's local filesystem (`/var/local-path-provisioner/...`) | Network-attached block storage (AWS EBS Volume, Google Persistent Disk) |
-| **Survives Pod Deletion?** | ✅ Yes. A replacement Pod scheduled on that node remounts the directory. | ✅ Yes. |
-| **Survives Worker Node Loss?** | ❌ **No.** The data lives physically inside that single worker node container. If the node is destroyed, the volume is lost. | ✅ **Yes.** The cloud storage volume exists independently on the cloud network. If Node A dies, the volume detaches from Node A and attaches to Node B! |
+| **PersistentVolumeClaim** | Namespace | A request: size, access mode, class |
+| **PersistentVolume** | Cluster | The actual storage (directory, EBS volume, NFS share) |
+| **StorageClass** | Cluster | Provisioner + policy (`rancher.io/local-path`, reclaim, binding mode) |
 
-In Apollo11's local kind cluster, `standard` StorageClass provisions directories on the worker node. This is ideal for learning because it behaves like real dynamic storage without costing cloud money. But remember its failure boundary: **it is node-local, not high-availability cloud storage.**
+```mermaid
+flowchart LR
+  STS[StatefulSet volumeClaimTemplates pg-data 1Gi RWO] --> PVC[PVC pg-data-identity-db-0]
+  PVC --> SC[StorageClass standard]
+  SC --> Prov[local-path-provisioner Pod]
+  Prov --> PV[PV pvc-xxxx → node directory]
+  PVC <-->|bound| PV
+```
 
----
+## kind vs cloud
 
-## `WaitForFirstConsumer`: aligning storage with compute topology
+| | kind | Cloud |
+|---|---|---|
+| Provisioner | `rancher.io/local-path` | CSI driver (`ebs.csi.aws.com`, `pd.csi.storage.gke.io`) |
+| Medium | Directory on one node | Network block storage |
+| Node loss | **Data lost** | Volume detaches and reattaches elsewhere |
 
-When storage is physically tied to specific nodes (as with local disks):
-- **Immediate binding problem**: If a PVC binds to Node A before the Pod is scheduled, the scheduler might subsequently place the Pod on Node B due to CPU availability, rendering the volume inaccessible.
-- **Solution (`WaitForFirstConsumer`)**: Delays volume provisioning until the Kubernetes scheduler has officially chosen a node for the consuming Pod.
+## `WaitForFirstConsumer`
 
-~~~yaml
-apiVersion: storage.k8s.io/v1
+- Binding waits until the scheduler has chosen a node for a Pod that uses the claim.
+- Why: if the volume were created on node A first, the Pod might later be placed on B, unable to mount it.
+- So a **`Pending` PVC with no Pod is normal**; a `Pending` PVC with `ProvisioningFailed` / `not found` events is broken.
+
+```yaml
 kind: StorageClass
-metadata:
-  name: standard
+metadata: {name: standard}
 provisioner: rancher.io/local-path
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
-~~~
+```
 
----
+## Access modes
 
-## Access modes: node constraints vs. Pod counts
+| Mode | Meaning |
+|---|---|
+| `ReadWriteOnce` | Read-write on **one node** (several Pods on that node can still share it) |
+| `ReadOnlyMany` | Read-only on many nodes |
+| `ReadWriteMany` | Read-write on many nodes; needs NFS/EFS/Ceph |
+| `ReadWriteOncePod` | One **Pod** only |
 
-Access modes represent node-level mounting semantics:
+## Diagnose
 
-- **`ReadWriteOnce` (RWO)**:
-  - Can be mounted read-write by a **single node** at a time.
-  - *Caveat*: Multiple Pods residing on that *same* node can still mount it simultaneously.
-- **`ReadOnlyMany` (ROX)**:
-  - Can be mounted read-only by multiple nodes concurrently.
-- **`ReadWriteMany` (RWX)**:
-  - Can be mounted read-write by multiple nodes concurrently (requires network filesystems like NFS, Ceph, or AWS EFS).
+```bash
+kubectl get pvc -n apollo-airlines-apps
+kubectl describe pvc pg-data-identity-db-0 -n apollo-airlines-apps | sed -n '/Events:/,$p'
+kubectl logs -n local-path-storage -l app=local-path-provisioner --tail=20
+```
 
----
+## Gotchas
 
-## Evidence and limits
+- `Bound` ≠ backed up or replicated.
+- The requested capacity is not enforced for every provisioner (local-path does not quota).
+- `storageClassName` on a PVC is immutable; recreate it to change.
 
-- **1. Claim status and binding**: Check if PVC is `Bound` or `Pending`:
-  ```bash
-  kubectl get pvc -n apollo-airlines-apps
-  ```
-- **2. Binding events**: If stuck in `Pending`, inspect scheduler events:
-  ```bash
-  kubectl describe pvc pg-data-identity-db-0 -n apollo-airlines-apps | grep -A 5 Events:
-  ```
-- **3. Storage provider logs**: Ensure dynamic provisioner is functioning:
-  ```bash
-  kubectl logs -n local-path-storage -l app=local-path-provisioner
-  ```
+## Check yourself
+
+<details>
+<summary>A PVC is <code>Pending</code> and no Pod uses it. Fault?</summary>
+
+Not necessarily. With `WaitForFirstConsumer` it is waiting for a consumer. Read the PVC events.
+</details>

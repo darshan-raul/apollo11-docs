@@ -1,115 +1,83 @@
 ---
 title: "Disruption budgets"
-description: "Understand what voluntary disruptions are, how a PodDisruptionBudget constrains them, what it cannot protect against, and how the Eviction API enforces the budget during node maintenance."
+description: "What a PodDisruptionBudget limits, what it cannot stop, and the stuck-drain trap."
 ---
 
 # Disruption budgets
 
 *Stage 4 · Flight Control*
 
-Draining a node for routine kernel upgrades forcibly evicts its hosted containers. If all booking replicas reside on that single node, draining causes a sudden outage.
+**You will be able to:** compute `disruptionsAllowed`, and name disruptions a PDB does and does not block.
 
-A **PodDisruptionBudget (PDB)** protects application availability by constraining concurrent voluntary disruptions.
+## Voluntary vs involuntary
 
----
+| Voluntary (PDB consulted via Eviction API) | Involuntary / bypass (PDB ignored) |
+|---|---|
+| `kubectl drain` | Node crash, power loss |
+| Cluster autoscaler scale-down | Kernel panic, OOMKilled |
+| Direct Eviction API call | `kubectl delete pod`, scale-down of a Deployment, `--force --grace-period=0` |
 
-## Voluntary vs. Involuntary disruptions
-
-A PDB strictly governs **voluntary disruptions**:
-
-- **Voluntary disruptions (PDB enforced)**:
-  - `kubectl drain node` during host maintenance.
-  - Cluster autoscaler downscaling excess nodes.
-  - Manual evictions via the Kubernetes Eviction API.
-- **Involuntary disruptions (PDB ignored)**:
-  - Hardware power loss or sudden physical node crash.
-  - Kernel panic or Out-of-Memory (`OOMKilled`) termination.
-  - Forced manual deletion (`kubectl delete pod --force --grace-period=0`).
-
-~~~mermaid
+```mermaid
 sequenceDiagram
-  participant Drain as kubectl drain
-  participant API as kube-apiserver
-  participant PDB as PodDisruptionBudget
-  participant RS as ReplicaSet
-  Drain->>API: POST /eviction booking-pod-1
-  API->>PDB: Check budget (minAvailable: 1, current ready: 2)
-  PDB-->>API: Allowed (2-1 = 1 >= minAvailable)
-  API->>Drain: 201 Created (eviction accepted)
-  Note over RS: Creates replacement Pod
-  Drain->>API: POST /eviction booking-pod-2
-  API->>PDB: Check budget (minAvailable: 1, current ready: 1)
-  PDB-->>API: Denied (1-1 = 0 < minAvailable)
-  API->>Drain: 429 Too Many Requests
-  Note over Drain: Waits for replacement\nto become Ready
-  Drain->>API: POST /eviction booking-pod-2 (retry)
-  API->>PDB: Check budget (current ready: 2 again)
-  PDB-->>API: Allowed
-  API->>Drain: 201 Created
-~~~
+  participant D as drain
+  participant API
+  participant PDB
+  D->>API: evict pod-1
+  API->>PDB: 2 ready, minAvailable 1 → allowed
+  API-->>D: 201
+  D->>API: evict pod-2 (immediately)
+  API->>PDB: 1 ready → denied
+  API-->>D: 429
+  Note over D: retries until replacement Ready
+```
 
-*Diagram RL-06 — the Eviction API returns HTTP 429 when an eviction would violate the budget; drain retries until replacements become Ready.*
+## Configuration
 
----
+| Field | Meaning |
+|---|---|
+| `minAvailable: 1` | At least 1 healthy replica must remain |
+| `maxUnavailable: 1` | At most 1 may be disrupted |
+| `"50%"` | Scales with replicas |
 
-## Configuring availability budgets
+- `disruptionsAllowed = currentHealthy − minAvailable`. Three healthy, `minAvailable: 2` ⇒ 1 allowed.
 
-PDBs express constraints using either minimum availability or maximum downtime:
-
-- **`minAvailable: 1`**: Requires at least one healthy replica to remain online at all times.
-- **`maxUnavailable: 1`**: Allows at most one replica to be simultaneously evicted.
-- **Percentage values (`minAvailable: "50%"`)**: Scales dynamically as the workload expands.
-
-~~~mermaid
-flowchart LR
-  Desired[Desired replicas: 3] --> Required[minAvailable: 2]
-  Ready[Currently healthy: 3] --> Allowed[disruptionsAllowed = 3 - 2 = 1]
-  Required --> Allowed
-  Allowed --> First[First voluntary eviction allowed]
-  First --> Remaining[Healthy replicas: 2]
-  Remaining --> Blocked[Further eviction blocked until health returns]
-~~~
-
-*Diagram RL-08 — the budget permits one voluntary disruption while three Pods
-are healthy, then blocks another until the required two are available again.*
-
-~~~yaml
+```yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
-metadata:
-  name: booking-pdb
-  namespace: apollo-airlines-apps
+metadata: {name: booking-pdb, namespace: apollo-airlines-apps}
 spec:
   minAvailable: 1
-  selector:
-    matchLabels:
-      app: booking
-~~~
+  selector: {matchLabels: {app: booking}}
+```
 
----
+## The stuck drain
 
-## The stuck drain deadlock trap
+1. Drain starts; pod-1 is evicted.
+2. Its replacement is `Pending` (no capacity).
+3. PDB keeps denying eviction of pod-2 (429).
+4. Drain hangs until capacity appears.
 
-A common operational failure occurs when replacement Pods cannot schedule:
-- An operator initiates a node drain.
-- Pod 1 is evicted, leaving Pod 2 running (`minAvailable: 1` maintained).
-- Pod 1's replacement is stuck in `Pending` due to insufficient cluster CPU.
-- The PDB blocks eviction of Pod 2, returning HTTP 429 indefinitely.
-- The node drain hangs until cluster capacity is increased.
+- PDB with `minAvailable` equal to `replicas` allows **zero** disruptions: drains never finish.
+- A PDB cannot make an app available: it only slows planned maintenance.
 
----
+## Try it
 
-## Evidence and limits
+```bash
+kubectl get pdb -n apollo-airlines-apps
+kubectl describe pdb booking-pdb -n apollo-airlines-apps
+kubectl drain apollo11-worker --dry-run=client --ignore-daemonsets --delete-emptydir-data
+```
 
-- **1. Inspect allowed disruptions**: Verify how many Pods can currently be evicted:
-  ```bash
-  kubectl get pdb -n apollo-airlines-apps
-  ```
-- **2. PDB status details**:
-  ```bash
-  kubectl describe pdb booking-pdb -n apollo-airlines-apps
-  ```
-- **3. Simulate node drain**: Safely test drain behavior without impacting workloads:
-  ```bash
-  kubectl drain apollo11-worker --dry-run=client --ignore-daemonsets --delete-emptydir-data
-  ```
+## Check yourself
+
+<details>
+<summary>2 replicas, <code>minAvailable: 2</code>. What does a drain do?</summary>
+
+It can never evict a booking Pod (0 allowed) and hangs. Use `minAvailable: 1` or `maxUnavailable: 1`.
+</details>
+
+<details>
+<summary>Does a PDB stop <code>kubectl delete pod</code>?</summary>
+
+No. Only evictions through the Eviction API are budgeted.
+</details>

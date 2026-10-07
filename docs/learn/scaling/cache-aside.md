@@ -1,75 +1,64 @@
 ---
 title: "Cache-aside"
-description: "Understand how the cache-aside pattern works, what each branch in the decision tree requires, and why freshness and error handling must be designed explicitly."
+description: "The four branches of cache-aside, TTL by data volatility, and failure behaviour."
 ---
 
 # Cache-aside
 
 *Stage 7 · Orbital Maneuvering*
 
-Apollo's search service queries flight schedules repeatedly. Because flight timetables change infrequently, repeatedly querying PostgreSQL wastes database CPU and saturates connection pools.
+**You will be able to:** trace hit, miss, database failure and cache outage, and choose a TTL.
 
-The **cache-aside** pattern introduces an in-memory key-value store (Redis) to absorb repetitive read traffic.
+## Pattern
 
----
+- `search` checks Redis for key `search:<origin>:<destination>:<date>` before querying `flight`.
+- Redis is **not the source of truth**; PostgreSQL (via `flight`) is.
 
-## Decision tree: the 4 cache-aside branches
-
-~~~mermaid
+```mermaid
 flowchart TD
-  Request["Search request:\nJFK→LHR, 2024-10-01"] --> CacheCheck{"Redis: EXIST\nroute:JFK:LHR:2024-10-01"}
-  CacheCheck -->|HIT| CacheReturn["Return cached result\n(< 5ms)"]
-  CacheCheck -->|MISS| FlightDB["Query flight database\n(~200ms)"]
-  FlightDB -->|Success| Store["SET route:... result EX 300\nReturn result"]
-  FlightDB -->|Error| ErrorPolicy{"Error policy"}
-  ErrorPolicy -->|Fail open| Stale["Return stale cached value\n(if available)"]
-  ErrorPolicy -->|Fail closed| HTTP503["Return 503 to passenger"]
-  CacheCheck -->|CACHE ERROR| CacheErrorPolicy{"Redis unreachable\nError policy"}
-  CacheErrorPolicy -->|Bypass| FlightDB
-  CacheErrorPolicy -->|Fail closed| HTTP503
-~~~
+  R[Search request] --> C{Redis has key?}
+  C -->|HIT| H[Return cached]
+  C -->|MISS| F[Query flight]
+  F -->|ok| S[SET key EX 300; return]
+  F -->|error| E{policy}
+  E -->|fail closed| X[503]
+  C -->|Redis error| B[bypass to flight, uncached]
+```
 
-*Diagram SC-02 — the four observable branches of cache-aside: Cache Hit, Cache Miss, Database Error, and Cache Outage.*
+| Branch | What happens | Risk |
+|---|---|---|
+| Hit | Return in ms; DB untouched | **Stale** data until TTL expires |
+| Miss | Read DB, write cache with TTL, return | First-request latency |
+| DB failure on miss | Fail closed (503) or serve stale | Stale answers vs errors |
+| Cache outage | Apollo bypasses the cache; search stays up, `readyz` reports `cache: unreachable` | **Stampede**: all reads hit the DB |
 
-- **Branch 1: Cache Hit**:
-  - Key exists in Redis. Returns response immediately (&lt;5ms). Database is never queried.
-- **Branch 2: Cache Miss**:
-  - Key absent. Reads from PostgreSQL, writes result to Redis with a TTL (e.g. `EX 300`), and returns response.
-- **Branch 3: Database Failure on Miss**:
-  - If the database query times out, decide whether to serve stale data (fail-open) or return HTTP 503 (fail-closed).
-- **Branch 4: Cache Outage (Cache Stampede Hazard)**:
-  - If Redis crashes, bypassing the cache directs 100% of read queries directly onto PostgreSQL, potentially collapsing the database under a stampede.
+## TTL by volatility
 
----
+| Data | TTL |
+|---|---|
+| Airport codes, static routes | Hours |
+| Flight schedules (Apollo search) | 5 min (`300 s`) |
+| Seat availability / booking checks | **None**: always ask the source |
 
-## TTL policies by data volatility
+## Evidence
 
-- **Static route data (Airport codes, flight numbers)**: Long TTL (24 hours).
-- **Flight schedules**: Moderate TTL (5 minutes).
-- **Seat inventory & live availability**: Zero cache (query database authoritative locks directly).
+```bash
+kubectl exec -n apollo-airlines-apps redis-0 -- redis-cli INFO stats | grep -E 'keyspace_(hits|misses)'
+kubectl exec -n apollo-airlines-apps redis-0 -- redis-cli ttl "search:BOM:SIN:$(date -u +%F)"
+curl -si -H 'Host: search.apollo.local' "http://<gateway>/api/search?origin=BOM&destination=SIN&date=$(date -u +%F)" | grep -i x-cache
+```
 
----
+- Use three signals: header (code path), counters (`cache_hits_total`), and the key's TTL.
 
-## Evidence and limits
+## Gotchas
 
-- **1. Redis hit/miss ratio**:
-  Inspect cache statistics on the Redis StatefulSet:
-  ```bash
-  kubectl exec -n apollo-airlines-apps statefulset/redis -- \
-    redis-cli INFO stats | grep -E "keyspace_hits|keyspace_misses"
-  ```
-- **2. Verify key TTL expiration**:
-  The search service uses the key pattern `search:<origin>:<destination>:<date>`:
-  ```bash
-  kubectl exec -n apollo-airlines-apps statefulset/redis -- \
-    redis-cli TTL "search:BOM:DEL:$(date +%Y-%m-%d)"
-  ```
-- **3. Header verification**: Confirm response headers indicate cache state (`MISS` on first query, `HIT` on second query):
-  ```bash
-  kubectl port-forward -n apollo-airlines-apps svc/search 8083:8083 &
-  PF_PID=$!
-  sleep 1
+- A cache hides load. When it disappears, the backend sees the full rate.
+- Invalidation: seats change but the cached list does not until TTL or manual `DEL`.
 
-  curl -v "http://localhost:8083/api/search?origin=BOM&destination=DEL&date=$(date +%Y-%m-%d)" 2>&1 | grep -i "x-cache"
-  kill $PF_PID
-  ```
+## Check yourself
+
+<details>
+<summary>A seat is booked. Search still shows the old seat count for a few minutes. Bug?</summary>
+
+No: expected staleness within the TTL. Booking itself must read `flight`, not the cache.
+</details>

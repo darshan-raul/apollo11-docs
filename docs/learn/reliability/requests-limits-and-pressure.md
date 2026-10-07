@@ -1,87 +1,83 @@
 ---
 title: "Requests, limits, and pressure"
-description: "Understand how resource requests affect scheduling and HPA calculations, how limits affect runtime behavior, what QoS classes determine, and what node pressure events actually look like."
+description: "Requests drive scheduling and HPA; limits drive runtime enforcement; QoS and priority shape eviction."
 ---
 
 # Requests, limits, and pressure
 
 *Stage 4 · Flight Control*
 
-Containers share physical node hardware. Without resource boundaries, a runaway memory leak in one service can crash unrelated critical databases on the same host.
+**You will be able to:** say what a request does, what a limit does, and how a Pod is ranked for eviction.
 
-Kubernetes governs resource allocations through requests, limits, and eviction policies.
+## Requests vs limits
 
----
+| | `requests` | `limits` |
+|---|---|---|
+| Used by | **Scheduler** (does the Pod fit?), **HPA** (utilisation = usage ÷ request) | **Kernel cgroups** at runtime |
+| Over the line | n/a (not a ceiling) | CPU: **throttled**. Memory: **OOMKilled** |
+| Guarantee | Capacity is *reserved on paper*, not physical memory or performance | Hard ceiling |
 
-## Requests vs. Limits: scheduling vs. runtime enforcement
-
-~~~mermaid
+```mermaid
 flowchart LR
-  PodSpec["booking Pod\nresources.requests.cpu: 100m\nresources.requests.memory: 128Mi"] -->|Scheduler checks| NodeCapacity["apollo11-worker\nAllocatable CPU: 1800m\nAllocatable memory: 3.5Gi"]
-  NodeCapacity -->|sum of scheduled requests| Booked["Already booked:\ncpu: 1200m, memory: 2Gi"]
-  Booked -->|100m + 128Mi fits| Schedule["Scheduler assigns Pod to node"]
-~~~
+  Pod["requests cpu 100m, mem 128Mi"] --> Sched{fits allocatable minus already-requested?}
+  Sched -->|yes| Bind[assign node]
+  Sched -->|no| Pending["Pending: Insufficient cpu"]
+```
 
-*Diagram RL-03 — the scheduler uses requests to determine fit; node capacity is booked by requests, not live usage.*
+- Node capacity is "booked" by **requests**, not live usage.
+- No requests ⇒ HPA cannot compute CPU utilisation (`<unknown>`).
 
-- **Requests (`resources.requests`)**:
-  - **Scheduling input**: The CPU and memory used when deciding whether a node
-    has room for the Pod. A request is not a promise that the application will
-    always receive that amount under every runtime condition.
-  - **Autoscaler denominator**: Used by HPA to calculate current CPU utilization percentages (`actual_cpu / requested_cpu`).
-- **Limits (`resources.limits`)**:
-  - **Runtime ceiling**: The maximum resource consumption permitted by the Linux kernel cgroups.
-  - **CPU exceeding limit**: Throttled by CFS scheduler; application experiences latency spikes, but is not killed.
-  - **Memory exceeding limit**: Terminated immediately by the kernel Out-of-Memory killer (`OOMKilled`).
+## QoS classes
 
----
+| Class | Rule | Eviction |
+|---|---|---|
+| `Guaranteed` | requests = limits for CPU and memory in every container | last |
+| `Burstable` | some requests/limits, not Guaranteed | middle |
+| `BestEffort` | none | first |
 
-## Understanding Quality of Service (QoS) classes
+- Apollo sets all ten workloads to `Guaranteed`.
+- QoS is **not a shield**: a Guaranteed Pod using far more memory than requested can still be chosen.
 
-Kubernetes infers a QoS class based on your configuration:
-
-- **`Guaranteed`**:
-  - Condition: `requests == limits` for both CPU and memory across all containers.
-  - Eviction priority: Lowest risk; evicted last during node resource starvation.
-- **`Burstable`**:
-  - Condition: At least one container specifies requests or limits, but does not qualify as Guaranteed.
-  - Eviction priority: Moderate risk.
-- **`BestEffort`**:
-  - Condition: No requests or limits declared.
-  - Eviction priority: Highest risk; terminated first when node feels pressure.
-
-> **Operational warning**: QoS class is not an absolute eviction shield. A `Guaranteed` Pod consuming significantly more memory than requested will still be targeted before an idle `BestEffort` Pod.
-
-~~~mermaid
+```mermaid
 flowchart TD
-  Pressure[Node reports memory or disk pressure] --> Candidates[Identify Pods using the pressured resource]
-  Candidates --> Priority[Consider Pod priority]
-  Priority --> Relative[Compare usage with requests where applicable]
-  Relative --> QoS[QoS class contributes to ranking]
-  QoS --> Victim[Evict a selected Pod]
-  Victim --> Recheck[Recheck node pressure]
-~~~
+  P[Node memory/disk pressure] --> C[Pods using that resource]
+  C --> Pr[Pod priority]
+  Pr --> U[Usage relative to requests]
+  U --> Q[QoS class]
+  Q --> V[Evict one; recheck]
+```
 
-*Diagram RL-07 — eviction selection combines pressure type, priority, usage
-relative to requests, and QoS; it is not a fixed three-class ladder.*
+- Eviction ranking combines pressure type, priority, usage vs requests, and QoS: not a fixed three-step ladder.
 
----
+## Apollo tiers
 
-## Evidence and limits
+| Tier | Workloads | CPU | Memory |
+|---|---|---|---|
+| Flagship | `booking` | 200m | 256Mi |
+| Default | `identity`, `flight`, `search` | 100m | 128Mi |
+| Low / UI | `notification`, `frontend` | 50m | 64Mi |
+| Data | 3 Postgres | 200m | 256Mi |
+| Cache | `redis` | 100m | 128Mi |
 
-- **1. Check QoS classification**:
-  ```bash
-  kubectl get pod <pod-name> -n apollo-airlines-apps -o jsonpath='{.status.qosClass}'
-  ```
-- **2. Detect OOMKilled events**:
-  ```bash
-  kubectl describe pod <pod-name> -n apollo-airlines-apps | grep -E "OOMKilled|Reason"
-  ```
-- **3. Node resource pressure**: Inspect node memory and disk pressure flags:
-  ```bash
-  kubectl describe node apollo11-worker | grep -A 5 "Conditions:"
-  ```
-- **4. Live resource consumption**:
-  ```bash
-  kubectl top pods -n apollo-airlines-apps --containers
-  ```
+## Try it
+
+```bash
+kubectl get pods -n apollo-airlines-apps -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass
+kubectl describe node apollo11-worker | sed -n '/Allocated resources/,/Events/p'
+kubectl top pods -n apollo-airlines-apps --containers
+kubectl describe pod <pod> -n apollo-airlines-apps | grep -E 'OOMKilled|Reason'
+```
+
+## Check yourself
+
+<details>
+<summary>A Pod is <code>Pending</code> with <code>Insufficient cpu</code> while the nodes are idle. Why?</summary>
+
+Scheduling uses summed **requests**, not actual usage. Idle but over-requested nodes are full.
+</details>
+
+<details>
+<summary>What happens at a memory limit versus a CPU limit?</summary>
+
+Memory: OOMKilled (immediate). CPU: throttled (slower, not killed).
+</details>

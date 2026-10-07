@@ -3,30 +3,20 @@ title: "Lunar Orbit — Carry the Mission Beyond the Local Cluster"
 sidebar_label: "Mission briefing"
 ---
 
-# Lunar Orbit: Carry the Mission Beyond the Local Cluster
+# Lunar Orbit: cloud and recovery
 
-A local kind cluster lets us see Kubernetes mechanisms clearly. Moving Apollo to
-a cloud changes the surrounding ownership, failure domains, storage behaviour,
-network integrations, upgrade path, and cost of leftovers. The same manifest may
-apply while the operational meaning changes.
+**Status:** concepts only. The EKS prototype is unverified ([EKS boundary](../eks), [Stage 9](../stage-9)).
 
-Lunar Orbit maps the local lessons to those boundaries. It does not claim a
-runnable cloud lifecycle where Apollo has not verified one.
+**Problem:** the same manifests apply on a cloud cluster, but ownership, failure domains and cost change.
 
-## What you will understand
+## Chapters
 
 1. [Local to cloud](../learn/cloud/local-to-cloud)
 2. [Infrastructure and ownership](../learn/cloud/infrastructure-and-ownership)
-3. [Topology, scaling, and upgrades](../learn/cloud/topology-scaling-and-upgrades)
-4. [Backup, restore, and teardown](../learn/cloud/backup-restore-and-teardown)
+3. [Topology, scaling and upgrades](../learn/cloud/topology-scaling-and-upgrades)
+4. [Backup, restore and teardown](../learn/cloud/backup-restore-and-teardown)
 
-A cloud backup matters only after a restore is rehearsed and a recovered
-application is verified. Teardown includes disks, addresses, identities,
-snapshots, and billing residue—not only Kubernetes namespaces.
+## Rules for this mission
 
-## Mission status
-
-Read the [EKS research boundary](../eks) and
-[Stage 9 cloud lifecycle roadmap](../stage-9) for the current Apollo status.
-
-
+- A backup counts only after a restore is rehearsed and the app is verified.
+- Teardown covers disks, addresses, identities, snapshots and billing leftovers, not just namespaces.

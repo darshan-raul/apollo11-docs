@@ -9,64 +9,44 @@ Use this page only for the hands-on route. The required chapters do not depend
 on a local Docker or Kubernetes environment.
 :::
 
-The labs are disposable: use a dedicated Apollo11 clone and a local kind
-cluster, record what you observe, and tear the environment down when the
-mission ends.
+- Labs are disposable: dedicated Apollo11 clone, local `kind` cluster, tear down at the end.
 
-## Bring these tools aboard
+## Tools
 
-Install Git and Docker with the Compose v2 plugin for Launchpad. Ignition and
-later labs also use kind, kubectl, Helm, curl, and jq. Stage 7 uses k6. Node.js
-20 or later and npm are needed only to run this documentation site locally.
-Docker must be running before kind can create a cluster. Keep roughly 20 GB of
-free disk and 8 GB of available memory for the observability and scaling labs.
+| Tool | Needed for |
+|---|---|
+| Git, Docker (+ Compose v2), curl | Launchpad onward |
+| kind, kubectl, Helm, jq | Ignition onward |
+| k6 | Stage 7 |
+| Node 20+ / npm | Running this docs site only |
+
+- Keep ~20 GB free disk and ~8 GB free RAM for Stages 6–7.
+- Windows: use WSL2 consistently.
 
 ```bash
-git --version
-docker --version
-docker compose version
-docker ps
-kind version
-kubectl version --client
-helm version
-curl --version
-jq --version
-k6 version
+git --version && docker --version && docker compose version && docker ps
+kind version && kubectl version --client && helm version && jq --version && k6 version
 ```
 
-The commands should print versions; `docker ps` should return a table without a
-daemon connection error. If a tool is missing, install it from its official
-documentation and repeat that check. Windows learners should run the labs
-consistently inside WSL2 rather than mixing Windows and Linux paths.
+- Each should print a version; `docker ps` must not show a daemon error.
 
 ## Prepare the verified workspace
-
-The course labs run against Apollo11 commit
-`69113dcc80f77e32301d8ee7b9e73a67c923de96`. Use a dedicated clone so checking
-out the revision keeps your learning experiments separate from unrelated work:
 
 ```bash
 git clone https://github.com/darshan-raul/Apollo11.git
 cd Apollo11
 git checkout 69113dcc80f77e32301d8ee7b9e73a67c923de96
-git status --short
-git rev-parse HEAD
+git status --short       # expect empty
+git rev-parse HEAD       # expect 69113dcc80f77e32301d8ee7b9e73a67c923de96
 ```
 
-`git rev-parse HEAD` should print `69113dcc80f77e32301d8ee7b9e73a67c923de96`.
-`git status --short` should be clean. A detached `HEAD` message is expected. If you intentionally use another
-revision, record its hash with your results and expect paths, namespaces, and
-output to differ.
-
-Run each lab from that repository root. The documentation explains the
-mechanisms; the pinned application repository supplies the runnable manifests,
-scripts, and image tags.
+- A detached-HEAD message is expected.
+- Different revision? Paths, namespaces and output will differ. Record the hash with your results.
+- Run every lab from the repo root.
 
 ## Know the stage boundary
 
-Each stage is a snapshot, not an in-place patch that automatically preserves
-every earlier control. Before a lab, confirm the named directory, cluster, and
-namespace.
+- Each stage is a snapshot, not a patch on the previous one. Confirm directory, cluster and namespace before each lab.
 
 | Part of journey | Primary application namespace | Extra namespaces |
 | --- | --- | --- |
@@ -77,21 +57,17 @@ namespace.
 | Observability (Stage 6) | `apollo-airlines-apps` | `apollo-observability`, `apollo-airlines-ui` |
 | Scaling (Stage 7) | `apollo-airlines-apps` | `apollo-observability`, `apollo-airlines-ui` |
 
-Treat the stage page as authoritative when it gives a more specific boundary.
-Do not replace a namespace merely because another stage used a different one.
+- The stage page wins if it names a more specific boundary.
+- Before starting another stage, run the current stage's `scripts/teardown.sh` and confirm its namespaces and PVCs are gone (the Stage 6 guide requires this). Do not stack stages unless a lab says its stack carries over.
 
 ## The learner-work directory
 
-To practice authoring manifests rather than just reading pre-built files, create a
-workspace directory inside the Apollo11 repository:
+- Author your own manifests here instead of only applying repo files.
+- `learner-work/` is git-ignored in Apollo11. Checked-in `stages/<stage>/k8s/` files are the reference solutions.
 
 ```bash
 mkdir -p learner-work/ignition learner-work/stage1
 ```
-
-`learner-work/` is listed in Apollo11's `.gitignore` so your experimental files
-will never dirty your git status or interfere with repository revisions. Keep the
-checked-in files in `stages/<stage>/k8s/` as your verified reference solutions.
 
 ## Run the first preflight
 
@@ -102,45 +78,34 @@ docker ps
 docker ps --format '{{.Ports}}' | grep -E '3000|8080|8081|8082|8083|8084' || true
 ```
 
-It is fine for `kind get clusters` to report no clusters. Do not reuse an old
-`apollo11` cluster by accident: inspect its context and state or remove it
-intentionally. No output from the last command means Docker is not publishing
-Launchpad's ports. Output is a prompt to identify and intentionally stop the
-conflict, not permission to kill an unknown process.
+- No clusters listed is fine. An old `apollo11` cluster: inspect it or delete it deliberately.
+- Last command prints nothing: Launchpad ports are free. Output means something holds them. Identify it before stopping it.
+- `apply` success = API accepted the objects. It says nothing about scheduling, endpoints, telemetry or bookings.
 
-An apply command means the API accepted requested objects. It does not yet mean
-their Pods are scheduled, endpoints are ready, telemetry is collecting, or a
-passenger can complete a booking.
+## Order of labs
 
-## Start when the mission calls for it
-
-The [Launchpad lab](../launchpad) uses Docker Compose before Kubernetes joins
-the story. Move to [Ignition](../ignition) when you want a local cluster. Each
-later stage names its own starting state and cleanup boundary; do not mix
-commands from different snapshots.
+- [Launchpad](../launchpad) (Docker Compose) → [Ignition](../ignition) (kind) → Stages 1–7.
+- Each stage names its own start state and cleanup. Do not mix commands across snapshots.
 
 ## When a command fails
 
-Check these in order before changing the cluster:
+Check in order:
 
-1. `git rev-parse HEAD` — are you on the documented base revision (`69113dcc80f77e32301d8ee7b9e73a67c923de96`)?
-2. `pwd` — are you in the repository and stage directory named by the lab?
-3. `kubectl config current-context` — are you on the disposable kind cluster?
-4. `kubectl get namespaces` — does the stage's namespace exist?
-5. the lab's expected result and troubleshooting branch.
+1. `git rev-parse HEAD` is the pinned hash.
+2. `pwd` is the repo / stage directory the lab names.
+3. `kubectl config current-context` is `kind-apollo11`.
+4. `kubectl get namespaces` shows the stage's namespace.
+5. The exercise's own troubleshooting note.
 
-`NotFound` often means wrong stage or namespace. `connection refused` often
-means the client has the wrong address or the listener is not ready. `Pending`
-and timeouts require events and conditions, not repeated blind apply commands.
-Use the [Troubleshooting Bible](../troubleshooting) when these checks do not
-explain the failure.
+| Symptom | Usually |
+|---|---|
+| `NotFound` | Wrong stage or namespace |
+| `connection refused` | Wrong address, or listener not ready |
+| `Pending`, timeouts | Read events and conditions; do not re-apply blindly |
+
+More: [Troubleshooting](../troubleshooting).
 
 ## Revision and verification boundary
 
-The verified course revision is commit `69113dcc80f77e32301d8ee7b9e73a67c923de96`.
-This immutable revision incorporates all curriculum gap closures: runtime-owned
-certificates, HTTPS frontend API schemes, ServiceAccount token automount
-protections, Promtool-verified SLO rules, and the repeatable k6 cache benchmark.
-No companion patches are required. Confirm your working tree with
-`git rev-parse HEAD` and verify that `git status --short` is clean before
-starting each stage.
+- Verified revision: `69113dcc80f77e32301d8ee7b9e73a67c923de96`. Includes runtime-owned certificates, HTTPS frontend API URLs, token automount protections, promtool-verified SLO rules and the repeatable k6 cache benchmark. No patches needed.
+- Before each stage: `git rev-parse HEAD` matches and `git status --short` is clean.

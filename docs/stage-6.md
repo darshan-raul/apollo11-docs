@@ -1,474 +1,404 @@
 ---
 title: "Stage 6 — Mission Operations: Observability & Tracing"
-description: "Implement end-to-end cloud-native observability with Prometheus metrics, PromQL SLOs, OpenTelemetry distributed tracing, Tempo, Loki, and Grafana."
+description: "Add metrics, dashboards, an SLO, logs and traces one at a time; break each pipeline and prove what you can and cannot see."
 sidebar_label: "Stage 6: Mission Ops (Observability)"
 ---
 
-# Stage 6: Mission Operations — Observability & Tracing
+# Build Stage 6: Mission Operations
 
-:::info[Page type · optional lab]
-This lab uses the pinned Apollo11 revision and the `apollo-observability`
-namespace. Generated example IDs are not evidence; correlate an ID from the live request you made.
+:::info[Page type · lab]
+- Repo: `Apollo11` at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui`, `apollo-observability`.
+- Read the [Mission Operations chapters](./learn/observability/signals-and-metrics) first.
+- Needs: no other stage's workloads running (`teardown.sh` from the last stage). ~8 GB free RAM.
+- Work from `stages/stage6` (`cd stages/stage6`) and `export KUBE_CONTEXT=kind-apollo11`; the scripts refuse other contexts.
 :::
 
-:::note[Take the controls · Mission Operations lab]
-Follow a booking through the signals the application leaves behind.
-For the explanation before the experiment, start with the
-[Mission Operations chapters](./learn/observability/signals-and-metrics). You can return to this lab whenever you’re ready.
-
-Already read them? [Jump to the investigations](#-investigations-choose-the-signal-before-opening-the-tool).
+:::caution[Verification status]
+`stages/stage6/SIGNALS.md` describes this ordered path as implemented, noting that a clean end-to-end lifecycle run is still required before it replaces the older all-in-one installer (`apply.sh --mode helm --env dev`). If a step here differs from what you see, trust the output and record it.
 :::
 
-Stage 5 made the deployment reproducible across environments. The earlier stages
-told you whether a Pod was ready and whether a rollout had finished. That is
-useful, but it does not answer a passenger who says "my booking was slow", or an
-operator who asks which dependency failed. A single request passes through
-several processes, and a CPU graph cannot show that path.
+**Skill this lab builds:** pick the right signal for a question, and prove each signal is *actually collected* instead of assuming it is.
 
-Stage 6 adds three kinds of evidence to Apollo Airlines, plus Grafana to view
-them:
-1. **Metrics:** Prometheus counters and histograms, scraped automatically through `ServiceMonitor` resources, with PromQL queries for SLOs and alerting rules.
-2. **Distributed traces:** W3C `traceparent` context passed between services, an OpenTelemetry Collector pipeline, and Tempo to view the trace of the main booking workflow.
-3. **Centralized logs:** structured JSON logs collected by Grafana Alloy DaemonSets and stored in Loki.
-4. **Grafana:** pre-configured views over all three stores. No single signal answers every question, so you will switch between them.
+## Which signal answers which question
+
+| Question | Signal | Tool |
+|---|---|---|
+| How many / how fast / what fraction failed, over a window? | Metric | Prometheus (PromQL) |
+| What did service X say at time T? | Log | Loki (`{service="x"} \|= "<id>"`) |
+| Where did the time go in **this** request? | Trace | Tempo (trace ID) |
+| Are we burning our error budget? | Recording rule + alert | Prometheus rules |
+
+## The ladder
+
+| Substage | Adds | Proof of collection |
+|---|---|---|
+| Baseline | Apollo only | Login + flight search work |
+| 1 | Prometheus Operator, Prometheus, ServiceMonitors | `/api/v1/targets` shows app targets `up` |
+| 2 | Grafana + dashboards | `/api/health`; a panel reacts to traffic |
+| 3 | PrometheusRule (booking SLO) | Rule exists; error-ratio series responds to a failure |
+| 4 | Loki + Alloy | A unique request ID is found in Loki |
+| 5 | Tempo + OTel Collector | A trace with all four services |
+| 6 | Correlation | One booking found as metric → trace → log |
+
+---
+
+## Exercise 0: Baseline: what can you not answer?
+
+**Goal:** start with no telemetry and write down what you would be unable to explain.
+**Time:** ~10 min
+
+1. **Predict:** Apollo is running with no Prometheus, Loki or Tempo. A passenger says "booking took 10 s". List what you could check today.
+2. **Do:**
+
+```bash
+cd stages/stage6
+export KUBE_CONTEXT=kind-apollo11
+bash scripts/apply.sh --without-observability
+kubectl get ns | grep apollo
+TOKEN=$(kubectl run c0 --rm -i --restart=Never -n apollo-airlines-apps --image=curlimages/curl:8.10.1 -- \
+  curl -s -H 'Content-Type: application/json' -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' http://identity:8080/api/users/login | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+echo "${TOKEN:0:12}..."
+```
+
+3. **Check:** no `apollo-observability` namespace; a token is returned.
+4. **Why:** you can see Pod state and `kubectl logs` per Pod, but not rates over time, not a request's path, not history after a Pod is replaced. That is the gap each substage closes.
+5. **Your turn:** write down three concrete questions you cannot answer (for example "what was booking's error rate 10 minutes ago?"). You will re-ask them at Exercise 7.
+
+---
+
+## Exercise 1: Metrics: prove Prometheus is actually scraping
+
+**Goal:** see that a `ServiceMonitor` object is a *request* to scrape, and that collection is a separate fact.
+**Time:** ~15 min
+
+1. **Predict:** what is the difference between `kubectl get servicemonitor` listing a monitor and Prometheus having a target `up`?
+2. **Render before you apply:**
+
+```bash
+bash scripts/signals-lab.sh render 1 helm | grep -E '^kind:' | sort | uniq -c
+```
+
+   - You see `Prometheus`, several `ServiceMonitor`, RBAC for discovery. Rendering touched nothing.
+3. **Apply and prove collection:**
+
+```bash
+bash scripts/signals-lab.sh apply 1 helm
+kubectl port-forward -n apollo-observability svc/prometheus 19090:9090 >/dev/null 2>&1 &
+sleep 3
+T() { curl -s localhost:19090/api/v1/targets | jq -r '.data.activeTargets[] | "\(.scrapePool)  \(.health)"' | sort; }
+T
+```
+
+   - Expect one `up` target per app service.
+4. **Generate traffic and read it back:**
+
+```bash
+for i in $(seq 1 30); do kubectl exec -n apollo-airlines-apps deploy/search -- wget -qO- "http://127.0.0.1:8083/healthz" >/dev/null; done
+sleep 20
+curl -sG localhost:19090/api/v1/query --data-urlencode 'query=sum(rate(http_requests_total[2m])) by (service)' | jq -r '.data.result[]|"\(.metric.service) \(.value[1])"'
+```
+
+   - A non-zero rate for `search`. An idle service may be absent: no traffic ≠ broken.
+5. **Break: remove the discovery object**
+
+```bash
+kubectl -n apollo-observability get servicemonitor
+kubectl -n apollo-observability get servicemonitor search -o yaml > /tmp/search-monitor.yaml    # use the real name from the list
+kubectl -n apollo-observability delete servicemonitor search
+sleep 40; T
+```
+
+   - The `search` target **disappears** from the list. The Service and Pods are fine, only the instruction to scrape is gone.
+6. **Recover and prove:**
+
+```bash
+kubectl apply -f /tmp/search-monitor.yaml
+sleep 40; T
+for i in $(seq 1 20); do kubectl exec -n apollo-airlines-apps deploy/search -- wget -qO- http://127.0.0.1:8083/healthz >/dev/null; done
+sleep 20
+curl -sG localhost:19090/api/v1/query --data-urlencode 'query=rate(http_requests_total{service="search"}[2m])' | jq -r '.data.result[].value[1]'
+```
+
+   - Target `up` again, and new samples with a non-zero rate. Do not claim recovery until the **rate** moves.
+7. **Why:** `ServiceMonitor` selects Services and ports; the Operator turns it into scrape config; Prometheus scrapes. Object exists ≠ target up ≠ samples advancing.
+8. **Your turn:** make a target `down` (rather than missing). Scale `notification` to 0, wait one scrape interval, and read its target health and last error. What is different from step 5, and which query shows the outage as a *number*?
 
 <details>
-<summary><strong>Optional conceptual refresher</strong></summary>
+<summary>Answer</summary>
 
-The Mission Operations chapters are the primary explanation. Expand this
-section when you want the older signal-by-signal account beside the lab.
-
-```mermaid
-flowchart TD
-  subgraph AppsNS ["Workload Namespace: apollo-airlines-apps"]
-    Booking["booking (Go)"]
-    Identity["identity (Python)"]
-    Flight["flight (Go)"]
-    Notification["notification (Go)"]
-
-    Booking -->|HTTP + W3C traceparent| Identity
-    Booking -->|HTTP + W3C traceparent| Flight
-    Booking -->|HTTP + W3C traceparent| Notification
-  end
-
-  subgraph O11yNS ["Observability Namespace: apollo-observability"]
-    subgraph MetricsPillar ["1. Metrics Pipeline"]
-      SM["ServiceMonitors\n(Prometheus Operator)"]
-      Prom["Prometheus v3.13.1\n(TSDB, PromQL, AlertRules)"]
-      SM -->|Scrapes /metrics :30s| Booking
-      SM --> Prom
-    end
-
-    subgraph TracePillar ["2. Tracing Pipeline"]
-      OTel["OTel Collector DaemonSet\n(OTLP gRPC :4317)"]
-      Tempo["Tempo v2.3.1\n(Distributed Trace Store)"]
-      Booking -.->|OTLP Spans| OTel
-      Identity -.->|OTLP Spans| OTel
-      Flight -.->|OTLP Spans| OTel
-      OTel --> Tempo
-    end
-
-    subgraph LogPillar ["3. Logging Pipeline"]
-      Alloy["Alloy DaemonSet\n(Discovers node-local Pods via Kubernetes)"]
-      Loki["Loki v2.9.8\n(Log Store)"]
-      Alloy --> Loki
-    end
-
-    subgraph Presentation ["Unified Dashboards"]
-      Grafana["Grafana v10.4.2\n(grafana.apollo.local)"]
-      Prom --> Grafana
-      Tempo --> Grafana
-      Loki --> Grafana
-    end
-  end
-```
-
----
-
-## 🎯 Learning Goals
-
-By the end of this stage, you will be able to:
-1. Explain what each signal is for: **metrics** (how much and how often), **logs** (what happened), and **traces** (where the time went).
-2. Use the **Prometheus Operator** and configure `ServiceMonitor` resources.
-3. Write **PromQL queries** for request rate, error ratio, and 95th-percentile latency.
-4. Explain how trace context is passed between services with the **W3C `traceparent`** header.
-5. Explain why per-node telemetry collectors (OpenTelemetry Collector, Grafana Alloy) run as **DaemonSets**.
-6. Follow the repository's synthetic booking workflow across the instrumented backend services in Grafana Tempo.
-
----
-
-## 📊 Metrics answer “how much, how often, over what window?”
-
-### 1. A metric is a series of measurements, not a record of each request
-Every Apollo backend service exposes metrics at `/metrics` in the Prometheus text format:
-
-- **Counters** (`http_requests_total`):
-  values that only go up, until the process restarts. Use `rate()` to turn them into a rate over a time window.
-  ```text
-  http_requests_total{service="booking",method="POST",route="/api/bookings",status="200"} 412
-  ```
-- **Histograms** (`http_request_duration_ms_bucket`):
-  count observations, such as response times, into buckets labeled `le` ("less than or equal to"). You use them to calculate percentiles such as p50, p95, and p99.
-  ```text
-  http_request_duration_ms_bucket{service="booking",le="100"} 380
-  http_request_duration_ms_bucket{service="booking",le="500"} 410
-  http_request_duration_ms_bucket{service="booking",le="+Inf"} 412
-  ```
-
-:::warning[Keep label values bounded]
-Never put user IDs, booking UUIDs, timestamps, or raw query parameters into metric labels. Every distinct value creates a separate time series. A million booking IDs would create a million series and exhaust Prometheus's memory. This problem is called a cardinality explosion.
-:::
-
-### 2. A ServiceMonitor tells the operator what to scrape
-
-In Stage 2 you saw that a Service selector picks out a changing group of Pods.
-The Prometheus Operator uses the same idea to find scrape targets. A
-ServiceMonitor says which Services expose a metrics port. The operator watches
-these resources and updates Prometheus's configuration to match. The Prometheus
-Pod does not read the ServiceMonitor YAML itself.
-
-The operator adds the **`ServiceMonitor`** Custom Resource Definition (CRD):
-
-*Source: `stages/stage6/helm/apollo11/templates/observability/servicemonitors/booking-sm.yaml`*
-
-```yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: booking
-  namespace: apollo-observability
-  labels:
-    app.kubernetes.io/name: booking
-    app.kubernetes.io/part-of: apollo-airlines
-    release: apollo11
-spec:
-  selector:
-    matchLabels:
-      app: booking
-  namespaceSelector:
-    any: true
-  endpoints:
-    - port: http
-      path: /metrics
-      scheme: http
-      interval: 30s
-      scrapeTimeout: 10s
-      honorLabels: true
-  jobLabel: app
-```
-
-Here is how the pieces connect:
-- `selector` finds the `booking` Service by its label.
-- `namespaceSelector` says which namespaces that Service may be in.
-- The endpoint's `port` must match the name of a port on the Service.
-- The operator then creates scrape targets from the Service's ready endpoints.
-
-The existence of a ServiceMonitor therefore proves less than a target that
-reports `up`.
-
-### 3. Turn raw counters into answers
-
-*Source: `stages/stage6/helm/apollo11/templates/observability/prometheus/rules.yaml`*
-
-#### 1. Requests per second
-```promql
-sum(rate(http_requests_total[5m])) by (service)
-```
-`rate(...[5m])` gives the per-second increase over a sliding 5-minute window. It also handles counter resets when Pods restart.
-
-#### 2. Error ratio (SLO burn)
-```promql
-sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
-/
-clamp_min(sum by (service) (rate(http_requests_total[5m])), 0.001)
-```
-This divides the rate of 5xx errors by the rate of all requests. If the ratio goes above `0.05` (5%), the alert rule `ApolloErrorRateHigh` fires.
-
-#### 3. 95th-percentile latency (p95)
-```promql
-histogram_quantile(0.95, sum by (le) (rate(http_request_duration_ms_bucket{service="booking"}[5m])))
-```
-This estimates the response time that 95% of requests stay under. If it goes above 500 ms, `ApolloBookingLatencyP95High` raises a warning.
-
----
-
-## 🔍 A trace answers “what happened to this one request?”
-
-Suppose a user says booking a flight took four seconds. A p95 chart can show
-that latency went up for many requests, but it cannot show what happened to this
-one. A trace carries one trace ID through every service, and each service adds its
-own span. That lets you see the order of the calls and how long each took.
-
-The spans below are an illustration only. They are not a recorded Apollo11 trace
-and not a promise about latency. To see the real services and durations from your
-own run, use the trace-test script later in this chapter.
-
-**Distributed tracing** follows one request across several network calls:
-
-```
-[Browser Client]
-  │ (Trace ID: 4bf92f3577b34da6a3ce929d0e0e4736)
-  ▼
-[Booking Service] ────────────────────────────────────────── Total: 185ms
-  ├── Span 1: GET /healthz/ready (Identity) ────── 12ms
-  ├── Span 2: GET /api/flights/1 (Flight) ──────── 24ms
-  ├── Span 3: POST /api/flights/1/reserve (Flight) 88ms  ◄── slowest span
-  ├── Span 4: INSERT INTO bookings (PostgreSQL) ── 15ms
-  └── Span 5: POST /api/notifications (Async) ──── 8ms
-```
-
-### Context propagation: passing the trace along
-How does `flight` know that its work belongs to a trace that `booking` started?
-When `booking` sends an HTTP request to `flight`, its OpenTelemetry middleware adds a standard header:
-
-```http
-traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
-              │  └─────────────┬────────────────┘ └───────┬──────┘ └─ Flags
-              │                │                          │
-           Version         Trace ID                    Span ID
-```
-
-When `flight` receives the header, it creates its spans under the same trace ID instead of starting a separate trace.
-
-### The collector is a workload too
-The services do not send traces straight to Tempo. Apollo11 runs the OpenTelemetry Collector as a **`DaemonSet`** and sends traces to it:
-
-*Sources: `stages/stage6/helm/apollo11/templates/apps/booking.yaml`,
-`stages/stage6/helm/apollo11/templates/observability/otel-collector/daemonset.yaml`,
-and `stages/stage6/helm/apollo11/templates/observability/otel-collector/config.yaml`.*
-
-- A `DaemonSet` asks for one collector Pod on each eligible worker node. Its status shows whether those Pods are actually scheduled and Ready.
-- The workloads send OTLP over gRPC to the `otel-collector` ClusterIP Service on port `4317`. Kubernetes may send a request to any Ready collector. The application settings in the repository do not use `localhost`.
-- The collector limits its memory use, batches the spans, and forwards the traces to **Grafana Tempo**.
-
----
-
-## 🪵 Logs preserve the detail that metrics intentionally discard
-
-Apollo services write structured JSON logs to standard output. A log line can
-keep an exact error message or a trace ID. Such values are not suitable as
-metric labels, which must stay bounded. This is why booking IDs belong in logs and
-not in Prometheus labels.
-
-### How Kubernetes captures logs
-The container runtime (`containerd`) takes each container's stdout and stderr and writes them to files on the node:
-`/var/log/pods/<namespace>_<pod-name>_<pod-uid>/<container-name>/*.log`
-
-### Grafana Alloy (the log shipper)
-Stage 6 runs **Grafana Alloy** as a `DaemonSet`, with one Pod on each eligible
-node:
-
-*Source: `stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml`.*
-
-1. Each Alloy Pod finds only the Pods on its own node, using `spec.nodeName`.
-2. It adds namespace, service, Pod, and container labels to the logs it finds.
-3. `loki.source.kubernetes` reads those Pod logs and sends them to Loki.
-4. The application's JSON logs contain `trace_id`, so you can search Loki for the ID that the trace test prints.
-
----
-
+The target stays listed but `health: down` with an error such as `connection refused`/no endpoints. `up{job=...} == 0` (or `up` for that service) shows it as a metric. Missing target = discovery problem; down target = scrape problem. Restore with `kubectl scale deploy/notification -n apollo-airlines-apps --replicas=<original>`.
 </details>
 
-## 🧪 Investigations: choose the signal before opening the tool
+---
 
-Start with a question, then pick the signal that answers it. "Which services
-were involved in this booking?" needs a trace. "Is the booking error rate going
-up?" needs a metric. "What did this service log for this trace ID?" needs logs.
-The exercises move between these questions so that Grafana is not just a set of
-dashboards you do not understand.
+## Exercise 2: Dashboards are not the data
 
-### Exercise 1: Deploy Stage 6 observability
+**Goal:** show that Grafana only displays; Prometheus keeps answering without it.
+**Time:** ~8 min
 
-**Prediction:** custom resources such as `ServiceMonitor` and `Prometheus` can
-show up in `kubectl get` before their operators have created all of the Pods they
-need. Look at the operator-managed object and the workload it creates separately.
-
-- **Objective**: Deploy the Prometheus Operator, Tempo, Loki, Alloy, Grafana, and the instrumented workloads.
-- **Starting Point**: A running `kind-apollo11` cluster.
-- **Instructions**:
+1. **Predict:** you scale Grafana to 0. Does Prometheus still answer?
+2. **Do:**
 
 ```bash
-cd Apollo11
-
-# 1. Deploy Stage 6 in Helm dev mode
-bash stages/stage6/scripts/apply.sh --mode helm --env dev
-
-# 2. Inspect pods in apollo-observability
-kubectl get pods -n apollo-observability
-
-# 3. Check that the DaemonSets have a ready Pod on every eligible node
-kubectl get daemonsets -n apollo-observability
+bash scripts/signals-lab.sh apply 2 helm
+kubectl port-forward -n apollo-observability svc/grafana 13000:3000 >/dev/null 2>&1 &
+sleep 3; curl -s localhost:13000/api/health
+kubectl scale deploy/grafana -n apollo-observability --replicas=0
+sleep 10
+curl -s -m 3 localhost:13000/api/health || echo "grafana: down"
+curl -s localhost:19090/-/ready
 ```
 
-- **Expected result**:
-  - The Prometheus Operator creates a Pod for the `Prometheus` object named `apollo`, and `tempo`, `loki`, and `grafana` are running.
-  - The `otel-collector` and `alloy` DaemonSets have `READY` equal to `DESIRED`. In the default kind cluster the control-plane node is tainted and these DaemonSets do not tolerate the taint, so you should see one Pod per worker (`DESIRED: 2`). The verification script checks only that every desired Pod is ready.
-- **Verification script**:
+3. **Check:** Grafana health `ok` first; after the scale-down it is unreachable; Prometheus still says `Prometheus Server is Ready.`
+4. **Recover and prove:**
 
 ```bash
-bash stages/stage6/scripts/verify.sh --mode helm
+kubectl scale deploy/grafana -n apollo-observability --replicas=1
+kubectl rollout status deploy/grafana -n apollo-observability --timeout=120s
+pkill -f 'port-forward.*13000' ; kubectl port-forward -n apollo-observability svc/grafana 13000:3000 >/dev/null 2>&1 &
+sleep 3; curl -s localhost:13000/api/health
 ```
-The repository README says this script runs 190 checks. Use its result as a broad
-baseline. Then look at one operator-managed resource and the workload it
-created, so you can see how the operator reconciles one into the other.
 
-- **Troubleshooting hints**: A custom resource can exist before its operator has
-  finished acting on it. Check, in this order: the operator, the custom resource's
-  status, the Pods and PVCs it generated, and the events.
-- **Concept reinforced**: Operators extend reconciliation from built-in kinds to
-  custom resources such as `Prometheus` and `ServiceMonitor`.
+   - Open `http://localhost:13000` (credentials: `grafana` section of `helm/apollo11/values.yaml`), open the request-rate panel, generate traffic, and see it move.
+5. **Why:** the data lives in Prometheus. A dashboard outage never loses data, and a healthy dashboard can show an empty panel if no samples exist.
+6. **Your turn:** Grafana's datasources for logs and traces are configured at substage 2 even though Loki and Tempo do not exist yet. Find them in the UI. Why does a configured-but-dead datasource tell you nothing about whether that signal works?
 
 ---
 
-### Exercise 2: Generate a trace with the trace-test script
+## Exercise 3: Turn failures into a number: the booking SLO
 
-**Prediction:** a successful HTTP workflow does not prove that tracing works. The
-extra proof is the script's final check against Tempo, which confirms that all
-the participating services kept the same trace ID.
+**Goal:** drive an exact outage and read error ratio, remaining budget and alert state.
+**Time:** ~20 min
 
-- **Objective**: Run a synthetic end-to-end booking and watch the W3C trace context being passed along.
-- **Starting Point**: Stage 6 is running.
-- **Instructions**:
+1. **Predict:** objective is 99.5% successful *eligible* booking attempts (2xx or 5xx; 4xx excluded). During a 150 s `flight` outage with ~1 request/s all failing with 502, will the error ratio be ~0, ~1, or in between? What if there is no traffic at all?
+2. **Apply the rules:**
 
 ```bash
-# 1. Run the trace-test script
-bash stages/stage6/scripts/trace-test.sh
+bash scripts/signals-lab.sh apply 3 helm
+curl -s localhost:19090/api/v1/rules | jq -r '.data.groups[].rules[] | select(.name|test("booking";"i")) | "\(.type) \(.name)"' | sort -u
 ```
 
-- **Expected result**:
-  The script does the following:
-  1. Starts a temporary `curl` Pod inside the cluster to act as the client.
-  2. Logs in to `identity` and gets a JWT, then lists the seeded flights from `flight`.
-  3. Generates a random trace ID, and sends a booking request to `booking` with a `traceparent` header that carries it. The trace ID is printed as `trace_id=...`.
-  4. Checks that the number of available seats dropped by one.
-  5. Polls Tempo until it returns a trace that contains `booking`, `identity`, `flight`, and `notification`.
-  6. Cancels the booking and checks that the seat is restored.
-- **Verification command**: The script queries Tempo itself and exits with an error
-  unless one trace contains all four service names. Keep its
-  `trace_id=... services=...` line.
-- **Troubleshooting hints**: Find the step that failed, then check that service
-  and the telemetry pipeline. The script also deletes its temporary client Pod,
-  cancels its booking, and restores the seat, so you can run it again safely.
-- **Concept reinforced**: Every outbound call must pass the trace context along,
-  or its spans will not join the same trace.
+   - Expect recording rules `apollo:booking_error_ratio:5m`, `:1h`, `:28d`, `apollo:booking_error_budget_remaining:28d`, and alerts such as `ApolloBookingErrorBudgetBurn`.
+3. **Baseline:** query the error ratio *before* any failure (rule names from step 2):
+
+```bash
+Q() { curl -sG localhost:19090/api/v1/query --data-urlencode "query=$1" | jq -c '.data.result'; }
+Q 'apollo:booking_error_ratio:5m'
+```
+
+   - Expect **empty** (`[]`), not `0` and not `1`: with no traffic the ratio is undefined. "No data" is not "perfect availability".
+4. **Inject the exact outage (bounded, self-restoring):**
+
+```bash
+bash scripts/slo-lab.sh
+```
+
+   - Read it first: it records `flight`'s replica count, scales it to 0, sends 502-producing bookings for 150 s, restores `flight`, makes one recovery booking and cancels it. It restores on exit even if you interrupt it.
+5. **Read the result (while or after):**
+
+```bash
+Q 'apollo:booking_error_ratio:5m'
+Q 'apollo:booking_error_budget_remaining:28d'
+curl -s localhost:19090/api/v1/alerts | jq -r '.data.alerts[] | "\(.labels.alertname) \(.state)"'
+```
+
+   - 5-minute ratio near `1` (all eligible attempts failed); remaining budget **negative** (not clamped); alert `pending` then `firing`.
+6. **Prove recovery:** after the script ends, wait a few minutes and re-run step 5: the 5-minute ratio falls while the 1-hour and 28-day ratios decay slowly. The alert eventually resolves.
+7. **Why:**
+   - 4xx are excluded: a wrong password is the caller's fault, not an outage.
+   - A short drill cannot prove a 28-day SLO: a fresh cluster has only minutes of history.
+   - A latency histogram cannot say whether a given request succeeded; that is why error ratio is a separate series.
+8. **Your turn:** change which responses count as errors: would a booking returning `409 No seats available` (a 4xx) consume budget? Check the rule expression with `jq` on the rules API and justify whether that is the right call for a flight that is sold out.
+
+<details>
+<summary>Answer</summary>
+
+It would not consume budget, since 4xx are excluded. For sold-out flights that is correct: the service worked. If seat-assignment failed due to a bug (a 5xx), it would count.
+</details>
 
 ---
 
-### Exercise 3: Look at a trace and its logs in Grafana
+## Exercise 4: Logs: a historical log is not a working pipeline
 
-**Question:** can one trace ID answer two different questions: where the time went
-(in Tempo) and what `booking` logged (in Loki)? Compare the two views yourself.
-Do not assume that a link in a dashboard proves they match.
+**Goal:** find one request in Loki by a unique ID, then stop collection and show *new* requests vanish while old ones remain.
+**Time:** ~15 min
 
-- **Objective**: Open Grafana, find the trace, and match its spans with log lines.
-- **Starting Point**: The trace ID from Exercise 2.
-- **Instructions**:
+1. **Predict:** you stop the log shipper. Can you still find yesterday's log lines? Today's new requests?
+2. **Apply and ship one request:**
 
 ```bash
-# 1. Forward Grafana to localhost (or use the Envoy Gateway address grafana.apollo.local)
-kubectl port-forward svc/grafana 3000:3000 -n apollo-observability &
-PF_PID=$!
-sleep 2
-
-# The chart enables anonymous Viewer access for this local lab.
+bash scripts/signals-lab.sh apply 4 helm
+kubectl port-forward -n apollo-observability svc/loki 13100:3100 >/dev/null 2>&1 &
+sleep 3
+NS=apollo-airlines-apps
+RID=lab-log-$RANDOM
+kubectl run c4 --rm -i --restart=Never -n $NS --image=curlimages/curl:8.10.1 -- \
+  curl -s -H "X-Request-ID: $RID" http://identity:8080/healthz >/dev/null
+L() { curl -sG localhost:13100/loki/api/v1/query_range --data-urlencode "query={service=~\".+\"} |= \"$1\"" --data-urlencode 'limit=5' | jq '.data.result|length'; }
+sleep 15; L $RID
 ```
 
-1. Open `http://localhost:3000` in your browser.
-2. Go to **Explore** and select the **Tempo** data source.
-3. Paste the `TRACE_ID` from Exercise 2 into the search box and click **Query**.
-4. Look at the waterfall timeline. It should span `booking`, `identity`, `flight`, and `notification`.
-5. Switch to the **Loki** data source and run
-   `{service="booking"} |= "<TRACE_ID>"`, replacing `<TRACE_ID>` with the value
-   printed by the trace test. The labels in this query match the ones that
-   Apollo11's Alloy configuration adds, and the trace ID appears in the
-   structured log line.
+   - Expect `1` or more streams. If `0`, send a request that logs (a login or flight search carries the ID into the log line) and retry. Use `kubectl logs -n $NS deploy/identity | grep $RID` as the cross-check.
+3. **Break: stop shipping by scheduling Alloy onto no node**
 
-When you are done, stop the port-forward:
 ```bash
-kill $PF_PID
+kubectl -n apollo-observability patch ds alloy --type=merge -p '{"spec":{"template":{"spec":{"nodeSelector":{"apollo11.io/log-break":"true"}}}}}'
+sleep 15; kubectl get ds alloy -n apollo-observability
+RID2=lab-log-$RANDOM
+kubectl run c4b --rm -i --restart=Never -n $NS --image=curlimages/curl:8.10.1 -- \
+  curl -s -H "X-Request-ID: $RID2" http://identity:8080/healthz >/dev/null
+sleep 20
+echo "old: $(L $RID)  new: $(L $RID2)"
 ```
 
-- **Expected result**: Tempo returns the trace ID printed by
-  `stages/stage6/scripts/trace-test.sh`, and its resource attributes name all four
-  services.
-- **Verification**: Compare the services shown in Grafana with the script's
-  `trace_id=... services=...` line. Both should describe the same trace.
-- **Troubleshooting**: If the trace is not there yet, wait a moment for the
-  telemetry to be flushed and try again. If it is still missing, read the logs of
-  the OpenTelemetry Collector and Tempo with `kubectl logs -n apollo-observability`,
-  using the Pod names from `kubectl get pods`.
-- **Concept reinforced**: A trace ID ties spans together across services. The
-  same ID in structured logs lets you jump from a trace to its logs.
+4. **Symptom:** `DESIRED 0`; the old ID is still found, the new one is **not**.
+5. **Recover and prove:**
+
+```bash
+kubectl -n apollo-observability patch ds alloy --type=merge -p '{"spec":{"template":{"spec":{"nodeSelector":{"apollo11.io/log-break":null}}}}}'
+kubectl rollout status ds/alloy -n apollo-observability --timeout=120s
+RID3=lab-log-$RANDOM
+kubectl run c4c --rm -i --restart=Never -n $NS --image=curlimages/curl:8.10.1 -- curl -s -H "X-Request-ID: $RID3" http://identity:8080/healthz >/dev/null
+sleep 20; L $RID3
+```
+
+   - New ID found again. Never delete Loki's PVCs.
+6. **Why:** searchable history proves nothing about *current* collection. Always test with a freshly generated ID.
+7. **Your turn:** logs carry `service`; request IDs carry across services. Query Loki for one booking ID across all services and list which services logged it (use the `service` label in the result).
+
+<details>
+<summary>Answer</summary>
+
+`curl -sG … --data-urlencode "query={service=~\".+\"} |= \"$RID\"" | jq -r '.data.result[].stream.service' | sort -u` prints each service that logged the ID.
+</details>
 
 ---
 
-### Exercise 4: Query live metrics with PromQL
+## Exercise 5: Traces: break the exporter, not the API
 
-**Prediction:** an empty result can simply mean there was no recent traffic. It
-does not mean Prometheus is broken. The API status and the returned series tell
-you different things.
+**Goal:** show tracing as a separate pipeline that can fail while bookings keep working.
+**Time:** ~20 min
 
-- **Objective**: Query real Prometheus metrics from the command line.
-- **Starting Point**: Stage 6 is running.
-- **Instructions**:
+1. **Predict:** you point the OTel Collector at a dead Tempo port. Do bookings fail? Does the trace appear?
+2. **Apply and prove a good trace:**
 
 ```bash
-# Query current request rate grouped by service
-PROM_POD=$(kubectl get pods -n apollo-observability -l prometheus=apollo \
-  -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n apollo-observability "$PROM_POD" -c prometheus -- \
-  wget -qO- 'http://localhost:9090/api/v1/query?query=sum(rate(http_requests_total[5m]))by(service)' | jq .
+bash scripts/signals-lab.sh apply 5 helm
+bash scripts/trace-test.sh
 ```
 
-- **Expected result**: Prometheus returns JSON with `status: success`. After you
-  generate traffic, the result lists the services that handled requests in the last
-  five minutes. Idle services may be missing.
-- **Verification command**: Check that `.status == "success"` and read the
-  returned result. An idle service can legitimately have no recent rate.
-- **Troubleshooting hints**: If the Pod selector returns nothing, check the
-  status of `Prometheus/apollo` and the operator logs. If the result is empty,
-  generate some traffic and wait for the next scrape.
-- **Concept reinforced**: PromQL queries stored time series. A healthy Prometheus
-  does not mean every target is up or has been active recently.
+   - The script starts a client Pod, logs in, books with a generated `traceparent`, checks seat counts, polls Tempo until **one trace contains booking, identity, flight and notification**, cancels the booking and restores the seat. Keep its `trace_id=… services=…` line.
+3. **Read the trace directly:**
+
+```bash
+kubectl port-forward -n apollo-observability svc/tempo 13200:3100 >/dev/null 2>&1 &
+sleep 3
+TRACE_ID=<paste the trace_id>
+curl -s localhost:13200/api/traces/$TRACE_ID | jq -r '[.batches[].resource.attributes[]|select(.key=="service.name").value.stringValue]|unique'
+```
+
+4. **Break: dead exporter endpoint**
+
+```bash
+kubectl -n apollo-observability get cm otel-collector-config -o yaml > /tmp/otel-original.yaml
+sed 's/tempo.apollo-observability.svc.cluster.local:4317/tempo.apollo-observability.svc.cluster.local:1/' /tmp/otel-original.yaml > /tmp/otel-broken.yaml
+kubectl apply -f /tmp/otel-broken.yaml
+kubectl -n apollo-observability rollout restart ds/otel-collector
+kubectl -n apollo-observability rollout status ds/otel-collector --timeout=120s
+bash scripts/trace-test.sh ; echo "exit=$?"
+kubectl -n apollo-observability logs ds/otel-collector --tail=15 | grep -iE "error|export|refused|dropp" | head -5
+```
+
+5. **Symptom:** the script's booking steps succeed but it **fails at the Tempo check** (no complete trace). The Collector logs show export errors. The API never noticed.
+6. **Recover and prove:**
+
+```bash
+kubectl apply -f /tmp/otel-original.yaml
+kubectl -n apollo-observability rollout restart ds/otel-collector
+kubectl -n apollo-observability rollout status ds/otel-collector --timeout=120s
+bash scripts/trace-test.sh
+```
+
+   - A new `trace_id=… services=…` line with all four services. Delete `/tmp/otel-*.yaml`.
+7. **Why:** tracing is out-of-band: apps send spans to a local Collector, which forwards to Tempo. A broken exporter loses traces without affecting requests, which also means you will not be told. Metrics and logs stay up (check them now).
+8. **Your turn:** the trace-test sends its own `traceparent`. Remove that header from one hop's code path in your head: which services' spans would drop out of the trace, and why does context propagation have to be done by every service?
+
+<details>
+<summary>Answer</summary>
+
+A service that does not forward `traceparent` on its outbound call starts a new trace for the downstream service, so its spans become a separate trace. Every hop must copy the header.
+</details>
 
 ---
 
-## 🏁 What You Learned
+## Exercise 6: Correlate one booking: metric → trace → log
 
-- What metrics, traces, and logs are each for, and how they complement one another.
-- How the Prometheus Operator and `ServiceMonitor` resources find scrape targets automatically.
-- How to write PromQL queries for rates, error ratios, and histogram quantiles.
-- How W3C `traceparent` headers keep one trace ID across services.
-- Why per-node telemetry collectors (OpenTelemetry Collector and Alloy) run as DaemonSets.
-- How Grafana lets you query Prometheus metrics, Tempo traces, and Loki logs in one place.
+**Goal:** go from a symptom on a graph to the exact request and its log lines.
+**Time:** ~15 min
+
+1. **Predict:** a booking fails with 502. In which order do you consult metric, trace and log, and what does each narrow down?
+2. **Create a failure on purpose (short):**
+
+```bash
+NS=apollo-airlines-apps
+ORIG=$(kubectl get deploy flight -n $NS -o jsonpath='{.spec.replicas}'); kubectl scale deploy/flight -n $NS --replicas=0
+kubectl rollout status deploy/flight -n $NS --timeout=60s
+TRACE=$(openssl rand -hex 16); RID=corr-$TRACE
+kubectl run c6 --rm -i --restart=Never -n $NS --image=curlimages/curl:8.10.1 --command -- sh -c "
+  T=\$(curl -s -H 'Content-Type: application/json' -d '{\"email\":\"passenger@apolloairlines.com\",\"password\":\"pass123\"}' http://identity:8080/api/users/login | sed -n 's/.*\"token\":\"\\([^\"]*\\)\".*/\\1/p')
+  curl -s -o /dev/null -w 'booking -> %{http_code}\n' -X POST -H \"Authorization: Bearer \$T\" -H 'Content-Type: application/json' \
+    -H 'X-Request-ID: $RID' -H 'traceparent: 00-$TRACE-0123456789abcdef-01' \
+    -d '{\"flightId\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"}' http://booking:8082/api/bookings"
+kubectl scale deploy/flight -n $NS --replicas=$ORIG; kubectl rollout status deploy/flight -n $NS --timeout=120s
+```
+
+   - Prints `booking -> 502`.
+3. **Follow it:**
+   1. **Metric:** error ratio / 5xx rate for booking rose (Exercise 3 queries). Tells you *that* and *since when*. Not which request.
+   2. **Trace:** `curl -s localhost:13200/api/traces/$TRACE | jq` shows the `booking → flight` span failing. Tells you *where*.
+   3. **Log:** query Loki for `$RID` (Exercise 4's `L`) and read booking's message (`Flight service unavailable`). Tells you *why*, in the app's words.
+4. **Why:** each signal answers a different question. An aggregate percentile cannot give you the trace of one slow booking; the shared IDs (`X-Request-ID`, `trace_id`) are what join them.
+5. **Your turn:** repeat with `notification` scaled to 0 instead. Predict the booking status code, then use the three signals to prove the passenger's booking succeeded while one downstream call failed. Which signal first reveals it?
+
+<details>
+<summary>Answer</summary>
+
+The booking returns `201` (notification is called asynchronously after the row is saved). The *trace* shows a failed notification span under a successful booking; the metric for booking may not move at all; logs contain the failed notify call. This is why "the booking succeeded" and "everything worked" are different claims.
+</details>
 
 ---
 
-## ✈️ Before Continuing: Checkpoint
+## Exercise 7: Re-ask the Exercise 0 questions
 
-Before moving to Stage 7, verify you can answer:
-1. Why should you avoid putting dynamic booking IDs into Prometheus metric labels?
-2. What HTTP header propagates distributed trace context across service boundaries?
-3. What is the difference between a Deployment and a DaemonSet?
-4. How does `histogram_quantile(0.95, ...)` calculate p95 latency?
+**Goal:** close the loop on your original gap list.
+**Time:** ~5 min
 
-Stage 6 now gives you the signals you need to investigate problems. Stage 7 adds
-Horizontal and Vertical Pod Autoscaling, Redis caching, and more advanced
-scheduling.
+For each question you wrote in Exercise 0, name the signal and the exact query or command that now answers it. Anything you still cannot answer is a gap worth noting.
 
-👉 **Continue to [Stage 7: Orbital Maneuvering (Autoscaling & Scheduling)](./stage-7)**
+## Clean-up
 
-## Current verification boundary
+```bash
+pkill -f 'port-forward' || true
+rm -f /tmp/otel-*.yaml /tmp/search-monitor.yaml
+bash scripts/teardown.sh --purge     # add --mode kustomize if you used it
+cd ../..
+```
 
-The check counts quoted in earlier stages are historical. The verified repository
-revision is commit `69113dcc80f77e32301d8ee7b9e73a67c923de96`. It includes
-context guards, external ownership of the TLS certificate, HTTPS API endpoints in
-the frontend, and ServiceAccount token automount protection. To validate your own
-environment, use the summary from the current verification script together with
-what you observe yourself. A production docs build only checks that the pages
-compile and the links work. It does not test the cluster.
+- Confirm `kubectl get ns | grep apollo` shows nothing before starting Stage 7.
 
-To work through the signals in order (metrics, dashboards, alerts and SLOs, logs,
-traces, then correlation), follow `stages/stage6/SIGNALS.md`. The existing
-full-stack installer is still the one the maintainers use. The ordered
-replacement is waiting for evidence from a full runtime lifecycle.
+## You can now
+
+- [ ] Pick metric, log or trace for a given question.
+- [ ] Show a ServiceMonitor is not collection, and a historical log is not a working pipeline.
+- [ ] Read an SLO error ratio and budget, including why "no data" is not "100%".
+- [ ] Break and restore a telemetry pipeline without affecting the API.
+- [ ] Go from a metric spike to the trace and logs of one request.
+
+## Checkpoint
+
+1. Why avoid putting a booking ID in a Prometheus label?
+2. Which header joins spans across services?
+3. Collector exporter dead: which signals survive?
+4. Why can a 99.5% SLO not be proven by a two-minute drill?
+
+Next: [Stage 7: Orbital Maneuvering](./stage-7).

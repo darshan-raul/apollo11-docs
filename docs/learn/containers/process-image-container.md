@@ -1,132 +1,88 @@
 ---
 title: Process, image, and container
+description: "What a process, an image and a container are, how containers isolate, and what each one loses on replacement."
 ---
 
 # Process, image, and container
 
-*Launchpad · Getting Apollo Airlines off the ground*
+*Launchpad*
 
-Before a passenger can book a flight, the booking program has to be running
-somewhere. Start there: a **process** is a running program. It has memory, reads
-inputs, does work, and eventually exits. If you have ever started a server in a
-terminal, you have already worked with a process.
+**You will be able to:** say which of the three a given action changes, and what is lost when each is replaced.
 
-Now imagine handing that booking program to another developer. The code alone
-may not be enough; it needs the right runtime and files. An **image** packages
-those files and the metadata used to start the program. It is a stored artifact,
-so having an image on disk does not mean the booking service is running.
+## Key points
 
-A **container** runs a process from that image with isolated views of resources
-such as the filesystem and network. Two containers can start from the same
-image while having different process memory and writable files. Rebuilding the
-image prepares a new artifact; existing containers do not automatically switch
-to it.
+| Term | Is | Lives in | Lost when |
+|---|---|---|---|
+| **Process** | A running program (memory, file descriptors, PID) | RAM | It exits |
+| **Image** | A read-only package: files + start command + metadata | Registry / local disk | Deleted (it is not "running") |
+| **Container** | One isolated process started **from** an image, plus a writable layer | Host kernel + its layer | Container is **removed** |
+
+- Rebuilding an image makes a **new artifact**. Running containers keep using the old one until replaced.
+- Two containers from one image share starting files, **not** memory or writable files.
+- A stopped-then-started container keeps its writable layer. A removed-then-recreated one does not.
 
 ```mermaid
 flowchart LR
-  I[Image: files + start metadata] --> C[Container instance]
+  I[Image: files + start metadata] --> C[Container]
   C --> P[Application process]
-  C --> W[Ephemeral writable layer]
+  C --> W[Writable layer: per container]
 ```
 
-Read the diagram from the package toward the running application. The image
-supplies the starting files, while the container gives the process a runtime
-environment and its own writable layer. *(Diagram CT-01.)*
+## A container is not a VM
 
-That writable layer is tied to the container. Removing and replacing the
-container loses changes stored only there; a simple stop and start in Docker
-can retain them. Later, Mission Data will show how separately mounted storage
-changes which bytes survive a replacement.
+- **No guest OS, no hypervisor.** A container is an ordinary Linux process on the host kernel.
+- **Namespaces limit what it can see:**
 
-For now, picture two copies of the booking service starting from the same image.
-They share the same starting code, but a value held in one process’s memory is
-not automatically available in the other. This is why running another copy and
-preserving application state become separate questions as the airline grows.
+| Namespace | Isolates |
+|---|---|
+| `pid` | Process IDs (the app is PID 1) |
+| `net` | Interfaces, routes, IP, ports |
+| `mnt` | Filesystem mounts (the image root) |
+| `uts` | Hostname |
+| `ipc` | Shared memory, queues |
+| `user` | UID mapping (root in container ≠ root on host) |
 
-## How isolation works: containers are not virtual machines
+- **cgroups limit what it can use:** CPU, memory, process count, I/O. Over the memory limit ⇒ the kernel OOM-kills it.
+- Shared kernel ⇒ millisecond start, but a kernel bug affects every container.
 
-A common misconception is that a container is a lightweight virtual machine. It is not:
+## Apollo example
 
-- **Virtual Machines (VMs):** A hypervisor (such as KVM or VMware) slices physical hardware into virtualized hardware. Each VM runs a full **guest operating system** with its own kernel, systemd daemon, drivers, and gigabytes of memory overhead.
-- **Containers:** There is **no guest OS** and **no hypervisor**. A container is simply an ordinary Linux process running directly on the host kernel, constrained by two core Linux kernel primitives:
+- `booking` image built from `stages/launchpad/code/booking/Dockerfile`.
+- `docker compose up` creates a container from it, with its own writable layer and `/tmp` tmpfs.
+- Running a second `booking` container from the same image gives a second process with separate memory.
 
-### 1. Linux Namespaces (What the process can see)
-Namespaces give the process a dedicated, restricted view of global system resources:
-- **`pid` namespace:** Isolates Process IDs. Inside the container, your application process thinks it is PID 1, completely blind to host processes.
-- **`net` namespace:** Gives the container its own virtual network interface (`eth0`), routing table, and private IP address.
-- **`mnt` namespace:** Isolates filesystem mount points, so the container only sees its own image root filesystem (`rootfs`).
-- **`ipc` namespace:** Isolates Inter-Process Communication (shared memory, message queues).
-- **`uts` namespace:** Allows the container to have its own hostname.
-- **`user` namespace:** Maps container root (UID 0) to an unprivileged host UID.
+## Try it
 
-### 2. Control Groups / cgroups (What the process can use)
-While namespaces restrict what a process can *see*, **cgroups** restrict what it can *consume*:
-- Enforces hard and soft ceilings on CPU shares, memory allocation, disk I/O, and maximum process count.
-- If a container exceeds its memory ceiling, the Linux kernel invokes the **OOM (Out-Of-Memory) Killer** and terminates the process immediately.
-
-```
-┌────────────────────────────────────────────────────────┐
-│                   VIRTUAL MACHINE                      │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │ Application Code & Binaries                      │  │
-│  ├──────────────────────────────────────────────────┤  │
-│  │ Guest OS (Kernel, Systemd, Daemons)              │  │
-│  ├──────────────────────────────────────────────────┤  │
-│  │ Hypervisor (Hardware Virtualization Layer)       │  │
-│  ├──────────────────────────────────────────────────┤  │
-│  │ Host OS Kernel & Physical Hardware               │  │
-│  └──────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────────┐
-│                      CONTAINER                         │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │ Application Code, Dependencies & Root Filesystem │  │
-│  ├──────────────────────────────────────────────────┤  │
-│  │ Isolated via Linux Namespaces & cgroups          │  │
-│  ├──────────────────────────────────────────────────┤  │
-│  │ Host Linux Kernel (Shared Directly)              │  │
-│  ├──────────────────────────────────────────────────┤  │
-│  │ Physical / Virtual Host Hardware                 │  │
-│  └──────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────┘
+```bash
+cd stages/launchpad && docker compose up -d booking
+docker inspect -f 'image={{.Image}}' $(docker compose ps -q booking)
+docker compose images booking
 ```
 
-Because containers share the host kernel, they start in milliseconds rather than minutes. But because they are just constrained processes, any failure to declare persistent storage, health checks, or restart policies leaves them vulnerable to silent loss.
+- The container's `Image` ID equals the image listed. After a rebuild they differ until you recreate the container.
 
-## Why this distinction matters to Apollo
+## Gotchas
 
-The booking program is a process with memory, file descriptors, and a lifecycle.
-An image is a stored package that can be copied, scanned, and promoted. A
-container is one runtime instance created from that image. If a process exits,
-the image still exists and can start another instance; the old process memory
-does not.
+- "Image exists" ≠ "service running".
+- "Container running" ≠ "booking works" (dependencies may be unreachable).
+- Writable-layer data survives `restart`, not `rm`. Data that must outlive a container needs a volume (Mission Data).
 
-This makes a useful debugging sequence possible: ask which image was requested,
-which container was created, and what process the container actually started.
-The names are related, but they are not synonyms.
-
-## Evidence and limits
-
-Inspect an image’s metadata to understand its entrypoint and files. Inspect the
-container and process status to learn what is running now. A container that is
-running proves the process has not exited; it does not prove that a booking
-dependency is reachable or that temporary state is safe. The next Launchpad
-chapters add configuration, network location, and dependency readiness.
-
-## Check your understanding
+## Check yourself
 
 <details>
-<summary>You rebuild <code>booking:latest</code> while a booking container is running. Did that container change?</summary>
+<summary>You rebuild <code>booking:latest</code> while a booking container runs. Did that container change?</summary>
 
-No. The rebuild creates a new image artifact. The existing container continues
-from the image and writable state with which it was created until it is replaced.
+No. The rebuild creates a new image. The container keeps its original image and writable layer until it is replaced.
 </details>
 
 <details>
-<summary>A process exits but its image still exists. Which state is definitely gone?</summary>
+<summary>A process exits but its image still exists. What is definitely gone?</summary>
 
-Its process memory. Image contents remain; mounted storage may remain depending
-on its boundary, while writable-layer survival depends on whether the same
-container is restarted or replaced.
+The process memory. The image remains. The writable layer survives only if the same container is restarted.
+</details>
+
+<details>
+<summary>What do namespaces limit that cgroups do not, and vice versa?</summary>
+
+Namespaces limit visibility (PIDs, network, mounts). Cgroups limit consumption (CPU, memory).
 </details>

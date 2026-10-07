@@ -1,100 +1,86 @@
 ---
 title: "Termination and draining"
-description: "Trace the exact sequence of events when a Pod is terminated, understand why preStop hooks prevent connection drops, and name the race that graceful shutdown reduces but cannot eliminate."
+description: "The shutdown sequence, the routing race, and what preStop and SIGTERM handling each contribute."
 ---
 
 # Termination and draining
 
 *Stage 4 · Flight Control*
 
-When a Pod is marked for deletion during a rollout or node maintenance drain, in-flight passenger requests must complete cleanly while new connections are diverted away.
+**You will be able to:** order the events when a Pod terminates and say what `preStop`, SIGTERM handling and the grace period each do.
 
-Kubernetes coordinates this shutdown through concurrent asynchronous processes.
+## Sequence
 
----
-
-## The Pod termination lifecycle
-
-~~~mermaid
+```mermaid
 sequenceDiagram
-  participant API as kube-apiserver
-  participant EP as Endpoint controller
+  participant API
+  participant EP as EndpointSlice ctrl
   participant KP as kube-proxy / Envoy
   participant KL as Kubelet
-  participant App as booking container
-
-  Note over API,App: kubectl delete / rollout / node drain
-  API->>KL: Set Pod phase: Terminating
-  API->>EP: Remove Pod IP from EndpointSlice
-  par Propagation (async)
-    EP->>KP: Update node routing rules
-    Note over KP: Takes 1–10s to propagate
-  and Kubelet action (concurrent)
-    KL->>App: Execute preStop hook (sleep 5)
-    Note over App: New requests may still arrive\nwhile routing updates propagate
-    KL->>App: Send SIGTERM
-    Note over App: Application drains in-flight\nrequests and exits cleanly
-    App-->>KL: Process exits (code 0)
+  participant App
+  API->>KL: Pod Terminating
+  API->>EP: remove Pod IP
+  par async propagation
+    EP->>KP: update routing (1–10 s)
+  and kubelet
+    KL->>App: preStop (sleep 5)
+    KL->>App: SIGTERM
+    App-->>KL: exit 0
   end
-  Note over KL,App: If process still alive after terminationGracePeriodSeconds:\nKubelet sends SIGKILL (immediate, forceful)
-~~~
+  Note over KL,App: still running after terminationGracePeriodSeconds → SIGKILL
+```
 
-*Diagram RL-05 — endpoint removal and preStop run concurrently; neither guarantees the other is complete.*
+1. Pod marked `Terminating`.
+2. Endpoint removal starts **and** the kubelet starts shutdown **concurrently**.
+3. `preStop` hook runs.
+4. SIGTERM.
+5. After `terminationGracePeriodSeconds` (30 s): SIGKILL (exit 137).
 
-The sequence unfolds in parallel:
-- **1. Status transition**: API server marks the Pod `Terminating` and stops reporting it as ready.
-- **2. Endpoint removal**: Endpoint controller strips the Pod IP from active `EndpointSlice` records.
-- **3. Route propagation**: Proxies and `kube-proxy` begin updating node iptables or proxy tables asynchronously.
-- **4. PreStop hook**: Kubelet initiates the container's `preStop` script.
-- **5. SIGTERM**: Kubelet signals the process to begin graceful shutdown.
-- **6. SIGKILL fallback**: If the process does not terminate within `terminationGracePeriodSeconds`, the kernel forcibly kills it.
+## The race
 
----
+- Removing an endpoint and reprogramming every proxy takes time. A request can still reach the terminating Pod.
+- If the app closes its listener immediately, that request fails.
+- Mitigation reduces the window; it never proves zero failures.
 
-## Why `preStop` hooks prevent connection drops
+## The three parts
 
-Because iptables and proxy updates take several seconds to propagate across all cluster nodes, incoming requests may still reach the terminating Pod *after* deletion starts.
+| Part | Does | Does not |
+|---|---|---|
+| `preStop: sleep 5` | Delays SIGTERM so routing can update | Extend the grace period (it counts inside it) |
+| SIGTERM handler (`srv.Shutdown`) | Stop accepting, finish in-flight requests, close pools, exit 0 | Help if the process ignores signals |
+| `terminationGracePeriodSeconds` | Hard deadline before SIGKILL | Guarantee draining finished |
 
-- **The `preStop` sleep**:
-  ```yaml
-  lifecycle:
-    preStop:
-      exec:
-        command: ["sleep", "5"]
-  ```
-- **Operational impact**:
-  - Adds an artificial 5-second buffer before sending `SIGTERM`.
-  - Gives network routing tables time to drop the backend before the server closes its listening socket.
-  - *Warning*: The sleep runs *inside* the grace period budget; it does not extend it.
+## What the app must do on SIGTERM
 
----
+1. Stop accepting new connections.
+2. Finish in-flight work within the remaining grace time.
+3. Flush logs/metrics, commit or abort transactions.
+4. Close DB and cache connections.
+5. Exit 0 before SIGKILL.
 
-## What application processes must execute upon SIGTERM
+- PID 1 has no default signal handling in a container: a process that does not handle SIGTERM always takes the full grace period.
 
-A resilient service must implement explicit signal handlers:
-- **1. Stop listening**: Reject new incoming HTTP handshakes.
-- **2. Drain connections**: Finish processing active requests within the remaining grace window.
-- **3. Flush buffers**: Write pending logs, metrics, and database transactions.
-- **4. Close connections**: Cleanly close database pools and cache sockets.
-- **5. Exit 0**: Terminate before the kubelet resorts to `SIGKILL`.
+## Evidence
 
----
+```bash
+kubectl get endpoints booking -n apollo-airlines-apps -w
+kubectl logs -n apollo-airlines-apps <pod> -f --timestamps
+kubectl describe pod <pod> -n apollo-airlines-apps | grep -E 'Killing|Stopping'
+```
 
-## Evidence and limits
+- A "graceful shutdown" log line proves the process caught SIGTERM, **not** that no request failed. Proving draining needs a traffic sampler across the termination window.
+- `kubectl logs --previous` shows an earlier container in the *same* Pod. Logs of a deleted Pod survive only if shipped (Loki).
 
-- **1. Endpoint removal tracking**: Watch endpoints drop in real time during a rollout:
-  ```bash
-  kubectl get endpoints booking -n apollo-airlines-apps -w
-  ```
-- **2. Kubelet event timestamps**: Review timing between termination and SIGTERM:
-  ```bash
-  kubectl describe pod <booking-pod> -n apollo-airlines-apps | grep -E "Killing|Stopping"
-  ```
-- **3. Application shutdown logs**:
-  Follow container logs while the Pod is in `Terminating` state to confirm signal receipt:
-  ```bash
-  kubectl logs -n apollo-airlines-apps <booking-pod> -f
-  ```
-  *(Note: `kubectl logs --previous` only retrieves logs from a previous container execution within the **same** Pod after a container crash; once a Pod is deleted and replaced by a Deployment, its logs are only preserved if shipped to centralized logging like Loki).*
-- **4. Proving request draining**:
-  Observing a log line that says "graceful shutdown" proves the process caught `SIGTERM`, but does not prove requests completed without interruption. True draining verification requires running an active traffic sampler across the termination window and measuring zero 502/504 errors.
+## Check yourself
+
+<details>
+<summary>Why <code>sleep 5</code> if the Go code already handles SIGTERM?</summary>
+
+SIGTERM handling does not control how long routing takes to stop sending traffic. The sleep covers that propagation delay.
+</details>
+
+<details>
+<summary>A Pod terminates in exactly 30 s every time. What does that suggest?</summary>
+
+The process ignores SIGTERM and is SIGKILLed at the grace-period limit.
+</details>

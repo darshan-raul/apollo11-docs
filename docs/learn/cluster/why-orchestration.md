@@ -1,77 +1,67 @@
 ---
 title: "Why orchestration?"
-description: "Start with the question a single machine cannot answer: who keeps Apollo running when its pieces move or fail?"
+description: "Why desired state plus controllers replace a person restarting containers."
 ---
 
 # Why orchestration?
 
-*Ignition · Ask the cluster to fly*
+*Ignition*
 
-Launchpad can run Apollo Airlines on one machine. A person starts containers,
-checks logs, and restarts a process when it fails. That arrangement is useful,
-but it puts the person at the centre of every recovery. Now imagine booking is
-needed on several machines, one machine goes away, and a passenger request still
-arrives. We need a durable description of what should be running and a group of
-actors that continuously work toward it.
+**You will be able to:** explain reconciliation and the five questions to ask about any Kubernetes object.
 
-That is the problem Kubernetes orchestration addresses.
+## The problem
 
-## Desired state is a promise we can inspect
+- Launchpad puts a **person** at the centre of recovery: start, check logs, restart.
+- Across several machines, something must hold a durable description of what should run and **keep working toward it**.
 
-Instead of telling a machine “start booking now,” you describe a desired result:
-Apollo should have a chosen number of booking copies with a particular container
-template. Kubernetes stores that request in its API. Controllers observe the
-stored request and the current cluster, then take small actions to reduce the
-difference between them.
+## Key points
 
-This model is called **reconciliation**. It is a loop, not a single deployment
-moment. A controller may create a Pod, later notice that it disappeared, and
-create another one because the desired count still says it should exist.
+- **Desired state** is stored in the Kubernetes API ("2 booking copies, this template").
+- **Controllers** compare desired state with observed state and take small corrective steps.
+- **Reconciliation is a loop**, not a deployment moment: a deleted Pod is recreated because the desired count still says 2.
+- Different actors do different jobs: controller (counts), scheduler (node choice), kubelet (run containers).
 
-~~~mermaid
+```mermaid
 flowchart LR
-  Intent[Desired state: two booking copies] --> API[Stored Kubernetes object]
-  API --> Controller[Controller observes the request]
-  Actual[Observed cluster state: one booking Pod] --> Controller
-  Controller --> Action[Create a replacement Pod]
+  Intent[Desired: 2 booking] --> API[(API object)]
+  API --> C[Controller]
+  Actual[Observed: 1 booking Pod] --> C
+  C --> Action[Create a Pod]
   Action --> Actual
-~~~
+```
 
-*Diagram CL-01 — reconciliation compares a recorded request with observed state
-and takes another small step toward the request.*
+## What it does not do
 
-## What orchestration changes
+| Kubernetes can | Kubernetes cannot |
+|---|---|
+| Recreate a booking Pod | Recreate a reservation held only in memory |
+| Route traffic to ready Pods | Guarantee downstream services work |
+| Start a new image | Undo side effects of the old one |
 
-A controller can create a replacement Pod after the old one is deleted. A
-scheduler can choose a suitable node. A kubelet can start and monitor containers
-on its node. Those capabilities give the cluster a way to restore processes
-without an operator typing the same restart command each time.
+## Five questions for any object
 
-They do not make every application concern disappear. Kubernetes can recreate a
-booking Pod but cannot recreate a reservation stored only in its memory. It can
-send traffic toward a ready Pod but cannot guarantee every downstream service
-will work. It can start a new image but cannot undo an external side effect from
-an old one. The rest of Apollo’s journey names these boundaries instead of hiding
-them behind the word “self-healing.”
-
-## A useful way to read every mechanism
-
-When you meet a new Kubernetes object, ask five questions:
-
-1. What application problem does this object help describe?
-2. What part of the object records the desired state?
-3. Which running actor observes that object or condition?
+1. What application problem does it describe?
+2. Which field records the desired state?
+3. Which actor observes it?
 4. What action can that actor take?
-5. What evidence says the result is useful, and what does the mechanism not
-   guarantee?
+5. What evidence shows the result is useful, and what does the mechanism **not** guarantee?
 
-For the missing booking Pod, the desired replica count is the intent; a
-controller observes the gap; it creates a replacement; and a passenger booking
-is stronger evidence than merely seeing a new Pod name.
+## Apollo example
 
-## What comes next
+- Missing booking Pod: intent = `replicas: 2`; observer = ReplicaSet controller; action = create Pod; real evidence = a successful booking, not just a new Pod name.
 
-The next chapter introduces the API objects that hold these requests. Then we
-will meet the components that turn an accepted object into a running Pod. Only
-after those concepts are established does the Ignition lab ask you to observe
-them in a local cluster.
+## Try it
+
+```bash
+kubectl get deploy booking -n apollo-airlines -o jsonpath='desired={.spec.replicas} ready={.status.readyReplicas}{"\n"}'
+```
+
+- Desired (`spec`) and observed (`status`) sit side by side on the same object. (Needs Stage 1.)
+
+## Check yourself
+
+<details>
+<summary>Why is "self-healing" an incomplete description?</summary>
+
+It restores processes to match a recorded intent. It cannot restore state held only in a lost Pod or repair a broken dependency.
+</details>

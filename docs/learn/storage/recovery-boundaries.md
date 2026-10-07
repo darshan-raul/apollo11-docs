@@ -1,85 +1,74 @@
 ---
 title: "Recovery boundaries"
-description: "Understand what a surviving PVC actually proves, how reclaim policy affects what happens when a claim is released, and why a backup is not the same as a recovery."
+description: "What a surviving PVC proves, reclaim policy, retention, replication vs backup."
 ---
 
 # Recovery boundaries
 
 *Stage 3 · Mission Data*
 
-Observing a PVC survive a Pod restart is valuable evidence, but it only validates a single failure boundary. It does not prove the data can survive node hardware destruction, human errors, or cluster outages.
+**You will be able to:** state exactly which failure a surviving PVC rules out, and what you still need before claiming recovery.
 
----
+## What survival of one test proves
 
-## PV reclaim policy: what happens when claims are deleted
+- A PVC surviving a Pod restart proves **one** boundary. It says nothing about node loss, human error, corruption or cluster loss.
 
-When a PVC is deleted, the underlying PersistentVolume's **reclaim policy** decides the fate of physical data:
+## Reclaim policy: what deleting a PVC does
 
-- **`Delete` (Default for dynamic provisioning)**:
-  - Deleting the PVC immediately triggers the provisioner to permanently wipe and destroy the backing storage volume.
-  - Practical in ephemeral test environments; dangerous in production.
-- **`Retain`**:
-  - The PV transitions to `Released` status.
-  - The underlying disk remains intact, preventing accidental data destruction.
-  - Requires manual administrative intervention to scrub or rebind.
+| Policy | Result on PVC delete |
+|---|---|
+| `Delete` (dynamic default) | Volume and data **destroyed** |
+| `Retain` | PV → `Released`, data intact; admin must clear `claimRef` to reuse |
 
-~~~mermaid
+```mermaid
 stateDiagram-v2
-  [*] --> Available: Provisioner creates PV
+  [*] --> Available
   Available --> Bound: PVC claims PV
-  Bound --> Released: PVC deleted (Retain policy)
-  Bound --> [*]: PVC deleted (Delete policy) — data gone
-  Released --> Available: Admin manually re-binds
-  Released --> [*]: Admin deletes PV — data gone
-~~~
+  Bound --> Released: PVC deleted (Retain)
+  Bound --> [*]: PVC deleted (Delete): data gone
+  Released --> Available: admin rebinds
+  Released --> [*]: admin deletes PV
+```
 
-*Diagram ST-06 — reclaim policy determines whether a backing volume survives PVC deletion; Delete is immediate and irreversible.*
+## StatefulSet PVC retention
 
----
+```yaml
+persistentVolumeClaimRetentionPolicy:
+  whenDeleted: Retain
+  whenScaled: Delete   # example: delete volumes on scale-down
+```
 
-## StatefulSet PVC retention policies
+## Replication vs backup
 
-Kubernetes allows explicit control over whether PVCs are purged when scaling down:
+| | Replication (HA) | Backup (DR) |
+|---|---|---|
+| Protects against | Node/hardware failure | Corruption, `DROP TABLE`, ransomware, region loss |
+| Fails against | Bad writes (they replicate) | Nothing, **if the restore is rehearsed** |
 
-~~~yaml
-spec:
-  persistentVolumeClaimRetentionPolicy:
-    whenDeleted: Retain   # Retain storage if the StatefulSet object is deleted
-    whenScaled: Delete    # Delete volume if replica count is reduced
-~~~
+- **A backup is not a recovery plan until a restore has been performed and the app verified.**
 
----
+## Boundaries to test
 
-## Replication vs. Backups
+| Event | Survived by | Needs |
+|---|---|---|
+| Container restart / Pod delete | PVC | Done in Stage 3 |
+| PVC delete | `Retain` + backup | Backup you can restore |
+| Node loss (kind) | Nothing | Replication or network storage |
+| Logical corruption | Point-in-time backup | Restored copy |
+| Cluster loss | Off-cluster backup | Rebuilt cluster + restore |
 
-Never conflate real-time replication with backup protection:
+## Try it
 
-- **Replication (High Availability)**:
-  - Synchronizes blocks across nodes or zones in real time.
-  - Protects against: single node hardware failure, power loss.
-  - Fails against: accidental `DROP TABLE`, application data corruption (corruptions replicate instantly).
-- **Backups (Disaster Recovery)**:
-  - Isolated point-in-time snapshots stored outside the cluster boundary.
-  - Protects against: data corruption, ransomware, accidental deletions.
-  - *Golden rule*: A backup is not a recovery plan until an automated restore has been rehearsed and verified.
+```bash
+kubectl get pv -o custom-columns=NAME:.metadata.name,RECLAIM:.spec.persistentVolumeReclaimPolicy,STATUS:.status.phase
+kubectl scale sts/identity-db -n apollo-airlines-apps --replicas=0 && kubectl get pvc -n apollo-airlines-apps -l app=identity-db
+kubectl scale sts/identity-db -n apollo-airlines-apps --replicas=1
+```
 
----
+## Check yourself
 
-## Evidence and limits
+<details>
+<summary>Replication is on. An engineer runs <code>DROP TABLE users</code>. Are you safe?</summary>
 
-- **1. Inspect reclaim policies**:
-  ```bash
-  kubectl get pv -o custom-columns='NAME:.metadata.name,RECLAIM:.spec.persistentVolumeReclaimPolicy,STATUS:.status.phase'
-  ```
-- **2. Scale-down behavior test**: Scale StatefulSet to zero and verify PVC retention:
-  ```bash
-  kubectl scale statefulset identity-db -n apollo-airlines-apps --replicas=0
-  kubectl get pvc -n apollo-airlines-apps -l app=identity-db
-  ```
-- **3. Restore verification**: Verify database readability upon scaling back up:
-  ```bash
-  kubectl scale statefulset identity-db -n apollo-airlines-apps --replicas=1
-  kubectl wait --for=condition=Ready pod/identity-db-0 -n apollo-airlines-apps --timeout=60s
-  kubectl exec -n apollo-airlines-apps statefulset/identity-db -- \
-    psql -U postgres -d identity -c "SELECT count(*) FROM users;"
-  ```
+No. The drop replicates instantly. Only a point-in-time backup helps.
+</details>
