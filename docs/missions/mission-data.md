@@ -3,18 +3,11 @@ title: "Stage 3 — Mission Data: Keep the Reservation"
 sidebar_label: "Mission briefing"
 ---
 
-# Stage 3: Mission Data — Keep the Reservation
+# Stage 3 · Mission Data: storage
 
-A replacement booking Pod is useful only if the passenger’s reservation still
-exists where it needs to. Mission Data asks a more careful question than “is the
-database persistent?”: which identity and bytes survive a container restart, a
-Pod replacement, a claim release, node loss, or a cluster loss?
+**Problem:** the database Pod is replaced. Which identity and bytes survive?
 
-Storage is where broad assurances become expensive. A PersistentVolumeClaim,
-a StatefulSet ordinal, an initialization Job, a backup, and a replica are
-different mechanisms with different failure boundaries.
-
-## What you will understand
+## Chapters
 
 1. [Volume lifetimes](../learn/storage/volume-lifetimes)
 2. [Claims and provisioning](../learn/storage/claims-and-provisioning)
@@ -23,14 +16,13 @@ different mechanisms with different failure boundaries.
 5. [Initialization and seeding](../learn/storage/initialization-and-seeding)
 6. [Recovery boundaries](../learn/storage/recovery-boundaries)
 
-The aim is not to declare that every database needs a StatefulSet. It is to
-choose stable identity, ordered behaviour, and storage claims when the workload
-actually needs them, then state what the chosen backend cannot recover.
+## Ready for the lab when you can answer
 
-## When to take the controls
+- Delete the Pod: do the PVC and PV remain? Delete the PVC: what happens?
+- What does `identity-db-0` keep across replacement that a Deployment Pod would not?
+- Why does a headless Service return Pod IPs instead of one virtual IP?
+- Which failures does a PVC **not** protect against (node loss, cluster loss, bad `DELETE`)?
 
-Take the [Mission Data lab](../stage-3) when you can predict which resources
-remain after deleting a database Pod and which would disappear if the claim were
-deleted. The experiment should strengthen a precise claim, not a vague feeling
-that the data is safe.
+## Lab
 
+- [Build Stage 3](../stage-3)
