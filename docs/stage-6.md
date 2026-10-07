@@ -178,12 +178,12 @@ bash scripts/signals-lab.sh apply 3 helm
 curl -s localhost:19090/api/v1/rules | jq -r '.data.groups[].rules[] | select(.name|test("booking";"i")) | "\(.type) \(.name)"' | sort -u
 ```
 
-   - Note the recording-rule and alert names printed.
-3. **Baseline:** query the error ratio *before* any failure (use the rule names you found):
+   - Expect recording rules `apollo:booking_error_ratio:5m`, `:1h`, `:28d`, `apollo:booking_error_budget_remaining:28d`, and alerts such as `ApolloBookingErrorBudgetBurn`.
+3. **Baseline:** query the error ratio *before* any failure (rule names from step 2):
 
 ```bash
 Q() { curl -sG localhost:19090/api/v1/query --data-urlencode "query=$1" | jq -c '.data.result'; }
-Q '<your error-ratio recording rule name>'
+Q 'apollo:booking_error_ratio:5m'
 ```
 
    - Expect **empty** (`[]`), not `0` and not `1`: with no traffic the ratio is undefined. "No data" is not "perfect availability".
@@ -197,8 +197,8 @@ bash scripts/slo-lab.sh
 5. **Read the result (while or after):**
 
 ```bash
-Q '<error ratio rule, 5m window>'
-Q '<remaining error budget rule>'
+Q 'apollo:booking_error_ratio:5m'
+Q 'apollo:booking_error_budget_remaining:28d'
 curl -s localhost:19090/api/v1/alerts | jq -r '.data.alerts[] | "\(.labels.alertname) \(.state)"'
 ```
 

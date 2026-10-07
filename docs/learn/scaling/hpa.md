@@ -1,90 +1,88 @@
 ---
 title: "Horizontal Pod Autoscaling"
-description: "Understand how the HPA controller chain works from metrics pipeline through replica recommendation to Deployment update, why resource requests determine what CPU utilization means, and what the autoscaler cannot create."
+description: "The HPA feedback loop, the replica formula, why requests define utilisation, and stabilisation."
 ---
 
 # Horizontal Pod Autoscaling
 
 *Stage 7 · Orbital Maneuvering*
 
-When airline ticket sales launch, search traffic spikes tenfold. Manually adjusting replica counts is slow and reactive.
+**You will be able to:** predict the HPA's desired replicas, and explain `<unknown>` targets.
 
-A **HorizontalPodAutoscaler (HPA)** automatically adjusts Deployment replica counts based on observed CPU utilization or custom metric thresholds.
+## Loop
 
----
-
-## The HPA controller feedback loop
-
-~~~mermaid
+```mermaid
 flowchart LR
-  Prom["Prometheus\ncollects CPU metrics\nvia cAdvisor + node-exporter"] --> MetricsAPI["metrics-server\nor Prometheus Adapter\nexposes metrics.k8s.io API"]
-  MetricsAPI --> HPA["HPA controller\nevaluates target utilization\ncomputes desired replicas"]
-  HPA -->|updates| Dep["Deployment\nspec.replicas = N"]
-  Dep --> RS["ReplicaSet\ncreates N Pods"]
-  RS -->|schedules on| Node["Worker node\n(must have capacity)"]
-~~~
-
-*Diagram SC-03 — the HPA reads metrics via the metrics API, evaluates target ratios, and writes updated replica targets to the Deployment.*
-
-- **1. Metrics Pipeline**: `metrics-server` aggregates container CPU and memory metrics from node kubelets.
-- **2. Recommendation Algorithm**: Evaluates current utilization against target ratio:
-  ```text
-  Desired Replicas = ceil( Current Replicas * ( Current Metric / Target Metric ) )
-  ```
-- **3. Deployment Scale**: Writes new replica values to the Deployment controller.
-
----
-
-## Why resource requests determine autoscaling correctness
-
-HPA evaluates CPU utilization as a percentage of **requested CPU**:
-```text
-Utilization % = ( Actual CPU Usage / Requested CPU ) * 100
+  K[kubelets] --> MS[metrics-server: metrics.k8s.io] --> H[HPA controller]
+  H -->|sets spec.replicas| D[Deployment] --> RS[ReplicaSet] --> N[Pods need node capacity]
 ```
 
-| Actual CPU | Requested CPU | Calculated Utilization | HPA reaction (Target: 80%) |
+```text
+desired = ceil( current replicas × currentMetric ÷ targetMetric )
+```
+
+- Then clamped to `[minReplicas, maxReplicas]` and by `behavior` policies.
+
+## Utilisation uses **requests**
+
+```text
+utilisation % = actual CPU ÷ requested CPU
+```
+
+| Actual | Request | Utilisation (target 80%) | Reaction |
 |---|---|---|---|
-| **80m** | 100m | **80%** | Stable; no scale |
-| **80m** | 500m | **16%** | Erroneously scales *down* |
-| **80m** | 50m | **160%** | Rapidly scales *up* |
+| 80m | 100m | 80% | Stable |
+| 80m | 500m | 16% | Scales **down** (request too big) |
+| 80m | 50m | 160% | Scales **up** hard |
+| 80m | none | `<unknown>` | **Blind**: no scaling |
 
-> **Critical rule**: Resource requests are not optional decorations. Without accurate requests, HPA calculations are mathematically meaningless.
+- Requests are inputs to scheduler, QoS and HPA at once.
 
----
+## Apollo's search HPA
 
-## Scale-down stabilization window
+*Source: `templates/autoscaling/search-hpa.yaml`*
 
-~~~mermaid
+| Setting | Value |
+|---|---|
+| Range | dev 1–3; chart default 2–10 |
+| Target | 70% CPU (prod 60%) |
+| Scale up | immediate; +100% or +4 Pods per 30 s (max) |
+| Scale down | 300 s stabilisation; ≤50% per 60 s |
+
+## Stabilisation
+
+```mermaid
 flowchart LR
-  R1[Recommendation: 10 replicas] --> History[Recent recommendation history]
-  R2[Recommendation: 7 replicas] --> History
-  R3[Recommendation: 4 replicas] --> History
-  History --> Window{Within downscale window?}
-  Window -->|yes| Safe[Choose highest recent recommendation: 10]
-  Window -->|after older values expire| Lower[Allow a lower desired count]
-~~~
+  R[recent recommendations 10, 7, 4] --> W{within window?}
+  W -->|yes| High[use the highest: 10]
+  W -->|expired| Low[allow lower]
+```
 
-*Diagram SC-05 — downscale stabilization retains recent recommendations and
-uses the highest relevant value instead of sleeping for a fixed period.*
+- Scale up fast, down slowly: avoids **flapping** on brief dips.
 
-- **Flapping hazard**: Rapidly alternating between adding and removing Pods when traffic fluctuates.
-- **Stabilization window (`stabilizationWindowSeconds: 300`)**:
-  - Remembers the highest recommended replica count over the preceding 5 minutes.
-  - Ensures Pods are not prematurely terminated during brief traffic dips.
+## What it cannot do
 
----
+- Create node capacity: extra replicas stay `Pending` (`Insufficient cpu`).
+- Fix a non-CPU bottleneck (DB connections, a slow dependency).
 
-## Evidence and limits
+## Evidence
 
-- **1. HPA operational status**: Inspect current vs. target metric values:
-  ```bash
-  kubectl get hpa search-hpa -n apollo-airlines-apps
-  ```
-- **2. Detailed evaluation events**: Review scaling decisions:
-  ```bash
-  kubectl describe hpa search-hpa -n apollo-airlines-apps
-  ```
-- **3. Watch real-time replica scaling**:
-  ```bash
-  kubectl get pods -n apollo-airlines-apps -l app=search -w
-  ```
+```bash
+kubectl get hpa search-hpa -n apollo-airlines-apps
+kubectl describe hpa search-hpa -n apollo-airlines-apps | sed -n '/Conditions:/,/Events:/p'
+kubectl get pods -n apollo-airlines-apps -l app=search -w
+```
+
+## Check yourself
+
+<details>
+<summary>2 replicas, 140% vs target 70%. Desired?</summary>
+
+`ceil(2 × 140 ÷ 70) = 4` (capped at `maxReplicas`).
+</details>
+
+<details>
+<summary>Why a 300 s scale-down window?</summary>
+
+To avoid removing Pods during short dips and then re-adding them.
+</details>

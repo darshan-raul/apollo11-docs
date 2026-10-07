@@ -1,111 +1,75 @@
 ---
 title: "Distributed traces"
-description: "Understand how a trace connects spans across Apollo's microservices, what W3C traceparent propagation requires, and why a trace is strong evidence for where time was spent but not proof of root cause."
+description: "Traces and spans, W3C traceparent propagation, and the Collector → Tempo path."
 ---
 
 # Distributed traces
 
 *Stage 6 · Mission Operations*
 
-A single passenger booking request cascades through multiple microservices: the frontend calls `booking`, `booking` verifies authentication with `identity`, checks seat locks in `flight`, and writes to `booking-db`. 
+**You will be able to:** read a trace, explain what breaks it, and say what it does not prove.
 
-When the entire call takes 8 seconds, **distributed tracing** visualizes the exact timeline of execution across all participating services.
+## Terms
 
----
+| Term | Meaning |
+|---|---|
+| **Trace** | The whole request journey; one `Trace ID` |
+| **Span** | One timed operation in one service; has `Span ID`, `Parent Span ID`, duration, attributes |
 
-## Anatomy of a trace: traces and spans
-
-~~~mermaid
+```mermaid
 sequenceDiagram
-  participant B as booking (span)
-  participant I as identity (span)
-  participant F as flight (span)
-  participant DB as booking-db (span)
-  Note over B: Trace ID: abc123\nTotal: 680ms
-  B->>I: POST /api/auth/validate\ntrace parent: abc123-B
-  I-->>B: 200 OK (12ms)
-  B->>F: GET /api/flights?seat=14A\ntrace parent: abc123-B
-  F-->>B: 200 OK (340ms)
-  B->>DB: INSERT INTO bookings\ntrace parent: abc123-B
-  DB-->>B: OK (5ms)
-  Note over F: flight span: 340ms\nflight called flight-db: 290ms
-~~~
+  participant B as booking
+  participant I as identity
+  participant F as flight
+  participant D as booking-db
+  Note over B: trace abc123, 680 ms
+  B->>I: validate (12 ms)
+  B->>F: get flight (340 ms)
+  B->>D: INSERT (5 ms)
+```
 
-*Diagram OB-03 — a distributed trace correlates cross-service spans under a shared trace ID.*
+## Context propagation
 
-- **Trace**: A directed acyclic graph (DAG) representing the complete journey of a request. Identified by a unique `Trace ID`.
-- **Span**: A discrete block of time spent within one specific service or sub-operation:
-  - Carries a `Span ID`, `Parent Span ID`, start time, duration, and metadata tags (e.g. `http.status_code: 200`, `db.statement`).
+```text
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+             │  └ trace id (32 hex)               └ parent span id (16 hex)  └ flags (sampled)
+             └ version
+```
 
----
+- Every service must **copy `traceparent` onto its outgoing calls**. A service that drops it starts a new trace; downstream spans appear as unrelated roots.
+- Booking also forwards `X-Request-ID` for log correlation.
 
-## Context propagation: the W3C `traceparent` standard
+## Pipeline
 
-For spans across separate network boundaries to assemble into a single trace, services must forward HTTP context headers:
-
-- **The `traceparent` header format**:
-  ```text
-  traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
-  ```
-  - `00`: Protocol version.
-  - `4bf92...`: Global Trace ID.
-  - `00f06...`: Calling Parent Span ID.
-  - `01`: Trace flags (sampling enabled).
-- **Silent failure modes**:
-  - If a service drops the header during an outgoing HTTP client call, downstream spans lose their parent link and appear as fragmented, unrelated root traces.
-
----
-
-## The OpenTelemetry Collector architecture
-
-~~~mermaid
+```mermaid
 flowchart LR
-  Apps[Apollo services emit spans] --> Receiver[Collector receiver]
-  Receiver --> Processor[Batch, sample, and enrich]
-  Processor --> Exporter[Collector exporter]
-  Exporter --> Tempo[Tempo trace store]
-  Tempo --> Grafana[Grafana trace query]
-  Config[Collector configuration] -.defines pipeline.-> Receiver
-  Config -.defines pipeline.-> Processor
-  Config -.defines pipeline.-> Exporter
-~~~
+  Apps[services emit OTLP spans] --> Col[OTel Collector DaemonSet :4317/:4318]
+  Col --> Tempo[Tempo]
+  Tempo --> Gr[Grafana]
+```
 
-*Diagram OB-06 — the Collector receives, processes, and exports telemetry; it
-does not create missing trace context between Apollo services.*
+- The Collector batches and exports. It does **not** invent missing context.
+- Tracing is **out of band**: a dead exporter loses traces without failing requests.
 
-- **Applications**: Emit spans over OTLP (OpenTelemetry Protocol) via gRPC (`:4317`) or HTTP (`:4318`).
-- **OTel Collector DaemonSet**: Runs on each worker node to receive, batch, and compress telemetry data locally.
-- **Backend Store (Grafana Tempo)**: Receives batched traces for indexing and high-throughput query lookups.
+## Limits
 
----
+- A trace shows **where time went**. It is strong evidence of the bottleneck, not proof of root cause (why flight's DB was slow is in logs/metrics).
+- Sampling means not every request has a trace.
 
-## Evidence and limits
+## Try it
 
-- **1. Generate a distributed trace using W3C Trace Context**:
-  Inject a standard `traceparent` header (`00-<trace_id>-<span_id>-<flags>`) and bearer token into a real booking request:
-  ```bash
-  TRACE_ID=$(openssl rand -hex 16)
-  SPAN_ID=$(openssl rand -hex 8)
+```bash
+TRACE=$(openssl rand -hex 16)
+curl -s -X POST http://<gateway>/api/bookings -H "traceparent: 00-$TRACE-$(openssl rand -hex 8)-01" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"flightId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}'
+kubectl port-forward -n apollo-observability svc/tempo 13200:3100 &
+curl -s localhost:13200/api/traces/$TRACE | jq '.batches|length'
+bash stages/stage6/scripts/trace-test.sh      # end-to-end proof with four services
+```
 
-  # Send authenticated booking with traceparent context:
-  curl -s -X POST http://localhost:8082/api/bookings \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "traceparent: 00-${TRACE_ID}-${SPAN_ID}-01" \
-    -d "{\"flightId\":\"$FLIGHT_ID\"}"
-  ```
-- **2. Query trace in Tempo API**:
-  Access Tempo via port-forward (or in-cluster DNS `tempo.apollo-observability.svc:3100`):
-  ```bash
-  kubectl port-forward -n apollo-observability svc/tempo 3100:3100 &
-  PF_PID=$!
-  sleep 1
+## Check yourself
 
-  curl -s "http://localhost:3100/api/traces/${TRACE_ID}" | jq .
-  kill $PF_PID
-  ```
-  *(Or execute the comprehensive end-to-end verification via `bash stages/stage6/scripts/trace-test.sh`).*
-- **3. Collector health**: Ensure OpenTelemetry collector is exporting spans:
-  ```bash
-  kubectl logs -n apollo-observability -l app=otel-collector | grep -E "Exporting|spans"
-  ```
+<details>
+<summary>Spans from <code>flight</code> show up as a separate trace. Likely cause?</summary>
+
+`booking` did not forward `traceparent` on that outbound call.
+</details>

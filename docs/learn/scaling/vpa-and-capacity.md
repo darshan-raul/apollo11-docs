@@ -1,86 +1,70 @@
 ---
 title: "VPA and capacity planning"
-description: "Understand what VPA's recommendation mode provides, how to use it without causing HPA conflicts, and what neither autoscaler can do without physical node capacity."
+description: "VPA recommendation mode, the HPA/VPA conflict, and why capacity limits both."
 ---
 
 # VPA and capacity planning
 
 *Stage 7 · Orbital Maneuvering*
 
-While the Horizontal Pod Autoscaler adjusts the number of replicas, the **Vertical Pod Autoscaler (VPA)** optimizes the CPU and memory requests allocated to each individual container.
+**You will be able to:** read a VPA recommendation, pick an update mode, and explain why autoscalers need real node capacity.
 
----
+## What VPA gives
 
-## What the VPA Recommender provides
+| Output | Meaning |
+|---|---|
+| `lowerBound` | Minimum to avoid starving |
+| `target` | Suggested steady-state request |
+| `uncappedTarget` | Target ignoring min/max policy |
+| `upperBound` | Headroom for spikes |
 
-~~~mermaid
+```mermaid
 flowchart LR
-  Pods["search Pods\n(actual CPU/memory usage)"] -->|Observed by| VPA["VPA recommender\n(analyses usage history)"]
-  VPA -->|"updateMode: Off"| Rec["VPA status.recommendation:\ncpu: 150m (was: 100m)\nmemory: 512Mi (was: 256Mi)"]
-  Rec -->|Read by| Engineer["Engineer\n→ Updates Deployment requests\n→ Runs k6 baseline"]
-  Engineer -->|Improved requests| HPA["HPA\n(now has accurate denominator)"]
-~~~
+  U[search Pods: actual usage] --> V[VPA recommender] -->|updateMode Off| Rec[status.recommendation] --> Eng[Engineer updates requests] --> HPA[HPA gets an accurate denominator]
+```
 
-*Diagram SC-04 — in recommendation-only mode, VPA observes real resource consumption and outputs suggestions for human review.*
+## Update modes
 
-- **Continuous monitoring**: Tracks historical memory peaks and CPU percentiles.
-- **Three recommended tiers**:
-  - **`lowerBound`**: Minimum allocation to prevent CPU starvation.
-  - **`target`**: Ideal baseline request based on steady-state traffic.
-  - **`upperBound`**: Maximum limit recommended to absorb unexpected spikes without triggering `OOMKilled`.
-
----
-
-## Operating modes: why `updateMode: "Off"` is safest
-
-| Mode | Behavior | Risk Level |
+| Mode | Behaviour | Risk |
 |---|---|---|
-| **`Off`** (Apollo standard) | Computes recommendations without mutating Pods | Zero risk; human reviews before applying |
-| **`Initial`** | Assigns values only when new Pods are first created | Low; existing running Pods are not restarted |
-| **`Auto` / `Recreate`** | Forcibly evicts running Pods to apply new limits | High; disrupts active traffic and causes rolling restarts |
+| **`Off`** (Apollo) | Recommend only | None |
+| `Initial` | Set requests on new Pods | Low |
+| `Auto` / `Recreate` | Evict Pods to apply | High: restarts, fights HPA |
 
----
+- Apollo enables VPA in staging/prod (chart default) and disables it in dev. The admission webhook is intentionally omitted.
+- Recommendations are empty until the recommender has collected samples.
 
-## Resolving the HPA vs. VPA conflict
+## HPA vs VPA on CPU
 
-Running HPA and VPA concurrently on the same CPU metric causes a destructive race condition:
-- 1. CPU rises → HPA scales out additional replicas.
-- 2. Workload distributes → CPU per Pod drops.
-- 3. VPA interprets lower CPU as over-provisioning → shrinks CPU requests.
-- 4. Lower CPU request artificially inflates HPA utilization percentage → HPA scales out again.
+1. Load rises → HPA adds replicas.
+2. CPU per Pod drops → VPA lowers the request.
+3. Lower request ⇒ higher utilisation % → HPA scales out again.
+- **Never run both in `Auto` on the same CPU.** Use VPA `Off` to size, HPA to scale.
 
-> **Operational rule**: Never run HPA and VPA simultaneously in `Auto` mode on CPU. Use VPA in `Off` mode to determine baseline resource sizing, and configure HPA to manage live horizontal scaling.
+## Capacity is the real limit
 
----
-
-## Evidence and limits
-
-~~~mermaid
+```mermaid
 flowchart LR
-  Metric[Demand metric rises] --> HPA[HPA requests more replicas]
-  HPA --> Deploy[Deployment creates Pods]
-  Deploy --> Pending[Pods remain Pending: no suitable capacity]
-  Pending --> NodeScale[Node autoscaler may add a suitable node]
-  NodeScale --> Schedule[Scheduler places Pods]
-  Schedule --> Ready[Readiness makes new capacity usable]
-  Constraint[Impossible affinity, quota, or zonal constraint] -.can block.-> NodeScale
-~~~
+  Load --> HPA --> Deploy[more Pods] --> Pend{room on nodes?}
+  Pend -->|no| P[Pending]
+  Pend -->|yes| Ready
+  P -.->|cluster autoscaler may add a node| Ready
+```
 
-*Diagram SC-06 — HPA can request Pods, but scheduler and node capacity determine
-whether those replicas can run and become ready.*
+- Impossible affinity, quota or zone constraints can block even a node autoscaler.
 
-- **1. Inspect VPA recommendations**:
-  In Stage 7, VPA is enabled in recommendation-only (`Off`) mode via `--set autoscaling.vpa.enabled=true --set autoscaling.vpa.updateMode=Off`:
-  ```bash
-  kubectl get vpa search-vpa -n apollo-airlines-apps -o yaml
-  ```
-  *(Note: VPA requires a warm-up sampling period before `status.recommendation` populates).*
-- **2. Compare recommendations against live requests**:
-  ```bash
-  kubectl top pods -n apollo-airlines-apps -l app=search
-  ```
-- **3. Check for VPA evictions**:
-  In `Off` mode, VPA provides sizing intelligence without restarting or evicting pods. Confirm that zero VPA evictions occurred:
-  ```bash
-  kubectl get events -n apollo-airlines-apps --field-selector reason=EvictedByVPA
-  ```
+## Evidence
+
+```bash
+kubectl describe vpa search-vpa -n apollo-airlines-apps      # staging/prod
+kubectl top pods -n apollo-airlines-apps -l app=search
+kubectl get events -n apollo-airlines-apps --field-selector reason=EvictedByVPA   # expect none in Off
+```
+
+## Check yourself
+
+<details>
+<summary>Why run VPA in <code>Off</code> mode beside an HPA?</summary>
+
+It advises on sizing without changing requests, so it cannot oscillate with the HPA.
+</details>

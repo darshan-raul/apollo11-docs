@@ -1,59 +1,63 @@
 ---
 title: "Kustomize and overlays"
-description: "Understand how Kustomize transforms a base object graph through overlays, how it compares to Helm's templating model, and what each approach is better suited for."
+description: "Base + overlay patching, and how it differs from Helm templating."
 ---
 
 # Kustomize and overlays
 
 *Stage 5 · Payload Integration*
 
-Unlike Helm, which interpolates placeholders into template strings, **Kustomize** operates without templates. It starts with valid, standalone Kubernetes YAML as a base and merges environment-specific transformations through overlays.
+**You will be able to:** read an overlay, and choose Helm or Kustomize for a job.
 
----
+## Key points
 
-## The Base and Overlay pattern
+- Kustomize has **no templates**. The **base** is valid, standalone Kubernetes YAML.
+- An **overlay** applies transformations: replicas, image tags, labels, patches.
+- Output is plain YAML for `kubectl apply -k`.
 
-~~~mermaid
+```mermaid
 flowchart TD
-  Base["base/booking-dep.yaml\nreplicas: 1\nimage: apollo11/booking:latest"] --> KustEngine["kustomize build overlays/prod"]
-  Overlay["overlays/prod/kustomization.yaml\n+ replica-patch: replicas: 3\n+ image tag: v1.2.0"] --> KustEngine
-  KustEngine --> Result["Rendered output:\nreplicas: 3\nimage: apollo11/booking:v1.2.0"]
-  Result --> APIServer["kubectl apply -k overlays/prod"]
-~~~
+  Base[overlays/base: valid YAML] --> K[kustomize build overlays/prod]
+  Ov["overlay: replicas 3, image tag v1.0.0"] --> K
+  K --> Out[plain YAML]
+```
 
-*Diagram DL-02 — Kustomize merges the base manifests and overlay patches into pure YAML for the cluster.*
+*Source: `stages/stage5/overlays/{base,dev,staging,prod}`*
 
-- **The Base**: Contains the standard resource graph that can be directly applied without modification.
-- **The Overlays**: Target specific environments (e.g. `overlays/prod/`):
-  - Injects environment-specific replica counts.
-  - Updates container image tags.
-  - Adds common labels and namespace prefixes.
+| Overlay field | Effect |
+|---|---|
+| `resources: [../base]` | Start from the base |
+| `replicas:` | Override counts per Deployment |
+| `images:` | Override tag/name |
+| `labels:` | Add labels (`includeSelectors: false` keeps selectors immutable-safe) |
+| patches | Strategic-merge / JSON patches |
 
----
+## Helm vs Kustomize
 
-## Helm vs. Kustomize comparison
-
-| Architectural Aspect | Helm | Kustomize |
+| | Helm | Kustomize |
 |---|---|---|
-| **Underlying model** | Parameterized Go text templates | Pure YAML patch transformations |
-| **Base validity** | Chart templates are invalid standalone YAML | Base files are valid, runnable Kubernetes objects |
-| **Release tracking** | Built-in release state (`helm history`) | Relies on Git commits and GitOps controllers |
-| **Learning curve** | Higher (Go syntax, Sprig functions) | Lower (native Kubernetes patch syntax) |
-| **Ideal use case** | Reusable third-party packages | In-house microservice environment overlays |
+| Model | Go templates + values | YAML patches |
+| Base is runnable? | No | Yes |
+| Logic (if/range) | Yes | No |
+| Release record / rollback | Yes (`helm history`) | No; Git history |
+| Learning curve | Higher | Lower |
+| Best for | Packages others install | Environment differences in your own repo |
 
----
+- Use **one** tool per environment: mixing owners on the same objects causes conflicts.
 
-## Evidence and limits
+## Try it
 
-- **1. Build overlay preview**: Inspect merged YAML locally:
-  ```bash
-  kubectl kustomize overlays/prod
-  ```
-- **2. Live cluster diff**: Check pending modifications before applying:
-  ```bash
-  kubectl diff -k overlays/prod -n apollo-airlines-apps
-  ```
-- **3. Apply overlay**:
-  ```bash
-  kubectl apply -k overlays/prod -n apollo-airlines-apps
-  ```
+```bash
+kubectl kustomize stages/stage5/overlays/dev  > /tmp/dev.yaml
+kubectl kustomize stages/stage5/overlays/prod > /tmp/prod.yaml
+diff /tmp/dev.yaml /tmp/prod.yaml | grep -E 'replicas|image:'
+kubectl diff -k stages/stage5/overlays/dev
+```
+
+## Check yourself
+
+<details>
+<summary>Why can't Kustomize roll back?</summary>
+
+It stores nothing about previous applies; use Git revert and re-apply.
+</details>

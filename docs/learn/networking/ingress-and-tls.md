@@ -1,89 +1,83 @@
 ---
 title: "Ingress and TLS"
-description: "Understand how an Ingress controller translates stored routing rules into a reverse proxy configuration, how TLS termination works at the edge, and what a local certificate cannot prove."
+description: "Ingress is rules, the controller is the proxy; where TLS terminates and what a local cert does not prove."
 ---
 
 # Ingress and TLS
 
 *Stage 2 · Guidance*
 
-Exposing every microservice via its own port forces clients to memorize custom port numbers. Because HTTP requests already convey hostnames in the `Host` header, an edge reverse proxy can accept all traffic on standard web ports (`80` / `443`) and route traffic based on host and path.
+**You will be able to:** separate Ingress rules from the proxy, trace TLS termination, and list what a self-signed cert cannot prove.
 
----
+## Key points
 
-## Ingress is configuration, not a running proxy
+- Requests carry a `Host` header, so one proxy on 80/443 can choose the backend by host/path.
+- **Ingress** = stored routing rules. **Ingress controller** (Traefik, NGINX) = the running proxy that reads them.
+- Without a controller, an Ingress does nothing.
 
-Kubernetes strictly separates the declaration of routing rules from the proxy handling network packets:
-
-- **The `Ingress` resource**: Stored API configuration declaring routes (e.g. `flight.apollo.local` maps to `flight:8081`).
-- **The `Ingress Controller` (e.g., Traefik, NGINX)**: An active Pod running reverse proxy software. It watches `Ingress` objects and dynamically updates its internal routing table.
-
-~~~mermaid
+```mermaid
 flowchart LR
-  Browser["Browser\nHost: flight.apollo.local"] -->|HTTPS :30443| Traefik["Traefik proxy\n(Ingress controller)"]
-  Traefik -->|Reads| IngressObj["Ingress object:\nflight.apollo.local → flight:8081"]
-  Traefik -->|Forwards to| FlightSVC["flight Service\n(ClusterIP)"]
-  FlightSVC --> FlightPod["flight Pod\n:8081"]
-~~~
+  B["Browser Host: flight.apollo.local"] -->|HTTPS :30443| T[Traefik]
+  T -.reads.-> I[Ingress: flight.apollo.local → flight:8081]
+  T --> S[flight Service] --> P[flight Pod]
+```
 
-*Diagram NW-06 — Ingress is configuration consumed by the controller; the proxy forwards traffic to the backend Service.*
+## Reading an Ingress
 
----
+| Field | Meaning |
+|---|---|
+| `ingressClassName: traefik` | Which controller owns it |
+| `rules[].host` | Host header to match |
+| `paths[].pathType: Prefix` | `/` matches everything below |
+| `backend.service` | Target Service + port |
+| `tls[].secretName` | Secret with `tls.crt`/`tls.key` |
 
-## Edge TLS termination
+## TLS termination
 
-When clients connect over HTTPS:
-- **TLS termination**: The secure TLS handshake completes between the client browser and the edge proxy (Traefik).
-- **Certificate retrieval**: Traefik loads the public certificate and private key from a Kubernetes Secret (`kubernetes.io/tls`).
-- **Upstream forwarding**: Traefik forwards the decrypted HTTP request to the cluster's internal Service over plain HTTP.
-
-~~~mermaid
+```mermaid
 sequenceDiagram
   participant B as Browser
-  participant P as Edge proxy
+  participant P as Proxy
   participant S as TLS Secret
   participant F as flight Service
-  S-->>P: certificate and private key
-  B->>P: encrypted HTTPS request
-  Note over P: TLS terminates; HTTP request is decrypted
-  P->>F: plain HTTP in the documented lab path
-  F-->>P: HTTP response
-  P-->>B: encrypted HTTPS response
-~~~
+  S-->>P: cert + key
+  B->>P: HTTPS
+  Note over P: TLS ends here
+  P->>F: plain HTTP
+```
 
-*Diagram NW-07 — TLS protects the browser-to-proxy connection; the lab's
-proxy-to-Service connection is a separate, unencrypted hop.*
+- TLS protects **browser → proxy** only. Proxy → Service is plain HTTP in this lab.
+- Missing/invalid Secret ⇒ Traefik serves its fallback cert (`CN=TRAEFIK DEFAULT CERT`), not a dropped connection.
 
-### Fallback behavior on missing certificates:
-- If the referenced Secret is deleted or invalid, Traefik serves a self-signed fallback certificate (`CN=TRAEFIK DEFAULT CERT`) rather than dropping the TCP connection outright.
+## What a self-signed cert does not give
 
----
+| Missing | Effect |
+|---|---|
+| Browser trust | Warnings; use `--cacert` |
+| Renewal | Fixed expiry, no ACME |
+| Edge → Pod encryption | Needs mTLS |
+| Proof from `curl -k` | `-k` skips verification entirely |
 
-## What a self-signed certificate does not prove
+## Try it
 
-A local TLS certificate proves encrypted transport in a lab, but does not provide:
-- **Browser trust**: Untrusted public certificate authority; browsers will display security warnings.
-- **Automated renewal**: Static expiration date with no ACME / Let's Encrypt rotation engine.
-- **Edge-to-Pod encryption**: Internal traffic between Traefik and backend Pods travels unencrypted unless mutual TLS (mTLS) is introduced.
+```bash
+curl -kv --resolve flight.apollo.local:30443:127.0.0.1 https://flight.apollo.local:30443/readyz 2>&1 | grep -E 'issuer|subject|expire'
+kubectl describe secret apollo-tls-secret -n apollo-airlines-apps
+kubectl get ingress -n apollo-airlines-apps
+```
 
----
+## Diagnose
 
-## Evidence and limits
+| Symptom | Layer |
+|---|---|
+| 404 from proxy | No rule matched the Host/path |
+| 502/503 | Rule matched; backend has no ready endpoint |
+| Wrong cert issuer | TLS Secret missing/invalid |
 
-- **1. Certificate handshake details**: Inspect the active TLS certificate issuer:
-  ```bash
-  curl -kv --resolve flight.apollo.local:30443:127.0.0.1 \
-    https://flight.apollo.local:30443/readyz 2>&1 | grep -E "issuer|subject|expire"
-  ```
-- **2. Secret inspection**: Confirm certificate and private key existence:
-  ```bash
-  kubectl describe secret apollo-tls-secret -n apollo-airlines-apps
-  ```
-- **3. Ingress routing status**: Check host and backend mappings:
-  ```bash
-  kubectl get ingress -n apollo-airlines-apps
-  ```
-- **4. Ingress controller logs**: Diagnose proxy configuration reloads:
-  ```bash
-  kubectl logs -n traefik deploy/traefik | tail -20
-  ```
+## Check yourself
+
+<details>
+<summary>Why does a 404 from the proxy not implicate the backend?</summary>
+
+The proxy answered itself because no route matched; the backend was never contacted.
+</details>

@@ -1,97 +1,78 @@
 ---
 title: "Networks and clients"
-description: "Learn to locate the client before choosing an address, port, or meaning for localhost."
+description: "Find the client first: what localhost, ports and names mean from the browser versus from a container."
 ---
 
 # Networks and clients
 
-*Launchpad · Ask where the request starts*
+*Launchpad*
 
-A passenger opens Apollo Airlines in a browser. The browser asks the frontend
-for a page. Later, the booking service asks flight whether a seat is available.
-Both are HTTP requests, but they begin in different places. That difference is
-the key to understanding addresses, ports, and the most misleading word in early
-container networking: **localhost**.
+**You will be able to:** choose the correct address for a request by identifying where it starts.
 
-Before choosing an address, name the client. The browser is a client on the
-passenger’s machine. Booking is a client inside its own container. Flight is a
-server process inside another container. A network address only makes sense from
-one of those locations.
+## Key points
 
-## What localhost actually means
+- Every request has a **client** and a **server**. An address only makes sense from the client's network.
+- `localhost` means "this client's own network environment":
 
-Localhost means “this network environment.” It does not mean “my laptop” in
-every situation, and it never means “another service I hope is nearby.”
+| Client | `localhost:8081` reaches |
+|---|---|
+| Your host shell / browser | Your laptop (works only if a port is **published**) |
+| The `booking` container | `booking` itself, **not** `flight` |
 
-A browser using localhost reaches a process visible from the browser’s machine.
-A booking container using localhost reaches a process inside booking’s own
-network environment. If flight runs in another container, booking needs a route
-or service name that reaches that other container.
+- A port is local to its network environment. `flight` listens on 8081 inside its container; publishing `8081:8081` makes a separate path from the host.
+- Compose gives containers **service names** via Docker DNS (`127.0.0.11`): `booking` calls `http://flight:8081`.
+- Names are stable; container IPs change on replacement.
 
-A port is similarly local. Flight may listen on port 8081 inside its container.
-That tells us where the flight process accepts connections in its own network
-environment. Publishing a port can create a separate path from the host machine
-to that container, but it does not change what port means inside other containers.
-
-~~~mermaid
+```mermaid
 flowchart TB
-  Browser[Passenger browser] -->|host-visible address| Frontend[frontend container]
-  Booking[booking container] -->|service name and port| Flight[flight container]
-  Booking -->|localhost| Own[only booking's own network environment]
-  Browser -->|localhost| Laptop[passenger's machine]
-~~~
+  Browser -->|host port 3000| Frontend
+  Browser -->|host port 8082 via localhost| Booking
+  Booking -->|"flight:8081 (Docker DNS)"| Flight
+  Booking -->|localhost| Self[booking itself]
+```
 
-*Diagram CT-03 — the same word, localhost, points to a different place for each
-client.*
+## Apollo example
 
-## Give cooperating services stable names
+- Frontend JS runs **in the browser**, so its API URLs are `http://localhost:808x` (published ports).
+- Backends run **in containers**, so they use `http://flight:8081`, `http://identity:8080`.
+- `VITE_*` values are baked into public JS at build time: never put secrets there.
 
-Container platforms make application names more useful than changing IP addresses.
-In Compose, services on the same application network can find one another by
-service name. Booking can ask for flight instead of storing the current IP of a
-particular flight container.
+## Debugging rule
 
-Kubernetes will build a similar promise with Services and DNS. The details are
-different, so do not carry every Compose rule forward unchanged. The durable
-principle is that callers should use a stable contract while containers and Pods
-can be replaced behind it.
+- When booking → flight fails, start from **booking's** network view: configured name → DNS → port → is flight listening?
+- A test from your laptop proves only the laptop's path.
 
-## Trace one Apollo request
+## Try it
 
-When a passenger submits a booking, the browser first contacts an externally
-reachable frontend or edge address. The frontend or edge component then contacts
-a backend using the application network. When booking contacts flight, the
-source is booking, not the browser. If that call fails, start the investigation
-at booking’s network view: its configured name, DNS result, reachable port, and
-the flight process that should be listening.
+```bash
+cd stages/launchpad
+curl -s localhost:8081/healthz                                   # host → published port
+docker compose exec booking wget -qO- http://localhost:8081/healthz   # fails: booking's own localhost
+docker compose exec booking wget -qO- http://flight:8081/healthz      # works: service name
+```
 
-This prevents a common dead end: testing a URL from a laptop and assuming the
-same address must work from inside a container.
+## Gotchas
 
-## Evidence and limits
+- "The browser can reach it" says nothing about container-to-container reach.
+- Different clients can have different DNS search paths, port mappings and policies.
+- Names find a destination; they do not mean it is ready (next chapter).
 
-A successful connection from one client is evidence for that client’s path. It
-does not prove a different client has the same DNS search path, port mapping, or
-network policy. Record where the test ran and which name, port, and protocol it
-used.
-
-Names and routes help a process find another process. They do not make the
-destination ready for useful work. The next chapter follows what happens when a
-dependency exists but cannot yet help complete a passenger booking.
-
-## Check your understanding
+## Check yourself
 
 <details>
-<summary>The browser can reach <code>localhost:8082</code>. Does that prove booking can reach <code>flight:8081</code>?</summary>
+<summary>The browser reaches <code>localhost:8082</code>. Does that prove booking can reach <code>flight:8081</code>?</summary>
 
-No. Those requests start from different clients and follow different network
-paths. Test booking-to-flight connectivity from booking's network environment.
+No. Different clients, different paths. Test from booking's container.
 </details>
 
 <details>
-<summary>Why should booking use a service name instead of a recorded container IP?</summary>
+<summary>Why use a service name instead of a container IP?</summary>
 
-The name is the stable contract. An IP may change when a container is replaced,
-while name resolution can point callers at the current destination.
+The IP changes when the container is replaced; the name is the stable contract.
 </details>
 
+<details>
+<summary>Why does the frontend use <code>localhost</code> URLs when backends use service names?</summary>
+
+The frontend code executes in the browser on the laptop, which cannot resolve Docker-network names.
+</details>

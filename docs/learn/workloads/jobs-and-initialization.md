@@ -1,109 +1,73 @@
 ---
 title: "Jobs and initialization"
-description: "Understand why database schema bootstrap and seed work belong in Jobs rather than application containers, and what idempotency means for retries in distributed systems."
+description: "Why schema and seed work run as Jobs, and why idempotency is required."
 ---
 
 # Jobs and initialization
 
 *Stage 1 · Liftoff*
 
-The booking service runs two replicas. Both containers start concurrently and both require database tables before serving passenger requests.
+**You will be able to:** choose Job vs Deployment, and write initialization that is safe to run twice.
 
-If each replica executed database schema migrations as part of its application startup script:
-- **Race conditions**: Two processes concurrently execute `CREATE TABLE` statements.
-- **Failures and lock contention**: One replica acquires locks while the second crashes or raises duplicate table exceptions.
-- **Corrupted state**: Partial migrations left behind by a killed container corrupt production tables.
+## Key points
 
-A **Job** (`batch/v1`) resolves this by decoupling finite initialization tasks from continuous application workloads.
+- Two booking replicas starting together would both try `CREATE TABLE`: races, lock contention, partial migrations.
+- A **Job** runs a finite task to completion, separately from the app.
 
----
+| | Deployment | Job |
+|---|---|---|
+| Purpose | Long-running service | Bounded task |
+| `restartPolicy` | `Always` | `OnFailure` / `Never` |
+| Controller goal | N replicas forever | `completions: 1` |
+| On failure | Keep replacing | Retry up to `backoffLimit: 3`, then `Failed` |
 
-## Deployment vs. Job semantics
-
-Kubernetes treats long-running and finite processes with distinct controller semantics:
-
-- **Deployment (`apps/v1`)**:
-  - **Purpose**: Runs long-running, resilient web services and daemons.
-  - **Reconciliation**: Maintains $N$ replicas indefinitely (`restartPolicy: Always`).
-  - **Failure response**: Replaces killed Pods indefinitely until manually updated or deleted.
-- **Job (`batch/v1`)**:
-  - **Purpose**: Executes a discrete, bounded task to successful completion.
-  - **Reconciliation**: Tracks `completions: 1` (`restartPolicy: OnFailure` or `Never`).
-  - **Failure response**: Retries up to `backoffLimit: 3` times. If limits are reached, marks the Job `Failed` and halts.
-
-~~~mermaid
+```mermaid
 flowchart LR
-  subgraph Deployment["Deployment: booking (long-running)"]
-    D["replicas: 2\nrestartPolicy: Always\nRuns forever until deleted"]
-  end
-  subgraph Job["Job: init-booking-db (finite work)"]
-    J["completions: 1\nbackoffLimit: 3\nrestartPolicy: Never\nRuns until success or limit"]
-  end
-  Deployment -->|starts booking HTTP server| Booking["booking: serving requests"]
-  Job -->|runs psql init.sql| Done["Job: Complete"]
-~~~
+  Dep[Deployment booking: runs forever] --> Srv[serves requests]
+  Job[Job init-booking-db: runs psql init.sql] --> Done[Complete]
+```
 
-*Diagram WL-06 — a Deployment maintains a target count forever; a Job drives work to completion and stops.*
+## Why not in app startup
 
----
+1. **Races** between replicas.
+2. **Entangled failures:** a migration error becomes an app `CrashLoopBackOff`, hiding the cause.
+3. **No independent retry** without restarting the web server.
 
-## Why initialization belongs outside application containers
+- A Job does **not** make the Deployment wait. Your delivery workflow must wait for success before exposing a schema-dependent version.
 
-Embedding schema migrations directly into application startup creates three operational hazards:
+## Idempotency
 
-- **1. Concurrent race conditions**: Multiple replicas starting simultaneously attempt schema locks concurrently.
-- **2. Entangled failure domains**: When a migration fails, the application Pod enters `CrashLoopBackOff`, obscuring whether the root cause is a database schema error, bad environment configuration, or network partition.
-- **3. Inability to retry independently**: You cannot re-run only the failed migration without constantly restarting the application web server and causing cascading traffic drops.
+| Work | Make it safe to rerun |
+|---|---|
+| Schema | `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS` |
+| Seed | `INSERT … ON CONFLICT DO NOTHING / UPDATE` |
+| DB not up yet | Retry loop on `pg_isready` (as in `init-booking-db`) |
 
-Running `init-booking-db` as a standalone Job lets Apollo observe and retry the
-migration independently from the application. It does not, by itself, make the
-Deployment wait. The delivery workflow must wait for Job success before exposing
-a version that depends on the new schema.
+## What `Complete` proves
 
----
+- Proves: the container exited `0`.
+- Does **not** prove: schema fits the current app, future changes are safe, or data was preserved.
+- A completed Job does **not** rerun when the database is reset (Stage 1 Exercise 7). Stage 3 moves first-start seeding into Postgres' own init mechanism.
 
-## Idempotency: the prerequisite for retries
+## Diagnose a failed Job
 
-In distributed environments, operations will inevitably re-execute:
-- A network blip occurs mid-migration and the Job retries.
-- An operator manually re-runs an initialization Job following a rollback.
-- A rolling update triggers automated pre-deploy hooks.
+```bash
+kubectl get job init-booking-db -n apollo-airlines
+kubectl describe job init-booking-db -n apollo-airlines | sed -n '/Events:/,$p'
+kubectl logs -n apollo-airlines -l app=init-booking-db
+kubectl exec -n apollo-airlines deploy/booking-db -- psql -U postgres -d booking -c '\dt'
+```
 
-Consequently, all initialization scripts must be strictly **idempotent**:
-- **Schema bootstrap**: Always use `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`.
-- **Seed records**: Always use `INSERT INTO ... ON CONFLICT DO NOTHING` or `ON CONFLICT DO UPDATE`.
-- **Database readiness polling**: Wrap execution in connection-retry loops so transient database startup delays do not prematurely fail the Job.
+## Check yourself
 
----
+<details>
+<summary>Why does a Job retry up to <code>backoffLimit</code> and then stop?</summary>
 
-## The narrow scope of Job completion
+It must finish; repeated failure is an error to fix, not a state to keep re-creating.
+</details>
 
-A Job marked `Complete` provides very specific evidence:
-- **What it proves**: The containerized process completed with exit code `0`.
-- **What it does not prove**:
-  - That the created schema is compatible with the latest application binary.
-  - That subsequent schema changes can be applied without breaking existing data.
-  - That existing production records were preserved during column alterations.
+<details>
+<summary>Why must init scripts be idempotent?</summary>
 
----
-
-## Evidence and limits
-
-Diagnose Job failures through the evidence ladder:
-
-- **1. Status check**: Check whether the Job succeeded or exhausted its retry budget:
-  ```bash
-  kubectl get job init-booking-db -n apollo-airlines
-  ```
-- **2. Failure events**: Inspect reason and restart counts:
-  ```bash
-  kubectl describe job init-booking-db -n apollo-airlines | grep -A 10 Events:
-  ```
-- **3. Job container logs**: Check exact SQL or shell error outputs:
-  ```bash
-  kubectl logs -n apollo-airlines -l app=init-booking-db
-  ```
-- **4. Database schema verification**: Directly inspect the database to confirm tables exist:
-  ```bash
-  kubectl exec -n apollo-airlines deploy/booking-db -- psql -U postgres -d booking -c "\dt"
-  ```
+Retries, manual reruns and hooks will execute them more than once.
+</details>

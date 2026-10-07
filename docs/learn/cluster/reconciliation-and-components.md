@@ -1,143 +1,80 @@
 ---
 title: "Reconciliation and Kubernetes components"
-description: "Follow a booking Deployment from an accepted API object through controllers, scheduling, kubelet work, and observed status."
+description: "Which component does each step from an accepted Deployment to a running container, and how kind lays them out."
 ---
 
 # Reconciliation and Kubernetes components
 
-*Ignition · Watch the launch sequence*
+*Ignition*
 
-Suppose Apollo asks for a Deployment of booking. The request is accepted by the
-API server, but the API server does not start a container. Several specialised
-actors each handle a part of the journey. Learning their small responsibilities
-is more useful than treating “Kubernetes” as one invisible actor.
+**You will be able to:** name the component responsible for each step, and the evidence it leaves.
 
-## The actors and their jobs
+## Who does what
 
-The **API server** accepts, validates, and stores Kubernetes objects. Controllers
-watch objects and compare what they see with the desired state they own. The
-**Deployment controller** can create a ReplicaSet; the **ReplicaSet controller**
-can create Pods.
-
-A newly created Pod may not yet have a node. The **scheduler** looks for a node
-that satisfies the Pod’s requests and constraints, then records that assignment.
-The **kubelet** on the chosen node observes Pods assigned there, starts their
-containers through the container runtime, runs probes, and reports status.
-
-~~~mermaid
-sequenceDiagram
-  participant U as Operator
-  participant A as API server
-  participant D as Deployment controller
-  participant R as ReplicaSet controller
-  participant S as Scheduler
-  participant K as Kubelet
-  U->>A: submit booking Deployment
-  D->>A: create ReplicaSet
-  R->>A: create booking Pod
-  S->>A: bind Pod to a node
-  K->>K: start booking container
-  K->>A: report Pod status
-~~~
-
-*Diagram CL-03 — API acceptance, controller work, scheduling, startup, and
-status reporting are separate transitions with different evidence.*
-
-## Reconciliation continues after the first launch
-
-The sequence is not only for initial deployment. If a booking Pod is deleted,
-the ReplicaSet controller sees fewer Pods than its target and creates a new one.
-If a container exits, the kubelet may restart it inside the existing Pod. If a
-Pod cannot schedule, the scheduler reports a condition and later retries when
-the cluster changes.
-
-Each actor has a narrow view. A controller can see that a replica is missing; it
-does not diagnose a database query inside booking. The kubelet can see a
-container exit; it does not decide whether a new release should be promoted.
-This separation is why useful debugging follows the chain instead of immediately
-deleting Pods.
-
-## Where do these components live? Understanding kind
-
-In a cloud environment (such as AWS EKS or GCP GKE), Kubernetes nodes are
-separate virtual machines or physical servers connected by a cloud network.
-In this course, we create a multi-node cluster locally using **`kind`**
-(**K**ubernetes **in** **D**ocker).
-
-`kind` uses a clever pattern: **every Kubernetes node is itself a Docker
-container** running on your laptop.
+| Component | Runs on | Job | Evidence it leaves |
+|---|---|---|---|
+| `kube-apiserver` | control plane | Validate, authenticate, store objects; only writer to etcd | `apply` accepted; defaults filled in |
+| `etcd` | control plane | Authoritative state | (via the API) |
+| Deployment / ReplicaSet controllers (in `kube-controller-manager`) | control plane | Create ReplicaSets and Pods to match counts | ownerReferences; ReplicaSet events |
+| `kube-scheduler` | control plane | Choose a node for a Pod with no `nodeName` | `Scheduled` / `FailedScheduling` |
+| `kubelet` | every node | Start containers, run probes, report status | `Pulling`, `Started`, `BackOff`, conditions |
+| `containerd` | every node | Actually create containers | `crictl ps` on the node |
+| `kube-proxy` | every node | Service routing rules (Stage 2) | iptables rules |
 
 ```mermaid
-flowchart TB
-  subgraph Host ["Your Workstation / Laptop"]
-    CLI["kubectl (CLI client)"]
-
-    subgraph DockerEngine ["Docker Engine"]
-      subgraph CPNode ["Docker Container: apollo11-control-plane"]
-        API["kube-apiserver (Port :6443)"]
-        ETCD[("etcd (storage)")]
-        CM["controller-manager"]
-        SCHED["scheduler"]
-        KL0["kubelet"]
-        CRI0["containerd"]
-      end
-
-      subgraph W1Node ["Docker Container: apollo11-worker"]
-        KL1["kubelet"]
-        KP1["kube-proxy"]
-        CRI1["containerd"]
-        P1["Future Workload Pods"]
-      end
-
-      subgraph W2Node ["Docker Container: apollo11-worker2"]
-        KL2["kubelet"]
-        KP2["kube-proxy"]
-        CRI2["containerd"]
-        P2["Future Workload Pods"]
-      end
-    end
-
-    CLI -->|HTTPS :6443| API
-    CPNode <--> W1Node
-    CPNode <--> W2Node
-  end
+sequenceDiagram
+  participant U as You
+  participant A as API server
+  participant D as Deployment ctrl
+  participant R as ReplicaSet ctrl
+  participant S as Scheduler
+  participant K as Kubelet
+  U->>A: submit Deployment
+  D->>A: create ReplicaSet
+  R->>A: create Pod
+  S->>A: bind Pod to node
+  K->>K: start container
+  K->>A: report status
 ```
 
-### What happens when you launch Apollo11's cluster:
+## Key points
 
-1. **Three Containers as Three Nodes:** Docker starts three containers:
-   `apollo11-control-plane`, `apollo11-worker`, and `apollo11-worker2`.
-2. **Container-in-Container Runtime:** Inside each node container, `containerd`
-   runs as the Container Runtime Interface (CRI). When Kubernetes schedules a
-   Pod on `apollo11-worker`, the worker's kubelet tells its nested `containerd`
-   to start the application container.
-3. **`kubectl` Communication:** Your laptop's `kubectl` CLI communicates with
-   the cluster via HTTPS on port `6443`, which Docker forwards directly to
-   the `kube-apiserver` inside the `apollo11-control-plane` container.
-4. **`extraPortMappings`:** Because the nodes are containers isolated inside a
-   Docker network, `kind-config.yaml` explicitly forwards ports `30080`–`30084`
-   and `30443` from your laptop into the control-plane container. In Stage 2,
-   this port forwarding is what allows your host web browser to reach the
-   airline's frontend and APIs.
+- The sequence repeats on every change, not just at first launch.
+- Each actor has a **narrow view**: a controller sees a missing replica, not a failing SQL query; the kubelet sees an exit, not a release decision.
+- Reconciliation is **asynchronous**: actors observe at different moments.
+- `apply` does not reserve capacity forever, keep memory, or make dependencies healthy.
 
-## Work from evidence outward
+## Where it runs in this course: `kind`
 
-For a failed launch, begin with the stored object and its conditions. Then inspect
-events for scheduling or image pull messages. Then inspect the Pod specification
-and container status. Finally, inspect application logs and the passenger-facing
-path.
+- Each Kubernetes **node is a Docker container**: `apollo11-control-plane`, `apollo11-worker`, `apollo11-worker2`.
+- Inside each, `containerd` runs the real app containers.
+- `kubectl` talks HTTPS to port `6443`, forwarded to the control-plane container.
+- `extraPortMappings` forward host ports `30080`–`30084`, `30443` to the control-plane container (used from Stage 2).
+- If Docker stops, every node stops: kind teaches roles, not high availability.
 
-A green Deployment condition is valuable, but it is not the same as a successful
-booking. The application can run while an external dependency is unavailable.
-This is the evidence ladder in practice: each layer answers a narrower question,
-and together they produce a defensible explanation.
+## Debug from evidence outward
 
-## What this does not promise
+1. Object + conditions → 2. Events (scheduling, image pull) → 3. Pod spec + container status → 4. Logs → 5. The passenger request.
 
-Reconciliation is asynchronous. Controllers, the scheduler, and kubelets do not
-all observe a change at the same instant. A successful API request does not
-reserve node capacity forever, preserve process memory, or make dependencies
-healthy. The next chapter separates a container restart from a replacement Pod
-so you can see which boundaries each recovery action keeps.
+## Try it
 
+```bash
+kubectl -n kube-system get pods -o wide
+kubectl describe pod apollo-shell | sed -n '/^Events:/,$p'
+```
 
+- The first shows control-plane Pods on one node and per-node agents on each; the second shows `default-scheduler` then `kubelet` as event sources.
+
+## Check yourself
+
+<details>
+<summary>A Pod is <code>Pending</code> with no node. Which component's events do you read?</summary>
+
+The scheduler's (`FailedScheduling`). The kubelet has not seen the Pod yet.
+</details>
+
+<details>
+<summary>Why is a green Deployment condition not proof the airline works?</summary>
+
+It reflects replica availability, not whether dependencies are reachable or a booking succeeds.
+</details>

@@ -1,73 +1,62 @@
 ---
 title: "Identity and authorization"
-description: "Understand authentication, authorization, and admission as separate gates, what least-privilege RBAC requires, and why ServiceAccounts are identities rather than security guarantees."
+description: "Authentication, authorization and admission as three gates; least-privilege RBAC."
 ---
 
 # Identity and authorization
 
-*Stage 8 · Command Module (Planned Roadmap)*
+*Command Module · Planned*
 
 :::note[Conceptual chapter]
-Apollo does not yet provide a runnable Stage 8 security environment. The
-commands below illustrate the evidence to collect in a future implementation;
-they are not expected to succeed against the supported Stage 7 lab.
+Apollo has no runnable security lab yet. Commands show the evidence a future lab should produce; they are not expected to behave this way on the Stage 7 cluster.
 :::
 
-When a request arrives at the Kubernetes API server, it is not evaluated by a single monolithic security check. It passes through three sequential security gates: **Authentication**, **Authorization**, and **Admission Control**.
+**You will be able to:** name the three API gates, write a least-privilege Role, and test it with `kubectl auth can-i`.
 
----
+## Three gates
 
-## The three API server access gates
-
-~~~mermaid
+```mermaid
 flowchart LR
-  Client["Client Request\n(kubectl / ServiceAccount)"] --> AuthN["1. Authentication\nWho are you?\n(x509 cert, Bearer token)"]
-  AuthN --> AuthZ["2. Authorization\nMay you do this?\n(RBAC: Role / ClusterRole)"]
-  AuthZ --> Admission["3. Admission\nIs the payload valid?\n(Validating & Mutating Webhooks)"]
-  Admission --> etcd["etcd\n(Object committed)"]
-~~~
+  C[Request] --> A[1 Authentication: who?] --> Z[2 Authorization: allowed?] --> M[3 Admission: valid payload?] --> E[(etcd)]
+```
 
-*Diagram SEC-02 — three distinct checkpoints evaluate identity, permission, and object content in sequence.*
-
-- **1. Authentication (AuthN)**:
-  - Answers: *Who is making this call?*
-  - Mechanisms: X.509 client certificates, OIDC tokens, or ServiceAccount bearer tokens.
-- **2. Authorization (AuthZ)**:
-  - Answers: *Is this authenticated identity allowed to perform this verb on this resource?*
-  - Mechanisms: Role-Based Access Control (RBAC).
-- **3. Admission Control**:
-  - Answers: *Does the payload adhere to cluster-wide security policies?*
-  - Mechanisms: Pod Security Admission, Kyverno, OPA Gatekeeper.
-
----
-
-## Least-Privilege RBAC architecture
-
-RBAC grants permissions using four core building blocks:
-
-| Scope | Permission Template | Identity Binding |
+| Gate | Question | Mechanism |
 |---|---|---|
-| **Namespaced** | **`Role`** (defines verbs + resources in namespace) | **`RoleBinding`** (attaches Role to ServiceAccount/User) |
-| **Cluster-wide** | **`ClusterRole`** (defines cluster-wide permissions) | **`ClusterRoleBinding`** (grants permissions across all namespaces) |
+| AuthN | Who is calling? | x509 cert, OIDC token, ServiceAccount token |
+| AuthZ | May this identity do this verb on this resource? | RBAC |
+| Admission | Does the object satisfy policy? | Pod Security Admission, Kyverno, Gatekeeper |
 
-### Anti-patterns to avoid:
-- **Binding `cluster-admin` to workloads**: Never bind full administrative rights to applications.
-- **Wildcard permissions (`verbs: ["*"]`)**: Always name explicit verbs (`["get", "list", "watch"]`).
-- **Default ServiceAccount reuse**: Each service must have its own isolated ServiceAccount so access can be granted or revoked independently.
+- A request can pass one gate and fail the next. They are not substitutes.
 
----
+## RBAC building blocks
 
-## Evidence and limits
+| Scope | Permissions | Binding |
+|---|---|---|
+| Namespace | `Role` | `RoleBinding` |
+| Cluster | `ClusterRole` | `ClusterRoleBinding` |
 
-- **1. Test authorization rules (`kubectl auth can-i`)**:
-  ```bash
-  kubectl auth can-i create pods --as=system:serviceaccount:apollo-airlines-apps:booking -n apollo-airlines-apps
-  ```
-- **2. Inspect assigned RoleBindings**:
-  ```bash
-  kubectl get rolebindings,clusterrolebindings -n apollo-airlines-apps -o wide
-  ```
-- **3. Audit ServiceAccount permissions**:
-  ```bash
-  kubectl describe rolebinding <binding-name> -n apollo-airlines-apps
-  ```
+## Anti-patterns
+
+| Don't | Do |
+|---|---|
+| Bind `cluster-admin` to a workload | Grant exact verbs on exact resources |
+| `verbs: ["*"]` | `["get","list","watch"]` |
+| Share the `default` ServiceAccount | One ServiceAccount per service so access is revocable separately |
+
+- A ServiceAccount is an **identity**, not a guarantee. Apollo already sets `automountServiceAccountToken: false` since its services never call the API.
+
+## Evidence (future lab)
+
+```bash
+kubectl auth can-i create pods --as=system:serviceaccount:apollo-airlines-apps:booking -n apollo-airlines-apps
+kubectl get rolebindings,clusterrolebindings -A -o wide
+kubectl describe rolebinding <name> -n apollo-airlines-apps
+```
+
+## Check yourself
+
+<details>
+<summary>A request is authenticated but returns <code>Forbidden</code>. Which gate?</summary>
+
+Authorization (RBAC). Authentication succeeded.
+</details>

@@ -1,93 +1,80 @@
 ---
 title: "Rollouts and rollback"
-description: "Understand how a Deployment template change becomes a controlled handover between versions, what readiness gates, and why rolling back is not undoing."
+description: "How a template change becomes a controlled handover, and what rollback does not undo."
 ---
 
 # Rollouts and rollback
 
 *Stage 1 · Liftoff*
 
-When a new container image is released, tearing down all existing Pods simultaneously causes an immediate service outage. A Deployment replaces Pods gradually through a controlled rolling update, preserving service availability while transitioning traffic between versions.
+**You will be able to:** explain why a bad release can stall without an outage, and what `rollout undo` does and does not restore.
 
----
+## Key points
 
-## How template changes trigger rolling updates
+- Any change to `spec.template` (image, env, probes) starts a **rollout**: the Deployment creates a **new ReplicaSet** and shifts Pods gradually.
+- Old and new ReplicaSets coexist; old Pods go away only as new Pods become **Ready**.
 
-Any modification to `spec.template` (image tag, environment variable, or probe configuration) initiates a new rollout:
-
-- **1. New ReplicaSet created**: The Deployment controller spins up a secondary ReplicaSet representing the new template version.
-- **2. Coexistence**: Both the active (old) and incoming (new) ReplicaSets exist in the cluster concurrently.
-- **3. Gradual handover**: New Pods are started and verified before old Pods are terminated.
-
-~~~mermaid
+```mermaid
 flowchart TD
-  Trigger["kubectl set image / edit / apply"] --> DeploymentController
-  DeploymentController["Deployment controller\nobserves template change"] --> NewRS["New ReplicaSet\nbooking-v2 template\ntarget: 2"]
-  DeploymentController --> OldRS["Old ReplicaSet\nbooking-v1 template\ntarget: decreasing"]
-  NewRS -->|creates| NewPod1["booking-v2 Pod"]
-  NewRS -->|creates| NewPod2["booking-v2 Pod"]
-  OldRS -->|removes when ready pods allow| OldPod["booking-v1 Pod — deleted"]
-~~~
+  Change[set image / apply] --> DC[Deployment controller]
+  DC --> New[New ReplicaSet, scaling up]
+  DC --> Old[Old ReplicaSet, scaling down]
+  New --> NP[new Pods: Ready gate]
+  Old --> OP[old Pods removed as new become Ready]
+```
 
-*Diagram WL-03 — the Deployment manages two ReplicaSets during a rolling update; old Pods are replaced only as new Pods become ready.*
+## Pace controls
 
----
+| Field | Default | Meaning |
+|---|---|---|
+| `maxSurge` | 25% (rounded up) | Extra Pods above desired during update |
+| `maxUnavailable` | 25% (rounded down) | Pods allowed to be missing |
 
-## Readiness gates the rollout
+- With `replicas: 2`: surge 1, unavailable 0 ⇒ a new Pod must be Ready before any old Pod is removed.
+- A broken release (`ImagePullBackOff`, crash on boot, failing readiness) **stalls**; old Pods keep serving.
 
-The rolling update progression is governed by two key parameters:
+## What rollback restores
 
-- **`maxSurge`** (default 25%): Maximum number of additional Pods created above the target replica count.
-- **`maxUnavailable`** (default 25%): Maximum number of Pods that can be taken down during the update.
-  - *Example*: With `replicas: 2` and `maxUnavailable: 25%`, Kubernetes rounds down to `0`. No old Pods are deleted until at least one new Pod is completely `Ready`.
+| `kubectl rollout undo` | Restores? |
+|---|---|
+| Previous ReplicaSet/template (image, env literal, probes) | ✅ |
+| ConfigMap/Secret edits (not in the template) | ❌ |
+| Rows written by the bad version | ❌ |
+| Emails/SMS already sent | ❌ |
+| Payments, consumed queue items | ❌ |
 
-### Why readiness probes protect deployments:
-- A new container starting does **not** equal traffic-ready.
-- The Service excludes unready Pods from the routing table until their readiness probe returns HTTP 200.
-- If a broken release triggers `ImagePullBackOff` or crashes on boot, the rollout stalls immediately.
-- The existing version remains active and continues serving passenger traffic without disruption.
+## Expand → deploy → contract
 
----
+1. **Expand:** add columns/tables backwards-compatibly (v1 and v2 both work).
+2. **Deploy** v2. Rolling back to v1 is safe.
+3. **Contract:** after v2 is stable, remove the legacy columns.
 
-## Rollback restores templates, not application side effects
+## Diagnose a rollout
 
-When a regression occurs, `kubectl rollout undo` rolls back the Deployment:
-- **What happens**: The Deployment controller designates the previous ReplicaSet as desired and scales it back up.
-- **What does NOT happen**:
-  - ❌ Database records written by the buggy version are **not** undone.
-  - ❌ Confirmation emails or SMS messages dispatched to passengers are **not** retracted.
-  - ❌ External payment gateway transactions are **not** refunded.
-  - ❌ Consumed message queue items are **not** restored.
+```bash
+kubectl rollout status deploy/booking -n apollo-airlines --timeout=30s
+kubectl get rs,pods -n apollo-airlines -l app=booking
+kubectl describe pod -n apollo-airlines -l app=booking | grep -E 'Failed|BackOff|Readiness'
+kubectl rollout history deploy/booking -n apollo-airlines
+kubectl rollout undo deploy/booking -n apollo-airlines
+```
 
-### The Expand-Contract migration pattern
-To safely support rollbacks when database schemas change:
-- **Phase 1 (Expand)**: Add new columns or tables in a backwards-compatible manner. Both v1 and v2 application binaries can run concurrently.
-- **Phase 2 (Deploy)**: Roll out application v2. If issues arise, rolling back to v1 remains safe because v1 can still read the expanded schema.
-- **Phase 3 (Contract)**: After v2 is stable, drop legacy columns and obsolete tables in a follow-up migration.
+| Stuck with | Likely |
+|---|---|
+| `ImagePullBackOff` | Wrong tag / registry (kubelet) |
+| Running `0/1` | Readiness failing: config or dependency |
+| `Pending` | Scheduling / quota |
 
----
+## Check yourself
 
-## Evidence and limits
+<details>
+<summary>Why did users keep getting 200s during a stalled rollout?</summary>
 
-Inspect rolling update health across each layer:
+The new Pod never became Ready, so the old Pods were never removed.
+</details>
 
-- **1. Rollout progress**: Check if the deployment is progressing or stalled:
-  ```bash
-  kubectl rollout status deployment/booking -n apollo-airlines
-  ```
-- **2. Pod distribution**: Confirm status breakdown between old and new replicas:
-  ```bash
-  kubectl get pods -n apollo-airlines -l app=booking
-  ```
-- **3. Active endpoints**: Verify the Service endpoint pool is populated:
-  ```bash
-  kubectl get endpoints booking -n apollo-airlines
-  ```
-- **4. Live synthetic check**: Validate live responses from outside the cluster:
-  ```bash
-  curl -i http://localhost:30082/readyz
-  ```
-- **5. Release revisions**: Inspect historical ReplicaSet revisions:
-  ```bash
-  kubectl rollout history deployment/booking -n apollo-airlines
-  ```
+<details>
+<summary>Does rolling back undo a booking written by the buggy version?</summary>
+
+No. Rollback restores the Pod template only; data and external effects stay.
+</details>

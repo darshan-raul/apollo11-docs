@@ -1,83 +1,61 @@
 ---
 title: "Logs"
-description: "Understand what makes a log line useful for incident investigation, how Loki collects and indexes Apollo's structured logs, and what a log record can and cannot establish."
+description: "Structured logs, the Alloy → Loki pipeline, and what a log line can prove."
 ---
 
 # Logs
 
 *Stage 6 · Mission Operations*
 
-While metrics indicate *that* an incident is occurring and traces pinpoint *where* latency is accumulating, **logs** surface the explicit application error messages, database exceptions, and contextual event details needed for root-cause diagnosis.
+**You will be able to:** write a useful structured log, trace the shipping path, and query Loki.
 
----
+## Structured beats unstructured
 
-## What distinguishes structured logs from unstructured strings
+| Unstructured | Structured JSON |
+|---|---|
+| `ERROR booking failed for user 1234: duplicate key` | `{"level":"error","service":"booking","trace_id":"…","booking_reference":"AA-…","error":"…duplicate key…"}` |
+| Regex to query | Filter by field; join to traces via `trace_id` |
 
-- **Unstructured text (Hard to parse & query)**:
-  ```text
-  2024-09-18 14:32:01 ERROR booking failed for user 1234: duplicate key
-  ```
-- **Structured JSON (Queryable, indexed, and correlated)**:
-  ```json
-  {
-    "timestamp": "2024-09-18T14:32:01.423Z",
-    "level": "error",
-    "service": "booking",
-    "trace_id": "abc123traceidentifier",
-    "operation": "CreateBooking",
-    "booking_reference": "AA-2024-001234",
-    "error": "pq: duplicate key value violates unique constraint \"bookings_booking_reference_key\"",
-    "duration_ms": 45
-  }
-  ```
+## Pipeline
 
-### Key advantages of structured fields:
-- **Trace correlation**: Embedding `trace_id` enables jumping directly from a Tempo trace span into the exact matching log lines in Grafana.
-- **LogQL filtering**: Allows querying by specific operational codes without fragile regex matching.
-
----
-
-## Apollo's log ingestion pipeline
-
-~~~mermaid
+```mermaid
 flowchart LR
-  Booking["booking container\nstdout: JSON log lines"] -->|Container stdout| CRI["Container runtime\n(containerd writes to node log file)"]
-  CRI -->|Node filesystem| Alloy["Grafana Alloy\n(DaemonSet, one per node)\nDiscovery: Kubernetes pod labels"]
-  Alloy -->|Loki push API| Loki["Loki\n(log store, indexed by labels)"]
-  Loki -->|LogQL query| Grafana["Grafana Explore\napp=booking, error"]
-~~~
+  A[container stdout JSON] --> C[containerd writes node log file]
+  C --> Al[Alloy DaemonSet: adds namespace/app/pod labels]
+  Al --> Lk[Loki: indexed by labels]
+  Lk --> G[Grafana / LogQL]
+```
 
-*Diagram OB-04 — containers print to stdout; containerd captures logs to disk; Grafana Alloy discovers, annotates with Pod labels, and ships to Loki.*
+- Apps log to **stdout**. Alloy (one per node) reads the files, labels them (`app` → `service`) and pushes to Loki.
+- Loki indexes **labels**, not content: filter by label first, then search text.
 
-- **Stdout standard**: Applications print directly to standard output.
-- **Node agent**: Grafana Alloy runs as a DaemonSet, scraping container log paths on the host node.
-- **Metadata enrichment**: Alloy attaches Kubernetes metadata (`namespace`, `app`, `pod`) as stream labels before shipping to Loki.
+## What to log
 
----
+| Always | Never |
+|---|---|
+| `trace_id`, `request_id`, error reason, safe business IDs (flight code, booking ref) | JWTs, passwords, card numbers, passenger PII |
 
-## Log retention rules: what to log vs. what to redact
+## Queries
 
-- **Always include**:
-  - `trace_id` and `span_id`.
-  - Functional error reasons and exception types.
-  - Safe business identifiers (order numbers, flight codes).
-- **Never include (Security violations)**:
-  - Raw JWT tokens or passwords.
-  - Credit card numbers, CVVs, or passenger PII.
+```logql
+{service="booking", namespace="apollo-airlines-apps"} |= "error" | json | level="error"
+{service=~".+"} |= "<request-id>"
+```
 
----
+```bash
+kubectl logs -n apollo-airlines-apps deploy/booking --tail=50     # ground truth
+```
 
-## Evidence and limits
+## Limits
 
-- **1. Direct container output**: Check unbuffered application stdout:
-  ```bash
-  kubectl logs -n apollo-airlines-apps deploy/booking --tail=50
-  ```
-- **2. Query Loki via LogQL**: Filter errors in Grafana Explore (Alloy relabels `app` to `service`):
-  ```logql
-  {service="booking", namespace="apollo-airlines-apps"} |= "error" | json | level="error"
-  ```
-- **3. Search by booking reference or request ID**:
-  ```logql
-  {service="booking"} |= "stage6-"
-  ```
+- A search hit proves the line was **shipped**. Old logs staying searchable do not prove **current** collection: test with a fresh ID.
+- `kubectl logs` of a deleted Pod is gone unless shipped to Loki.
+- A "graceful shutdown" line does not prove no request failed.
+
+## Check yourself
+
+<details>
+<summary>Loki still returns last week's lines. Is Alloy working today?</summary>
+
+Unknown. Send a request with a new unique ID and check that it appears.
+</details>

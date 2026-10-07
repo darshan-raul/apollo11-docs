@@ -1,84 +1,70 @@
 ---
 title: "Objects, the API, and desired state"
-description: "Learn to read Kubernetes YAML as a stored request with identity, desired state, and observed status."
+description: "Read Kubernetes YAML as a stored object: identity, spec, and status."
 ---
 
 # Objects, the API, and desired state
 
-*Ignition · Write down what Apollo should look like*
+*Ignition*
 
-A Kubernetes manifest can look like a configuration file you run once. That is
-not how the cluster treats it. The manifest describes an **object** for the API
-server to store. Controllers, schedulers, and kubelets later observe that stored
-object and act on the parts they are responsible for.
+**You will be able to:** read a manifest as identity + desired state + reported status, and say what API acceptance proves.
 
-This distinction changes how you read YAML. You are not reading a sequence of
-instructions. You are reading an agreement about identity, desired state, and
-the status that other actors report later.
+## Key points
 
-## Every object has an identity
+- A manifest is a request to **store an object**, not a script that runs once.
+- Every object has: `kind`, `name`, usually `namespace`, and a server-assigned `uid`.
+- **`spec`** = what is wanted (written by you or a controller). **`status`** = what actors observed (written by controllers/kubelet).
+- Only the API server writes to `etcd`; everything else reads/writes through the API.
 
-An object has a kind, a name, and usually a namespace. The name lets humans and
-other objects refer to it within its namespace. Kubernetes also assigns a UID, a
-unique identity that distinguishes a newly created booking Pod from an older Pod
-with the same name.
+| Metadata | Purpose |
+|---|---|
+| `labels` | Short tags for **selection** (Services, ReplicaSets) |
+| `annotations` | Extra info, not for selection |
+| `ownerReferences` | Lifecycle: who created/garbage-collects this object |
+| `uid` | Distinguishes a new Pod from an old one with the same name |
 
-Metadata can include labels, annotations, and owner references. Labels are short
-tags used for grouping and selection. An annotation carries extra information
-that is not normally used as a selector. An owner reference records a lifecycle
-relationship between objects. You will use all three, but they answer different
-questions.
-
-## Spec asks; status reports
-
-The **spec** is where a user or another controller records what is wanted. A
-Deployment spec can request a number of booking replicas and include a Pod
-template. The **status** is where controllers report what they have observed:
-how many replicas are available, which generation was seen, or which condition
-is blocking progress.
-
-~~~mermaid
+```mermaid
 flowchart TB
-  Manifest[Manifest describes an object] --> API[API server stores object]
-  API --> Object[metadata + spec + status]
-  Controller[Controller] -->|watches spec and conditions| Object
-  Controller -->|writes observations| Object
-  User[Operator] -->|reads status and events| Object
-~~~
+  M[Manifest] --> API[API server stores object]
+  API --> O[metadata + spec + status]
+  Ctrl[Controller] -->|watch spec| O
+  Ctrl -->|write status| O
+  You -->|read status, events| O
+```
 
-*Diagram CL-02 — the object is stored configuration. The controller is the
-running participant that observes it and takes action.*
+## Read any object in three passes
 
-This leads to a useful distinction. If the API server accepts a Deployment, the
-request is accepted. It does not yet say that a controller created Pods, a
-scheduler chose nodes, a kubelet started containers, or a passenger completed a
-booking.
+1. **Identity:** what is it called, where does it live?
+2. **Spec:** what result does it request?
+3. **Status/events:** which actor should report progress, and what do they say?
 
-## Read a request in three passes
+## Evidence ladder for "did it work?"
 
-When you open an Apollo manifest, first ask **what is this object called and
-where does it live?** Then ask **what result does its spec request?** Finally,
-ask **which actor should report meaningful status or events?**
+| Evidence | Proves |
+|---|---|
+| Manifest | Intent |
+| `apply` succeeded | API accepted it |
+| `status` / conditions | A controller progressed it |
+| Real request | Useful behaviour |
 
-For a booking Deployment, that might mean:
+- No field starts a process by itself.
 
-- identity: a Deployment named booking in the application namespace;
-- desired state: a Pod template and replica count;
-- observed state: Deployment conditions and available replicas from its
-  controller.
+## Try it
 
-This approach works for Services, Jobs, PersistentVolumeClaims, Gateway routes,
-and autoscalers too. The kinds change, but the stored-request model remains.
+```bash
+kubectl get pod apollo-shell -o yaml | grep -E '^(  uid|  name|  namespace|spec:|status:)'
+kubectl explain pod.spec.restartPolicy
+```
 
-## Evidence and limits
+## Gotchas
 
-A manifest is evidence of intent. The API response is evidence of acceptance.
-Status and conditions are evidence that a controller has observed or progressed
-the request. A request through the running application is evidence of useful
-behaviour.
+- Labels ≠ ownership. A relabelled Pod is released by its ReplicaSet (Stage 1).
+- A manifest accepted by the API can still reference things that do not exist.
 
-No field in a manifest causes traffic or starts a process by its own power. The
-next chapter introduces the actors that interpret these objects and pass work
-from API acceptance toward a running Pod.
+## Check yourself
 
+<details>
+<summary>The API server accepts a Deployment. What has <em>not</em> yet been shown?</summary>
 
+That Pods were created, scheduled, started, ready, or useful to a passenger.
+</details>

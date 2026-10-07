@@ -1,69 +1,70 @@
 ---
 title: "Signals and metrics"
-description: "Understand why metrics, logs, and traces answer different questions, how counters and histograms differ, and what makes a metric actionable vs misleading."
+description: "Metrics, logs and traces answer different questions; counters, histograms and the cardinality rule."
 ---
 
 # Signals and metrics
 
 *Stage 6 · Mission Operations*
 
-When passengers report elevated booking latency, an average response time of 120ms hides the reality: 99% of passengers experience 50ms responses, while 1% suffer through 5-second timeouts. 
+**You will be able to:** pick the signal for a question, query a counter and a histogram, and avoid high-cardinality labels.
 
-Observability requires pairing the right signal with the right operational question.
+## Three signals
 
----
+| Signal | Answers | Strength | Apollo tool |
+|---|---|---|---|
+| **Metric** | Is this widespread? How much, how fast, what fraction failed? | Cheap aggregation over many requests | Prometheus |
+| **Trace** | Where did time go in **this** request? | Cross-service path and timing | Tempo |
+| **Log** | What exactly happened in this process? | Error messages, details | Loki |
 
-## Three telemetry pillars
-
-~~~mermaid
+```mermaid
 flowchart LR
-  Passenger["Passenger: 'My booking was slow'"] --> Metric["Metric\nIs this widespread?\nhttp_request_duration_ms\np99 spike at 14:30"]
-  Metric --> Trace["Trace\nWhere did time go?\nflight span: 340ms"]
-  Trace --> Log["Log\nWhat happened in flight?\nERROR: db connect timeout 14:31:55"]
-  Log --> Root["Root cause:\nflight DB connection pool exhausted"]
-~~~
+  P["'My booking was slow'"] --> M[Metric: p99 spike at 14:30]
+  M --> T[Trace: flight span 340 ms]
+  T --> L[Log: db connect timeout 14:31:55]
+```
 
-*Diagram OB-01 — metrics establish fleet scope, traces locate distributed bottlenecks, and logs surface root-cause event details.*
+- An **average** hides the tail: 99% at 50 ms and 1% at 5 s averages ~100 ms.
 
-| Signal | Question it answers | Best used for |
+## Counters and histograms
+
+| | Counter | Histogram |
 |---|---|---|
-| **Metrics** | Is the system experiencing a widespread issue? | Aggregating rates, errors, and latencies across millions of requests |
-| **Traces** | Where was latency incurred for one specific request? | Pinpointing slow microservice hops across distributed systems |
-| **Logs** | What exact error occurred in the process runtime? | Reading specific error messages, stack traces, and query failures |
+| Example | `http_requests_total` | `http_request_duration_ms_bucket{le="50"}` |
+| Behaviour | Only increases; resets to 0 on restart | Counts per duration bucket |
+| Query with | `rate(x[5m])` (per second) | `histogram_quantile(0.99, …)` |
 
----
+```promql
+rate(http_requests_total{service="booking"}[5m])
+histogram_quantile(0.99, sum by(le) (rate(http_request_duration_ms_bucket{service="booking"}[5m])))
+```
 
-## Counters vs. Histograms
+## Label cardinality
 
-- **Counters (`http_requests_total`)**:
-  - Monotonically increasing values starting from `0`.
-  - Resets to `0` when container restarts.
-  - Query as rates: `rate(http_requests_total{service="booking"}[5m])` (requests per second).
-- **Histograms (`http_request_duration_ms`)**:
-  - Samples durations in milliseconds into configurable buckets (`le="50"`, `le="500"`, `le="+Inf"`).
-  - Enables percentile calculations: `histogram_quantile(0.99, ...)` (p99 tail latency).
+| Safe (few values) | Dangerous (unbounded) |
+|---|---|
+| `service`, `status`, `method` | `user_id`, `booking_id`, `request_id` |
 
----
+- Every distinct label combination is a **separate time series**. Unbounded labels exhaust Prometheus memory.
+- Put per-request identifiers in **logs and traces**.
 
-## High-cardinality label hazards
+## Try it
 
-- **Safe low-cardinality labels**: `status="200"`, `method="POST"`, `service="booking"`.
-- **Dangerous high-cardinality labels**: `user_id`, `booking_id`, `request_id`.
-  - *Why*: Multiplying hundreds of thousands of user IDs creates millions of distinct Prometheus time series, exhausting TSDB memory and crashing Prometheus. Put high-cardinality identifiers in logs and traces, never metric labels.
+```bash
+kubectl get servicemonitor -n apollo-observability
+kubectl port-forward -n apollo-observability svc/prometheus 19090:9090 &
+curl -sG localhost:19090/api/v1/query --data-urlencode 'query=sum(rate(http_requests_total[5m])) by (service)' | jq .
+```
 
----
+## Gotchas
 
-## Evidence and limits
+- Empty result ≠ broken Prometheus: no recent traffic gives no rate.
+- A rate needs a window; `[5m]` smooths short spikes.
 
-- **1. Discovery configuration**: Inspect ServiceMonitors, then confirm actual targets in the Prometheus UI:
-  ```bash
-  kubectl get servicemonitor -n apollo-observability
-  ```
-- **2. Query live rates**: Test PromQL expressions via curl or Prometheus UI:
-  ```promql
-  rate(http_requests_total{service="booking",status="200"}[5m])
-  ```
-- **3. Check percentile latencies**: Inspect p99 latency distributions:
-  ```promql
-  histogram_quantile(0.99, sum by(le) (rate(http_request_duration_ms_bucket{service="booking"}[5m])))
-  ```
+## Check yourself
+
+<details>
+<summary>Why not label a metric with <code>booking_id</code>?</summary>
+
+Each booking would create a new time series, exploding memory. Use logs/traces for per-request IDs.
+</details>

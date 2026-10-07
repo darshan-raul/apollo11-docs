@@ -1,98 +1,78 @@
 ---
 title: "State and dependencies"
-description: "Learn why a listening booking process may still be unable to help a passenger, and which state survives a replacement."
+description: "Alive versus ready, and which state survives which replacement."
 ---
 
 # State and dependencies
 
-*Launchpad · Ask whether the airline can actually serve a passenger*
+*Launchpad*
 
-The booking container has started and its HTTP port is open. That is encouraging,
-but it is not yet the same as a working booking service. A passenger’s request
-can still fail if booking cannot reach identity, flight, or its database. The
-process is alive; the airline may not be ready.
+**You will be able to:** name the storage boundary for any data, and choose between a liveness-style and a readiness-style check.
 
-At the same time, the request creates or reads state. Some state belongs only to
-the running process. Some may be written into the container’s temporary writable
-layer. A reservation that must be found after a replacement needs a different
-home. These are separate problems that happen to meet in one booking request.
+## Where state lives
 
-## Name the state boundary
+| Location | Lost when |
+|---|---|
+| Process memory | Process exits |
+| Container writable layer | Container **removed** (kept on stop/start) |
+| `tmpfs` | Container stops |
+| Named volume | Volume deleted (`down -v`), host lost, or corrupted |
+| External system / backup | Depends on that system |
 
-Process memory disappears when the process ends. A container’s writable layer is
-tied closely to that container; replacing the container normally discards it.
-Stopping and starting the same container can preserve that layer on one host, but
-that is a much weaker boundary than a passenger reservation requires.
+- Before calling data safe, ask: **what event can happen without these bytes disappearing?**
+- `docker compose down` keeps named volumes. It proves nothing about host loss, corruption or restore.
 
-A mounted volume can outlive a container, depending on the type of volume and
-its configuration. Mission Data will examine claims, storage backends, node
-failures, and backups. For now, use this simple question before you call data
-safe: “What event can happen without these bytes disappearing?”
+## Alive vs ready
 
-## Alive and ready answer different questions
+| | Question | If it fails |
+|---|---|---|
+| **Liveness** (`/healthz`) | Can this process continue? | Restart may help |
+| **Readiness** (`/readyz`) | Should it receive the next request? | Withhold traffic; **restarting won't help** |
 
-A health check can ask whether a process is alive enough to continue running. A
-readiness check asks whether the service should receive a new request. They are
-not competing versions of the same check.
+- Booking can be alive while its database is down. Restarting booking does not fix the database.
+- A readiness check should be bounded and cover only what the request path needs. Checking every distant dependency can take a whole service out for an unrelated outage.
 
-Booking can be alive while its database is still starting. It may be sensible to
-keep the process running while withholding new passenger traffic until the
-dependency is usable. Conversely, a check that waits forever for every distant
-dependency can make a temporary external incident stop all local recovery. The
-right check is a bounded statement about whether this service can accept the next
-unit of work.
-
-~~~mermaid
+```mermaid
 flowchart LR
-  Process[booking process is running] --> Alive{Can it continue?}
-  Process --> Dependencies{Can a booking use required dependencies?}
-  Dependencies -->|yes| Ready[Accept new booking traffic]
-  Dependencies -->|not yet| Wait[Remain alive; withhold new traffic]
-  Flight[flight service] --> Dependencies
-  DB[(booking database)] --> Dependencies
-  Identity[identity service] --> Dependencies
-~~~
+  P[booking process] --> A{alive?}
+  P --> D{DB, flight, identity usable?}
+  D -->|yes| R[accept traffic]
+  D -->|no| W[stay up, withhold traffic]
+```
 
-*Diagram CT-04 — liveness concerns the process; readiness concerns the useful
-request path.*
+## Apollo example
 
-## Follow the passenger’s request
+- `flight` `/readyz` pings `flight-db`. `booking` `/readyz` checks its DB plus identity, flight and notification. `search` checks flight. `notification` checks Redis.
+- Outages spread transitively: Redis down ⇒ notification unready ⇒ booking unready (although bookings still succeed).
 
-A booking request may ask identity to validate a passenger, flight to reserve a
-seat, and the booking database to store the reservation. A successful port check
-only tells you that one first step—reaching booking—worked. It does not tell you
-that those later calls succeeded.
+## Try it
 
-That distinction becomes operationally useful when you investigate a failure.
-A process log may say the database connection timed out. An endpoint check may
-say the process should not receive traffic. A successful booking is the evidence
-that the complete path worked for that request.
+```bash
+cd stages/launchpad
+docker compose stop flight-db
+curl -s -o /dev/null -w 'flight healthz=%{http_code}\n' localhost:8081/healthz
+curl -s -o /dev/null -w 'flight readyz=%{http_code}\n'  localhost:8081/readyz
+docker compose start flight-db
+```
 
-## Evidence and limits
+- Expect `200` then `503`.
 
-State the boundary you tested: process, container, mounted volume, claim, node,
-or external system. State the dependency path you tested: process port, local
-health endpoint, or actual booking. These observations support different claims.
+## Gotchas
 
-Readiness reduces the chance that traffic is sent to a service that has reported
-itself unable to serve. It does not guarantee every later dependency call or
-preserve data through every failure. Kubernetes will use readiness as one input
-to routing; Mission Data will make the storage boundary explicit.
+- A listening port proves only the first hop.
+- `depends_on: service_healthy` orders **startup** only; it does not watch later failures.
+- Readiness reduces misrouted traffic; it does not guarantee later calls succeed.
 
-## Check your understanding
+## Check yourself
 
 <details>
-<summary>Flight's database is unavailable, but flight still answers <code>/healthz</code>. Should liveness restart it?</summary>
+<summary>Flight's DB is down but <code>/healthz</code> answers. Should liveness restart flight?</summary>
 
-Usually not. Restarting flight does not repair its database. Flight can remain
-alive while readiness withholds new work until the dependency recovers.
+Usually not. A restart does not repair the DB. Readiness should withhold traffic until it recovers.
 </details>
 
 <details>
-<summary>A record survives <code>docker compose down</code>. Have you proved it survives host loss?</summary>
+<summary>A record survives <code>docker compose down</code>. Is it safe from host loss?</summary>
 
-No. You proved survival across container removal while retaining a named volume
-on that host. Host loss, volume deletion, corruption, and restore are different
-failure boundaries.
+No. You proved survival across container removal on one host, nothing more.
 </details>
-

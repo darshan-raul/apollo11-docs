@@ -1,144 +1,78 @@
 ---
 title: "Ownership, selection, and replicas"
-description: "Start with a missing booking Pod, then learn the objects and relationships that bring it back."
+description: "Deployment, ReplicaSet and Pod; owner references versus label selectors."
 ---
 
 # Ownership, selection, and replicas
 
 *Stage 1 · Liftoff*
 
-The booking service has stopped. A passenger only needs to know whether they can
-still reserve a flight. The operator needs a more precise story: was the process
-restarted inside its existing Pod, was the Pod replaced, who asked for another
-copy, and how will the new copy eventually receive traffic?
+**You will be able to:** explain who replaces a missing Pod, and separate *ownership* from *selection*.
 
-We will build that story one object at a time. From Ignition, you already know
-that a Pod is where containers run and that controllers act on stored desired
-state. Liftoff adds the objects that keep a replaceable application running.
+## Key points
 
-## Start with one Pod
+- **Pod:** a runtime home for containers. Replaceable; not a promise that *this* process lives on.
+- **Replica:** one intended copy. `replicas: 2` is a target, not two named machines.
+- **ReplicaSet:** keeps N Pods matching its selector alive. Creates from a saved template when too few; deletes when too many.
+- **Deployment:** release intent. Owns ReplicaSets (one per template version). You almost never create ReplicaSets yourself.
 
-A **Pod** is a runtime home for one or more cooperating containers. Apollo’s
-booking Pod has an address, starts the booking program, and holds temporary
-runtime state. It is not a promise that this particular process will exist
-forever.
-
-A **replica** is one intended copy of a workload. Asking for two booking replicas
-does not name two permanent machines. It records a target: Apollo should have two
-copies of booking available, even if individual Pods are replaced along the way.
-
-~~~mermaid
-flowchart LR
-  Passenger[Passenger sends a booking request] --> Service[Stable booking Service]
-  Service --> PodA[booking Pod]
-  PodA -->|Pod disappears| Gap[One replica is missing]
-  Gap --> Replacement[Controller creates a new booking Pod]
-  Replacement --> Service
-~~~
-
-*Diagram WL-01 — the passenger uses a stable service contract while Kubernetes
-works to restore the intended number of booking Pods.*
-
-## Add a Deployment
-
-A **Deployment** describes a long-running, replaceable application such as
-booking. Its Pod template records the image, labels, configuration, and other
-settings for a booking Pod. Its replica count records how many copies are wanted.
-
-The Deployment does not start containers directly. Its controller creates a
-**ReplicaSet**. A ReplicaSet has the narrower job of maintaining a chosen number
-of matching Pods. When it observes too few, it creates a Pod from its saved
-template. When it observes too many, it removes Pods.
-
-~~~mermaid
+```mermaid
 flowchart TB
-  D[Deployment: booking, desired replicas = 2] -->|creates and owns| RS[ReplicaSet: booking template]
-  RS -->|creates and owns| P1[Pod: booking copy 1]
-  RS -->|creates and owns| P2[Pod: booking copy 2]
-  P1 --> K1[booking container runs]
-  P2 --> K2[booking container runs]
-~~~
+  D[Deployment booking, replicas 2] -->|owns| RS[ReplicaSet]
+  RS -->|owns| P1[Pod]
+  RS -->|owns| P2[Pod]
+```
 
-*Diagram WL-02 — the Deployment records release intent; the ReplicaSet maintains
-the current group of Pods.*
+## Two relationships that look alike
 
-Kubernetes records this responsibility through an **owner reference** on the
-child object. The ReplicaSet has an owner reference pointing to the Deployment.
-Each Pod has an owner reference pointing to the ReplicaSet. That metadata helps
-answer “who created this?” and lets Kubernetes clean up dependent objects when
-their owner is removed.
+| | Ownership | Selection |
+|---|---|---|
+| Field | `metadata.ownerReferences` | `labels` ↔ `selector` |
+| Question | Who is responsible for / garbage-collects this? | Which objects belong to this group? |
+| Used by | Garbage collection, "who made this" | ReplicaSet counting, Service endpoints |
+| Example | RS owns booking Pods | Service picks Pods with `app: booking` |
 
-## Ownership is not selection
+- A matching label gives **no** permission to create or delete a Pod.
+- An owner reference does **not** route traffic.
+- Relabel a Pod and the ReplicaSet **releases** it and creates a replacement (Stage 1 Exercise 2).
+- A Deployment's `selector` must match its template labels, and is immutable after creation.
 
-Now introduce a second relationship: **selection**. Labels are small tags such
-as **app: booking**. A selector is a query for objects with matching labels.
+## After a failure
 
-The ReplicaSet uses a selector to recognise Pods from its template. In the next
-chapter, the booking Service uses its own selector to find candidate Pods for
-traffic. The same label can appear in both places, but the relationships answer
-different questions:
+1. Pod deleted → ReplicaSet sees 1 matching Pod, wants 2.
+2. It creates a Pod from the template.
+3. Scheduler picks a node; kubelet starts it; readiness decides when it gets traffic.
+4. Replacement has a **new UID**, usually a new IP, same template and labels. No memory or writable layer inherited.
 
-| Relationship | Question it answers | Example |
-| --- | --- | --- |
-| Owner reference | Who is responsible for this child object? | The ReplicaSet owns a booking Pod. |
-| Selector and label | Which objects belong to this group? | The Service looks for Pods labelled **app: booking**. |
+## Evidence ladder
 
-A matching label does not give a Service permission to create or delete a Pod.
-An owner reference does not route a passenger request.
+| Level | Command | Shows |
+|---|---|---|
+| Accepted | `kubectl apply` returned | API took it |
+| Converged | `kubectl get deploy,rs,pods -l app=booking` | Counts match, owner chain correct |
+| Useful | A booking request succeeds | Passenger outcome |
 
-## Read a small resource graph
+## Try it
 
-This is a **conceptual example**, not an exact Apollo manifest:
+```bash
+kubectl get rs -n apollo-airlines -l app=booking
+kubectl get pod -n apollo-airlines -l app=booking -o jsonpath='{.items[0].metadata.ownerReferences[0].kind}{"\n"}'
+```
 
-~~~yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: booking
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: booking
-  template:
-    metadata:
-      labels:
-        app: booking
-    spec:
-      containers:
-        - name: booking
-          image: example.invalid/apollo/booking:1.0.0
-~~~
+## Gotchas
 
-Read it from the inside out. The template applies **app: booking** to each Pod.
-The Deployment selector says which Pods its ReplicaSet should recognise. The
-replica count says two copies are desired. The selector and template label must
-agree; Kubernetes keeps the Deployment selector immutable after creation because
-changing that relationship could make ownership ambiguous.
+- A Deployment keeps a count of Pods. It does not keep reservations in memory, give a stable address (that is a Service), or judge whether two versions are business-compatible.
 
-## What happens after a failure?
+## Check yourself
 
-If one of two booking Pods is deleted, the ReplicaSet controller observes only
-one matching Pod. It creates a replacement from the saved template. The scheduler
-chooses a node; a kubelet starts the container; a later readiness check decides
-whether the new Pod should be offered traffic.
+<details>
+<summary>Which object directly owns a booking Pod?</summary>
 
-The replacement has a new Pod UID and usually a new IP. It receives the same
-template and labels, but it does not inherit the old process memory or writable
-layer. Mission Data follows the bytes that must survive that event.
+The ReplicaSet (the Deployment owns the ReplicaSet).
+</details>
 
-## Evidence and limits
+<details>
+<summary>You change a Pod's <code>app</code> label. What happens?</summary>
 
-Keep three kinds of evidence separate:
-
-- **Acceptance:** the API server accepted the Deployment object.
-- **Convergence:** the Deployment and ReplicaSet report the desired number of
-  available Pods, and the owner chain looks as expected.
-- **Useful behaviour:** a passenger can complete a booking through the Service.
-
-A Deployment maintains a number of Pods. It does not preserve a reservation kept
-only in memory, give callers a stable address by itself, or decide whether old
-and new application versions are business-compatible. The next Liftoff chapter
-introduces the Service relationship.
-
-
+The ReplicaSet no longer counts it, releases it, and creates a replacement. The Service stops selecting the relabelled Pod.
+</details>

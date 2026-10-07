@@ -1,111 +1,77 @@
 ---
 title: "StatefulSet storage and operations"
-description: "Follow a StatefulSet ordinal to its dedicated claim, then learn what ordering, updates, and retention settings do—and do not—guarantee."
+description: "One claim per ordinal, ordering, updates and retention."
 ---
 
 # StatefulSet storage and operations
 
 *Stage 3 · Mission Data*
 
-The stable name `identity-db-0` helps peers find one database member, but a name
-does not preserve its bytes. The replacement Pod must also reconnect to the
-claim that belongs to ordinal 0.
+**You will be able to:** follow an ordinal to its claim, and say what ordering, partition and retention policies do.
 
-StatefulSets can create one PersistentVolumeClaim for each ordinal. This is
-useful when replicas require separate storage, but it does not create database
-replication or a backup.
-
-## One claim for each ordinal
-
-A `volumeClaimTemplates` entry is a template for claims, not one claim shared by
-every Pod. For a template named `pg-data`, the StatefulSet creates names such as
-`pg-data-identity-db-0` and `pg-data-identity-db-1`.
+## One claim per ordinal
 
 ```yaml
-spec:
-  volumeClaimTemplates:
-    - metadata:
-        name: pg-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        storageClassName: standard
-        resources:
-          requests:
-            storage: 1Gi
+volumeClaimTemplates:
+  - metadata: {name: pg-data}
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources: {requests: {storage: 1Gi}}
 ```
 
 ```mermaid
 flowchart TB
-  STS[StatefulSet: identity-db] --> P0[identity-db-0]
-  STS --> P1[identity-db-1]
-  STS --> C0[Claim: pg-data-identity-db-0]
-  STS --> C1[Claim: pg-data-identity-db-1]
-  P0 -->|mounts| C0
-  P1 -->|mounts| C1
-  C0 --> V0[PersistentVolume 0]
-  C1 --> V1[PersistentVolume 1]
+  STS[StatefulSet identity-db] --> P0[identity-db-0] --> C0[PVC pg-data-identity-db-0] --> V0[PV]
+  STS --> P1[identity-db-1] --> C1[PVC pg-data-identity-db-1] --> V1[PV]
 ```
 
-*Diagram ST-04 — each ordinal mounts its own claim; replacing the Pod does not
-mean creating a new claim.*
+- Claim name = `<template>-<statefulset>-<ordinal>`. A replacement Pod remounts its own ordinal's claim.
+- This gives separate storage, **not** replication or backup.
 
-When `identity-db-0` is replaced, Kubernetes can attach
-`pg-data-identity-db-0` to the new Pod. Whether the bytes survive node or cluster
-loss still depends on the StorageClass, volume backend, reclaim policy, and
-recovery plan.
+## Operations
 
-## Ordering controls controller actions
+| Topic | Behaviour |
+|---|---|
+| `podManagementPolicy: OrderedReady` (default) | Create `-0` first, wait Ready, then `-1`; scale down in reverse |
+| `Parallel` | No ordering |
+| Rolling update | Reverse ordinal order, no extra surge Pod |
+| `partition: N` | Only ordinals ≥ N get the new template (stage an update) |
+| Readiness | Does **not** prove a primary is elected or a replica caught up |
 
-With the default `OrderedReady` policy, a StatefulSet creates lower ordinals
-before higher ones and waits for readiness as it proceeds. Scale-down happens in
-reverse ordinal order. `Parallel` allows the controller to create or remove Pods
-without that ordinal sequence.
-
-This ordering is useful only when it matches the application’s needs. Readiness
-does not prove that a database primary has been elected, a replica has caught up,
-or a schema is compatible. Those are application-level conditions that need
-their own evidence.
-
-## Updates retain ordinal identity
-
-During a rolling update, a StatefulSet normally replaces Pods in reverse ordinal
-order. It does not create an extra copy of an ordinal as surge capacity because
-two Pods cannot simultaneously be the same member.
-
-The optional rolling-update `partition` leaves ordinals below a chosen number on
-the old template. For three replicas, a partition of `2` updates only ordinal 2.
-This can stage an update, but an operator must still verify database compatibility
-and health before continuing.
-
-## Retention must be explicit
-
-Claims commonly outlive Pod replacement. What happens when the StatefulSet is
-deleted or scaled down depends on its PVC retention policy and the underlying
-volume’s reclaim policy.
+## Retention
 
 ```yaml
-spec:
-  persistentVolumeClaimRetentionPolicy:
-    whenDeleted: Retain
-    whenScaled: Retain
+persistentVolumeClaimRetentionPolicy:
+  whenDeleted: Retain
+  whenScaled: Retain
 ```
 
-Retention protects against one deletion path; it is not a backup. A retained
-claim can contain corrupted data, and a node-local volume can remain unavailable
-after node loss. The recovery-boundaries chapter follows those cases.
+| Event | Default |
+|---|---|
+| Delete StatefulSet | PVCs kept |
+| Scale down | PVCs kept (must delete by hand) |
+| Delete PVC | Depends on PV reclaim policy (`Delete` on kind) → data gone |
 
-## When a StatefulSet is the wrong tool
+- Retention protects one deletion path; it is not a backup. A retained claim can hold corrupted data.
 
-Use a Deployment for an HTTP service whose replicas are interchangeable. A
-managed database also has its own identity, replication, and storage system
-outside Kubernetes. Choose a StatefulSet because the workload needs its
-identity or claim behavior, not simply because the workload stores data.
+## When it is the wrong tool
 
-## Evidence and limits
+- Interchangeable HTTP replicas → Deployment.
+- A managed database already provides identity, replication and storage outside Kubernetes.
 
-To establish the relationship, inspect the StatefulSet ordinals, their claim
-names, and the bound volumes. Replace one Pod and verify that the same ordinal
-mounts the same claim. Then verify the data through the database rather than
-inferring success from a `Bound` claim or a `Ready` Pod.
+## Try it
 
-The [Mission Data lab](../../stage-3) provides the runnable persistence drill.
+```bash
+kubectl get sts,pvc -n apollo-airlines-apps
+kubectl get pod identity-db-0 -n apollo-airlines-apps -o jsonpath='{.spec.volumes[?(@.name=="pg-data")].persistentVolumeClaim.claimName}{"\n"}'
+```
+
+- Replace the Pod and re-run: same claim name. Then check the data **through the database**, not via `Bound`.
+
+## Check yourself
+
+<details>
+<summary>You scale the StatefulSet from 2 to 1. What happens to <code>pg-data-…-1</code>?</summary>
+
+It stays (default retention). Delete it manually if it is no longer needed.
+</details>
