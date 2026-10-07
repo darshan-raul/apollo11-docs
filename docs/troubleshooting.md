@@ -6,14 +6,32 @@ sidebar_label: "Troubleshooting Bible"
 
 # The Apollo11 Kubernetes Troubleshooting Bible
 
-When something breaks, begin with the question you are trying to answer—not a
-favoured command. A `Pending` Pod is a scheduling question; an empty
-EndpointSlice is a selector or readiness question; a returned `503` can be an
-edge, Service, or application question. Deleting a Pod before knowing which one
-it is can erase the evidence that distinguishes them.
+- Start with the **question**, not a favourite command.
+- `Pending` = scheduling. Empty EndpointSlice = selector or readiness. `503` = edge, Service or app.
+- Do not delete a Pod before you know which: it erases the evidence.
 
-This guide helps you turn a symptom into a testable explanation using the
-objects and runtime signals that Apollo Airlines actually exposes.
+## Symptom → first command
+
+| Symptom | Likely owner | First command |
+|---|---|---|
+| `Pending`, `NODE <none>` | Scheduler | `kubectl describe pod` → Events (`FailedScheduling`) |
+| `ErrImagePull` / `ImagePullBackOff` | Kubelet / registry | `kubectl describe pod` → Events |
+| `Running` but `0/1`, `RESTARTS 0` | Readiness (config or dependency) | `describe` → Readiness; `exec … wget /readyz` |
+| `CrashLoopBackOff` | Your app | `kubectl logs --previous` |
+| Service resolves, calls hang | Selector / endpoints | `kubectl get endpoints <svc>` (`<none>` = no match) |
+| `NXDOMAIN` across namespaces | DNS name form | `nslookup <svc>.<namespace>` |
+| 404 from the proxy | No route matched | `get ingress` / `get httproute` |
+| 5xx from the proxy | Route OK, backend not | Route `ResolvedRefs`; endpoints ready? |
+| HPA `<unknown>` | Missing CPU request / metrics-server | `describe hpa`; `kubectl top pods` |
+| DB "empty" after replacement | Storage boundary | `get pvc`; `logs` for `initdb` vs `Skipping initialization` |
+| Helm says `deployed`, app broken | Release ≠ health | `kubectl rollout status`; use `--atomic` |
+| Argo reverts my change | GitOps self-heal | Edit Git, not the cluster |
+
+## 🪜 The Golden Rule: the 5-rung evidence ladder
+
+- Pick the rung that answers your **current** question. Never use a later rung to replace missing earlier evidence.
+- A `Pending` Pod has no logs: read Events (rung 2), not logs (rung 4).
+
 
 ---
 
@@ -293,6 +311,37 @@ kubectl describe hpa <hpa-name> -n <namespace>
    Test if metrics API is responding:
    `kubectl top pods -n <namespace>`
    If it returns `error: Metrics API not available`, deploy or restart `metrics-server`.
+
+---
+
+### Symptom: Pod `Running`, `READY 0/1`, no restarts
+
+- Readiness is failing: the kubelet removed the Pod from endpoints but left it running.
+- Check: `kubectl describe pod <pod> | grep -i readiness`; `kubectl exec <pod> -- wget -qO- http://127.0.0.1:<port>/readyz`.
+- Typical causes: a dependency down (DB, flight), or wrong config (e.g. `FLIGHT_SERVICE_URL` typo after a ConfigMap edit).
+- `kubectl rollout undo` does **not** fix a bad ConfigMap; fix the ConfigMap and restart the rollout.
+
+### Symptom: Gateway route accepted but traffic fails
+
+| Condition | Meaning | Fix |
+|---|---|---|
+| `Accepted=False` (`NotAllowedByListeners`) | Listener's `allowedRoutes` forbids the route's namespace | Edit the Gateway listener |
+| `ResolvedRefs=False` (`RefNotPermitted`) | Cross-namespace backend without `ReferenceGrant` | Add the grant in the Service's namespace |
+| `ResolvedRefs=False` (`BackendNotFound`) | Wrong Service name/port | Fix `backendRefs` |
+| Listener `ResolvedRefs=False` (`InvalidCertificateRef`) | TLS Secret missing | Recreate the Secret; HTTP listener keeps working |
+
+### Symptom: Helm upgrade "succeeded", app unhealthy
+
+- `helm status` reports `deployed` after the API accepted the objects. Add `--wait`; use `--atomic` to roll back automatically.
+- Recover: `helm history <rel>` → `helm rollback <rel> <last-good>`. Data written meanwhile stays.
+
+### Symptom: Pod stuck `Terminating` / always takes the grace period
+
+- The process ignores SIGTERM (PID 1 has no default handler). Handle the signal, or lower `terminationGracePeriodSeconds`. Exit code `137` confirms SIGKILL.
+
+### Symptom: Docker Compose container gone and not coming back
+
+- `restart: always` restarts a container that **exited**, not one that was **removed** or intentionally stopped. Run `docker compose up -d <service>`.
 
 ---
 

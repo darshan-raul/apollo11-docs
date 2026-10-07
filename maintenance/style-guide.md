@@ -75,3 +75,8 @@ Every lab exercise is a **task with a checkable result**, not a tour of commands
 ## Evidence ladder (shared vocabulary)
 
 1. Snapshot (`get -o wide`) → 2. Events → 3. Spec and conditions (`describe`) → 4. Logs → 5. Live endpoint (`curl`, `port-forward`).
+
+## Direction of travel
+
+- This guide supersedes the earlier "reading-only, remove exercises" direction in `docs-learning-journey-review-prompt.md` and `docs-learning-journey-implementation-plan.md`.
+- Chapters stay short and bullet-first; **labs carry the practice**, using the exercise pattern above.

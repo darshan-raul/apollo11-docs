@@ -27,6 +27,7 @@ npm run serve
 ```
 
 Documentation lives in `docs/`; navigation is defined in `sidebars.ts`.
+Writing rules and the lab-exercise pattern: `maintenance/style-guide.md`.
 Content provenance and the diagram backlog live under `maintenance/`.
 Repository-specific excerpts must be checked against the sibling Apollo11
 repository before they are changed.

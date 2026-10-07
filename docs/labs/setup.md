@@ -58,6 +58,7 @@ git rev-parse HEAD       # expect 69113dcc80f77e32301d8ee7b9e73a67c923de96
 | Scaling (Stage 7) | `apollo-airlines-apps` | `apollo-observability`, `apollo-airlines-ui` |
 
 - The stage page wins if it names a more specific boundary.
+- Before starting another stage, run the current stage's `scripts/teardown.sh` and confirm its namespaces and PVCs are gone (the Stage 6 guide requires this). Do not stack stages unless a lab says its stack carries over.
 
 ## The learner-work directory
 

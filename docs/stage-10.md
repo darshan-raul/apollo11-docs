@@ -1,80 +1,62 @@
 ---
 title: "Stage 10 — Optional Operations Missions"
-description: "The planned, independent operations mission catalog and its current implementation boundary."
+description: "Planned independent mission catalog and its implementation boundary."
 sidebar_label: "Stage 10: Missions (Planned)"
 ---
 
-# Stage 10: Optional Operations Missions
+# Stage 10: Optional operations missions
 
 :::warning[Status: not implemented]
-Do not apply the files currently in `stages/stage10/`. Its README describes them
-as unverified legacy scaffolding from a different application. Stage 10 will be a
-catalog of independent missions. It will not be the next required deployment
-snapshot.
+- **Do not apply** `stages/stage10/`. Its README calls it unverified legacy scaffolding from a different application.
+- Stage 10 will be a catalog of independent missions, not the next required deployment.
+- Sources: `stages/stage10/README.md`, Stage 10 section of `ROADMAP.md`.
 :::
 
-Source: `stages/stage10/README.md` and the Stage 10 section of `ROADMAP.md`.
+**You will be able to:** distinguish a roadmap entry from a verified lab.
 
 ## Planned catalog
 
-- Linkerd service mesh and mutual TLS
-- Argo Rollouts progressive delivery
-- ephemeral-container debugging
-- Kubeshark traffic inspection
-- Chaos Mesh controlled-failure experiments
-- advanced disaster recovery building on the required Stage 9 Velero exercise
+| Mission | Teaches |
+|---|---|
+| Linkerd | Service mesh, mutual TLS |
+| Argo Rollouts | Progressive delivery |
+| Ephemeral-container debugging | Debug a running Pod |
+| Kubeshark | Traffic inspection |
+| Chaos Mesh | Controlled failure experiments |
+| Advanced DR | Builds on the Stage 9 Velero exercise |
 
-These are only the topics Apollo11 intends to cover. It does not yet have
-verified manifests, commands, traffic percentages, service-level objectives, or
-recovery procedures for any of them.
+- No verified manifests, commands, traffic percentages, SLOs or recovery procedures exist yet.
+- Lifecycle hooks already belong to Stage 4; the DevSecOps baseline belongs to Stage 8. Don't re-label them as Stage 10.
 
-Lifecycle hooks already belong to Stage 4, and the planned DevSecOps baseline
-belongs to Stage 8. Do not present either of them as a new Stage 10 capability.
+## What makes a mission runnable
 
-## How a future mission becomes runnable
+- Declares prerequisites; starts from a trusted Apollo snapshot.
+- Introduces **one** mechanism and makes it observable.
+- Has a safe break-and-recover exercise.
+- Returns the cluster to baseline.
 
-A mission must:
-- declare its prerequisites;
-- start from a trusted Apollo Airlines snapshot;
-- introduce one mechanism;
-- make the behavior observable;
-- include a safe break-and-recover exercise; and
-- return the cluster cleanly to its baseline.
+## Exercise: inspect, classify, stop
 
-A tool that is listed or installed does not mean Apollo11 teaches it.
+**Goal:** classify what is in `stages/stage10/` without running anything.
+**Time:** ~5 min
 
-## Safe exercise: inspect, classify, stop
-
-- **Objective**: Tell a mission catalog apart from a lab that is actually implemented.
-- **Starting point**: A local Apollo11 clone. You do not need a cluster.
-- **Instructions**:
+1. **Predict:** the directory has files. Are they a lab?
+2. **Do:**
 
 ```bash
 cd Apollo11
-sed -n '1,220p' stages/stage10/README.md
-sed -n '197,210p' ROADMAP.md
+sed -n '1,100p' stages/stage10/README.md
 find stages/stage10 -maxdepth 2 -type f | sort
-```
-
-- **Expected result**: The README tells you not to apply the files, and the
-  roadmap describes independent missions for the future.
-- **Verification**:
-
-```bash
 grep -n "not implemented" stages/stage10/README.md
 grep -n "different application" stages/stage10/README.md
 ```
 
-- **Troubleshooting**: If a check fails because the repository has changed, read
-  the new README. Do not treat the stage as runnable until it has lifecycle
-  evidence.
-- **Concept reinforced**: Installed files and roadmap entries are not the same as
-  application behavior that has been verified.
+3. **Check:** README says do not apply; both `grep`s match.
+4. **Your turn:** write the "runnable mission" checklist above for **Chaos Mesh**: its prerequisites, the one mechanism, the observable, the break-and-recover, and the clean-up. Mark every item you cannot fill from existing Apollo files as *missing*.
 
-## Before continuing
+## You can now
 
-You should be able to explain why each optional mission needs its own
-prerequisites and cleanup, and why finishing one must not require installing all
-of them.
+- [ ] Explain why each optional mission needs its own prerequisites and cleanup.
+- [ ] Say why finishing one must not require installing all.
 
-Continue to [Stage 11: Platform Specializations](./stage-11).
+Next: [Stage 11](./stage-11).

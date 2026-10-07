@@ -10,6 +10,7 @@ sidebar_label: "Stage 5: Payload (Delivery)"
 - Repo: `Apollo11` at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Chart: `stages/stage5/helm/apollo11`.
 - Read the [Payload Integration chapters](./learn/delivery/rendering-and-helm) first.
 - **Pick one installer at a time.** Helm (Exercises 2–3), Kustomize (Exercise 5) and Argo CD (Exercise 6) each own the same objects. Tear one down before using the next: `bash stages/stage5/scripts/teardown.sh --mode helm` (or `--mode kustomize`).
+- Before starting this stage, tear down the previous one (`bash stages/stage4/scripts/teardown.sh`) and confirm its namespaces are gone.
 - Exercises 1 and 4 need no cluster state.
 :::
 
@@ -175,15 +176,16 @@ kubectl rollout status deploy/booking -n $NS --timeout=10s ; true
 kubectl describe pod -n $NS -l app=booking | grep -E 'Failed to pull|Back-off' | head -3
 ```
 
-5. **Fix and prove:**
+5. **Fix and prove:** roll back to the last revision that was healthy (read it from `helm history`; in this sequence revision 3, the rollback to 1, is the good one; revision 4 is the bad upgrade).
 
 ```bash
-helm rollback apollo11 4 -n $NS 2>/dev/null || helm rollback apollo11 3 -n $NS --wait   # use the last good revision from helm history
+helm history apollo11 -n $NS
+helm rollback apollo11 3 -n $NS --wait
 helm history apollo11 -n $NS | tail -3
 kubectl rollout status deploy/booking -n $NS
 ```
 
-   - Pick the revision that `helm history` shows as the last working one (3 in this sequence). Booking is `1/1` on `:latest`.
+   - A new revision 5 appears ("Rollback to 3"). Booking is `1/1` on `:latest`.
 6. **Try the safe flag:**
 
 ```bash

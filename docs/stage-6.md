@@ -14,7 +14,7 @@ sidebar_label: "Stage 6: Mission Ops (Observability)"
 :::
 
 :::caution[Verification status]
-The repository marks this ordered one-signal-at-a-time path as implemented, with its clean end-to-end lifecycle run still pending. The older all-in-one installer (`apply.sh --mode helm --env dev`) is the maintainer-verified path. If a step differs from what is written here, trust the output and record it.
+`stages/stage6/SIGNALS.md` describes this ordered path as implemented, noting that a clean end-to-end lifecycle run is still required before it replaces the older all-in-one installer (`apply.sh --mode helm --env dev`). If a step here differs from what you see, trust the output and record it.
 :::
 
 **Skill this lab builds:** pick the right signal for a question, and prove each signal is *actually collected* instead of assuming it is.

@@ -1,76 +1,64 @@
 ---
 title: "Stage 11 — Platform Engineering Specializations"
-description: "The planned specialization catalog and its current implementation boundary."
+description: "Planned specialization catalog and its implementation boundary."
 sidebar_label: "Stage 11: Specializations (Planned)"
 ---
 
-# Stage 11: Platform Engineering Specializations
+# Stage 11: Platform engineering specializations
 
 :::warning[Status: not implemented]
-Do not apply the files currently in `stages/stage11/`. Its README describes them
-as unverified legacy scaffolding for a library-management app, which is not
-compatible with the trusted Apollo Airlines stages.
+- **Do not apply** `stages/stage11/`. Its README calls it unverified legacy scaffolding for a library-management app, incompatible with Apollo Airlines.
+- Sources: `stages/stage11/README.md`, Stage 11 section of `ROADMAP.md`.
 :::
 
-Source: `stages/stage11/README.md` and the Stage 11 section of `ROADMAP.md`.
+**You will be able to:** explain what a CRD is and is not, and tell planned tracks from existing resources.
 
 ## Planned independent tracks
 
-- author an Apollo flight-status CRD and controller;
-- scale from an observable event source with KEDA;
-- operate Apollo Airlines on a k3s homelab;
-- expose a paved developer workflow through Backstage;
-- inspect and reduce cluster cost with Kubecost; and
-- explore Cluster API with disposable management and workload clusters.
+| Track | Idea |
+|---|---|
+| CRD + controller | Apollo flight-status resource |
+| KEDA | Scale from an event source |
+| k3s | Run Apollo on a homelab |
+| Backstage | Paved developer workflow |
+| Kubecost | Inspect and reduce cost |
+| Cluster API | Disposable management + workload clusters |
 
-These are plans, not existing Apollo11 resources. Any YAML for a future custom
-resource would only be an illustration until a real source file and a verified
-controller exist. This page therefore does not make one up.
+- These are plans. Any YAML for a future custom resource is illustration only: no real source file or verified controller exists.
 
-## General background
+## CRD in two lines
 
-A **CustomResourceDefinition (CRD)** adds a new kind of object to the Kubernetes
-API. A controller makes that object do something by repeatedly comparing the
-desired state with the observed state and reconciling the two. Creating a CRD
-alone does not add any behavior. Every specialization is held to the same standard
-of evidence: status, events, logs or metrics, application behavior, recovery from
-failure, and cleanup.
+- A **CustomResourceDefinition** adds a new object kind to the API.
+- A **controller** makes it do something by reconciling desired vs observed state. A CRD alone adds no behaviour.
+- Every track is held to the same evidence standard: status, events, logs/metrics, application behaviour, failure recovery, clean-up.
 
-## Safe exercise: check where the catalog ends
+## Exercise: where the catalog ends
 
-- **Objective**: Identify the approved specializations without mistaking the
-  legacy files for Apollo Airlines implementations.
-- **Starting point**: A local Apollo11 clone. You do not need a cluster.
-- **Instructions**:
+**Goal:** confirm the six tracks and the legacy label.
+**Time:** ~5 min
+
+1. **Do:**
 
 ```bash
 cd Apollo11
-sed -n '1,220p' stages/stage11/README.md
-sed -n '211,220p' ROADMAP.md
+sed -n '1,100p' stages/stage11/README.md
 find stages/stage11 -maxdepth 2 -type f | sort
-```
-
-- **Expected result**: The README marks the stage as not implemented and lists
-  the same six planned tracks as above.
-- **Verification**:
-
-```bash
 grep -n "not implemented" stages/stage11/README.md
 grep -n "legacy library-management" stages/stage11/README.md
 ```
 
-- **Troubleshooting**: If the repository no longer matches, check its README,
-  commands, manifests, and verification evidence again before you use the stage.
-- **Concept reinforced**: Each specialization is an independent choice. None of
-  them is proof that you have a production platform.
+2. **Check:** README marks it not implemented and lists the same six tracks.
+3. **Your turn:** for the CRD track, list the three objects a working design needs (CRD, controller Deployment, RBAC for the controller) and what *evidence* would show the controller reconciles. Which of the three exist in the repo today?
 
-## What you learned
+<details>
+<summary>Answer</summary>
 
-- The difference between adding a new kind to the Kubernetes API and building a
-  controller that works.
-- Why each advanced track needs its own prerequisites and cleanup.
-- Why this guide does not invent Apollo11 manifests for stages that are not
-  implemented.
+None exist as Apollo files. Evidence: creating a custom resource changes real cluster state; deleting the controller stops that; status on the resource reports what the controller observed.
+</details>
 
-To finish, do the [Stage 7 capstone](./capstone), which only uses the application
-path that has been verified.
+## You can now
+
+- [ ] Separate "adds a kind" from "builds a working controller".
+- [ ] Refuse to invent manifests for unimplemented stages.
+
+Finish with the [Core Capstone](./capstone).
