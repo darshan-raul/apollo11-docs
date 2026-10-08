@@ -1,10 +1,10 @@
-# Writing and exercise style guide
+# Writing style guide
 
 Applies to every page under `docs/`. Reviewers: reject a page that breaks these rules.
 
 ## Prose rules
 
-- **Structure with bullets and tables; explain in short paragraphs.** Labs stay terse; chapters teach.
+- **Structure with bullets and tables; explain in short paragraphs.** Walkthroughs stay bullet-first; chapters teach.
 - **No story openers.** Do not open with "Imagine…", "Before a passenger can…", or scene-setting. Open with what the page covers and what the learner can do afterwards.
 - **No filler.** Delete sentences that restate the heading, preview later pages, or reassure ("don't worry", "you will already know…").
 - **No "Apollo narrative" paragraphs** unless they name a concrete service, object, command or failure.
@@ -38,38 +38,34 @@ Rules:
 - **Why before how.** Every mechanism is introduced by the failure it prevents.
 - Target 500-900 words of prose per chapter. Reference tables are in addition.
 
-## Exercise pattern (labs)
+## Stage walkthrough template (stage pages)
 
-Every lab exercise is a **task with a checkable result**, not a tour of commands. Use this skeleton:
+Stage pages are **walkthroughs, not labs**. There are no exercises, predictions, fault drills or "your turn" tasks. The learner runs the stage from the `Apollo11` repo and reads *what* each step does, *why* it is done that way, and *what it improves over the previous stage*. The YAML lives in the repo; the page points to it and quotes trimmed, commented excerpts.
 
 ```md
-### Exercise N: <verb phrase naming the outcome>
-
-**Goal:** <one line: what you will have proven>
-**Time:** ~N min  ·  **Needs:** <state from earlier exercise>
-
-1. **Predict** — write down your answer before running anything.
-   - Q1 …
-2. **Do** — commands.
-3. **Check** — expected output, or the exact field to compare.
-4. **Break** (when the exercise has a failure) —
-   - Inject: one command.
-   - Symptom: what the learner sees.
-   - Diagnose: ladder rungs in order; the learner names the failing component *before* opening the reveal.
-   - Fix: one command.
-   - Prove recovery: observable behaviour (HTTP response, row, rollout status), not "resource exists".
-5. **Why** — 2–4 bullets: which component acted, which evidence proves it.
-6. **Your turn** — one open task with no commands given (author a manifest, change a value, find the cause); solution in a `<details>` block.
+# Stage N: <Name>
+:::info[Page type · stage walkthrough]   (repo folder link at the pinned commit, builds on, concept chapters)
+## Where we left off                     (the concrete pains carried from Stage N-1, in Apollo terms)
+## What changes in this stage            (table: Concern | Stage N-1 | Stage N | Why it's better)
+## What's in the folder                  (table: Path | What it is | New or replaces)
+## Walkthrough
+### Step K: <action>                     (command; trimmed real excerpt with # comments;
+                                          bullets: What happens / Why this way / Compared with Stage N-1)
+## When something looks wrong            (table: You see | Likely cause | First command)
+## What this stage does not solve yet    (table: Limitation | Why it hurts | Fixed in)
+## The journey so far                    (cumulative table; one more column each stage)
+## Clean up
+## You should now be able to explain     (bullets)
+**Next:** …
 ```
 
-### Exercise rules
+### Walkthrough rules
 
-- Teach a **decision or diagnosis skill**, not a trivia fact. Test: "after this, can the learner tell two similar failures apart?"
-- Each Break must produce a **distinct, diagnosable symptom** and name the component that owns the fix.
-- Every Break has Recover. Cleanup returns the cluster to the stage baseline.
-- Commands copy-paste as written; expected output shown for each check.
-- Use `-o jsonpath` / `custom-columns` to compare **one field**, not full YAML dumps.
-- Do not teach an exercise whose lesson is only "Kubernetes did the thing automatically".
+- Every new object or tool is introduced by the limit of the previous stage that it removes.
+- Every step has a **Why this way** bullet; most have a **Compared with** bullet naming the earlier stage.
+- Excerpts are copied from the real file at the pinned commit and trimmed; link the full file on GitHub (`/blob/<pin>/…`).
+- Showing a behaviour (a deleted Pod returning, a rollout stalling) is fine as **guided observation** with its explanation inline. Don't turn it into a puzzle.
+- Keep the journey table's row names consistent across stages.
 - Mark anything not verified on a live cluster with `:::caution[Unverified]`.
 
 ## Evidence ladder (shared vocabulary)
@@ -78,5 +74,5 @@ Every lab exercise is a **task with a checkable result**, not a tour of commands
 
 ## Direction of travel
 
-- This guide supersedes the earlier "reading-only, remove exercises" direction in `docs-learning-journey-review-prompt.md` and `docs-learning-journey-implementation-plan.md`.
-- Chapters stay short and bullet-first; **labs carry the practice**, using the exercise pattern above.
+- Earlier plan docs (`docs-learning-journey-review-prompt.md` and `docs-learning-journey-implementation-plan.md`) are historical.
+- Chapters teach the concepts; **stage walkthroughs** show them running, stage by stage, and explain why each stage improves on the last. The earlier exercise/lab format was retired at the course owner's request.

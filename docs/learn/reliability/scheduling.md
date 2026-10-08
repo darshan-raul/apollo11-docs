@@ -57,7 +57,7 @@ Only the scheduler writes `nodeName`. Until it does, the kubelet does not know t
 | **Node affinity**, `preferred…` | Soft | Raises the matching node's score |
 | **Topology spread** | `DoNotSchedule` hard / `ScheduleAnyway` soft | Spreads replicas across hosts or zones (`maxSkew`) |
 
-Taints push away; affinity pulls toward; a toleration merely removes a barrier. To *dedicate* a node to a workload you combine a taint (keep others off) with a toleration plus affinity (let this workload on and prefer it), which is exactly what the Stage 7 lab does.
+Taints push away; affinity pulls toward; a toleration merely removes a barrier. To *dedicate* a node to a workload you combine a taint (keep others off) with a toleration plus affinity (let this workload on and prefer it), which is exactly what Stage 7 does for search (see its scaling script and chart values).
 
 Apollo's booking uses soft spread (`ScheduleAnyway`): the scheduler tries to put replicas on different nodes but will not leave a Pod unscheduled to achieve it. So check the `NODE` column rather than assume.
 

@@ -1,6 +1,6 @@
 ---
 title: "Stage 8 — Security Enforcement Roadmap"
-description: "Planned Apollo11 security stage, its trust boundary, and an audit you can run today."
+description: "Planned Apollo11 security stage: what the Stage 7 platform leaves open, which tools will close each gap, and why in that order."
 sidebar_label: "Stage 8: Security (Planned)"
 ---
 
@@ -8,72 +8,79 @@ sidebar_label: "Stage 8: Security (Planned)"
 
 :::warning[Status: not implemented]
 - `stages/stage8/` holds a status placeholder only. The roadmap says Stage 8 is rebuilt from scratch on the verified Stage 7 Helm baseline.
-- Examples on this page are **not** Apollo11 manifests. Do not assemble a stage from older branches.
+- Nothing on this page is an Apollo11 manifest. Do not assemble a stage from older branches.
 - Source: `README.md` and the Stage 8 / "Implementation and trust policy" sections of `ROADMAP.md`.
+- Concepts: [Identity and authorization](./learn/security/identity-and-authorization) · [Admission and runtime](./learn/security/admission-and-runtime) · [Network policy](./learn/security/network-policy) · [Secrets and supply chain](./learn/security/secrets-and-supply-chain)
 :::
 
-**You will be able to:** list what Stage 8 will add, and audit the Stage 7 chart for the controls it lacks.
+## Where we left off
 
-## Planned scope
+Stage 7 runs, scales and can be observed, but it trusts everything:
 
-| Area | Planned control | Proof the lab must give |
-|---|---|---|
-| Identity + workload baseline | Least-privilege RBAC, per-service ServiceAccounts, token automount only where needed, `runAsNonRoot`, seccomp, dropped capabilities, read-only rootfs | `auth can-i` results; `touch` fails on rootfs |
-| Enforced networking | Replace kindnet with **Calico**; default-deny + least-privilege NetworkPolicies | One blocked and one allowed path, both tested |
-| External secrets | **Vault** + External Secrets Operator | Bootstrap, reconcile, rotate, failure, recovery |
-| Admission + supply chain | **Kyverno** (audit → enforce), Trivy in CI, Cosign signing | An unsigned image rejected |
+- **Any Pod can talk to any Pod.** The frontend can open a connection to `booking-db` directly. Nothing stops it.
+- **Containers run with the image's defaults.** They may run as root, write to their own filesystem, and keep every Linux capability.
+- **Secrets are plain Kubernetes Secrets in the chart.** They're base64, rendered from values, and readable by anyone who can read Secrets in the namespace.
+- **Any image can run.** Nothing checks where an image came from, or whether it has known vulnerabilities.
+- **One thing was done right early:** Stage 1 turned off ServiceAccount token automount, and Stage 7's chart still does. Apps have identities but no API access.
 
-## Background (one line each)
+## What changes in this stage (planned)
 
-- **RBAC:** which API verbs are allowed. `Role` is namespaced; `RoleBinding` attaches it.
-- **Pod Security Admission:** namespace-level admission check. Does not replace hardening.
-- **NetworkPolicy:** needs an enforcing CNI. kindnet cannot show it.
-- **External Secrets Operator:** copies external values into ordinary Kubernetes Secrets, which still exist in-cluster.
-- **Admission + signing:** only works once trust roots, identities and failure procedures are designed.
+| Concern | Stage 7 | Stage 8 (planned) | Why it's better |
+|---|---|---|---|
+| Who may call the Kubernetes API | No tokens mounted; no Roles | **RBAC** Roles and RoleBindings, only where a workload needs API access | Least privilege you can prove with `kubectl auth can-i` |
+| What a container may do | Image defaults | `runAsNonRoot`, seccomp `RuntimeDefault`, dropped capabilities, read-only root filesystem | A compromised process can do far less |
+| Pod-to-Pod traffic | All allowed (kindnet doesn't enforce policy) | **Calico** CNI + default-deny **NetworkPolicies** with explicit allows | Only booking can reach `booking-db` |
+| Secrets | Kubernetes Secret from Helm values | **Vault** + **External Secrets Operator** | The source of truth is outside Git and can be rotated |
+| What may be deployed | Anything | **Kyverno** admission policies (audit first, then enforce) | Bad manifests are rejected at the API server |
+| Image trust | Whatever tag is in values | **Trivy** scan in CI, **Cosign** signatures checked at admission | Only scanned, signed images run |
 
-## Exercise: audit the gap (no cluster needed)
+## Why in this order
 
-**Goal:** prove which controls survived to Stage 7 and which never existed.
-**Time:** ~5 min
+1. **Workload identity and hardening first.** They need no new infrastructure, just chart fields. They also shrink what every later control has to defend.
+2. **Then the network.** NetworkPolicy objects do nothing until the CNI enforces them. So the CNI changes from kindnet to Calico *before* any policy is written.
+3. **Then secrets.** Vault and ESO add moving parts: bootstrap, sync, rotation, failure. Hardened, policy-limited Pods are a safer place to deliver real secrets to.
+4. **Then admission and supply chain last.** Enforcement can block your own deploys. You turn it on only when the earlier controls are stable, and in *audit* mode before *enforce*.
 
-1. **Predict:** Stage 1 disabled token automount. Does Stage 7's chart still do it? Does it set `runAsNonRoot`?
-2. **Do:**
+## What the stage must prove before it counts
+
+| Control | Evidence the stage must show |
+|---|---|
+| RBAC | `kubectl auth can-i` answers yes for the one needed verb and no for the rest |
+| Hardening | `touch /x` fails inside a container; `id` shows a non-root UID |
+| NetworkPolicy | One allowed path works and one blocked path fails, both tested |
+| External secrets | Bootstrap, sync, rotation, a failure, and recovery |
+| Admission + signing | An unsigned image is rejected, and a signed one is admitted |
+
+## See where Stage 7 stands today
+
+These read-only commands run against the repo, with no cluster needed:
 
 ```bash
-cd Apollo11
-grep -n "automountServiceAccountToken" stages/stage1/k8s/config/serviceaccounts.yaml | head -3
-sed -n '1,60p' stages/stage7/helm/apollo11/templates/config/serviceaccount.yaml
+grep -n "automountServiceAccountToken" stages/stage7/helm/apollo11/templates/config/serviceaccount.yaml | head -3
 grep -R -n -E "runAsNonRoot|seccompProfile|readOnlyRootFilesystem|allowPrivilegeEscalation" \
-  stages/stage7/helm/apollo11/templates/apps stages/stage7/helm/apollo11/templates/ui || echo "NO hardening fields in Stage 7 templates"
-```
-
-3. **Check:**
-   - Automount is off in Stage 1 **and** Stage 7.
-   - The `grep` finds nothing: no `securityContext` hardening.
-4. **Verify the project's own status:**
-
-```bash
+  stages/stage7/helm/apollo11/templates/apps stages/stage7/helm/apollo11/templates/ui || echo "no hardening fields in Stage 7"
 cat stages/stage8/README.md
-grep -n "Stage 8 is a clean rebuild" ROADMAP.md
 ```
 
-5. **Why:** security posture belongs to a **snapshot**. A control shown in one stage cannot be claimed in another unless its manifests and runtime evidence show it.
-6. **Your turn:** produce a three-row table "Control · Present in Stage 7? · Evidence" for token automount, container hardening and NetworkPolicy enforcement. The third needs a command that shows the CNI.
+- Automount is off: that control carried forward from Stage 1.
+- The hardening `grep` finds nothing. That control never existed.
+- With a cluster up, `kubectl get pods -n kube-system` shows `kindnet` and no Calico, so no NetworkPolicy would be enforced.
 
-<details>
-<summary>Answer</summary>
+## The journey so far
 
-| Control | Present? | Evidence |
-|---|---|---|
-| Token automount off | Yes | `grep automountServiceAccountToken` on the ServiceAccounts |
-| Container hardening | No | Empty `grep` above |
-| NetworkPolicy enforced | No | `kubectl get pods -n kube-system` shows `kindnet`, no Calico |
-</details>
+| Concern | Stage 1 | Stage 7 | Stage 8 (planned) |
+|---|---|---|---|
+| Workload identity | ServiceAccount per workload, no token | same | **+ RBAC where needed** |
+| Container privileges | image defaults | image defaults | **hardened `securityContext`** |
+| Network | flat | flat | **default-deny + allow-list** |
+| Secrets | Secret in Git | Secret from Helm values | **Vault + ESO** |
+| Admission | none | none | **Kyverno, Cosign** |
 
-## You can now
+## You should now be able to explain
 
-- [ ] Tell planned security from enforced security.
-- [ ] Say why NetworkPolicy needs an enforcing CNI.
-- [ ] Audit a later snapshot instead of assuming inheritance.
+- Which security gaps the Stage 7 platform has, and which control from Stage 1 survived.
+- Why NetworkPolicy needs an enforcing CNI before any policy means anything.
+- Why hardening comes before secrets, and admission comes last.
+- Why a planned control can't be claimed until a stage shows its evidence.
 
-Next: [Stage 9](./stage-9).
+**Next:** [Stage 9](./stage-9) (planned) takes the platform to the cloud.

@@ -8,7 +8,7 @@ description: "Authentication, authorization and admission as three gates; least-
 *Command Module · Planned*
 
 :::note[Conceptual chapter]
-Apollo has no runnable security lab yet. Commands show the evidence a future lab should produce; they are not expected to behave this way on the Stage 7 cluster.
+Apollo has no runnable security stage yet. Commands show the evidence Stage 8 should produce; they are not expected to behave this way on the Stage 7 cluster.
 :::
 
 **You will be able to:** name the three gates an API request passes, write a least-privilege Role, and test it with `kubectl auth can-i`.
@@ -55,7 +55,7 @@ Good practice is **least privilege**: grant only the exact verbs on the exact re
 
 A ServiceAccount is an **identity**, not a guarantee of safety. Apollo already sets `automountServiceAccountToken: false`, because its services never call the API; with no token, a compromised web process has no API credential at all.
 
-## Evidence (future lab)
+## Evidence (future stage)
 
 ```bash
 kubectl auth can-i create pods --as=system:serviceaccount:apollo-airlines-apps:booking -n apollo-airlines-apps

@@ -48,7 +48,7 @@ spec:
   policyTypes: [Ingress, Egress]
 ```
 
-## Evidence (future lab)
+## Evidence (future stage)
 
 Always test **both** a path that should be blocked and one that should work:
 

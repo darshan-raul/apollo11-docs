@@ -55,7 +55,7 @@ sequenceDiagram
   P->>F: plain HTTP
 ```
 
-So TLS protects only the browser → proxy leg in this lab. If the Secret is missing or invalid, Traefik falls back to its own default certificate (`CN=TRAEFIK DEFAULT CERT`) instead of dropping the connection, which means the application is fine but the certificate is wrong.
+So TLS protects only the browser → proxy leg in Stage 2. If the Secret is missing or invalid, Traefik falls back to its own default certificate (`CN=TRAEFIK DEFAULT CERT`) instead of dropping the connection, which means the application is fine but the certificate is wrong.
 
 ## What a local self-signed certificate does not give you
 

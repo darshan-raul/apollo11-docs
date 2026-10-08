@@ -52,7 +52,7 @@ This is the idea that causes most confusion, so go slowly.
 | Question | Who made and cleans up this? | Which objects form this group? |
 | Used by | Garbage collection | Counting replicas, routing traffic |
 
-They are independent. A label on a Pod gives nobody permission to delete it, and an owner reference does not route traffic. Change a Pod's `app` label and the ReplicaSet stops counting it (releasing it from ownership) and creates a replacement, while the old Pod keeps running as an orphan. You will use exactly that trick in the lab to take a Pod out of service while keeping it alive for inspection.
+They are independent. A label on a Pod gives nobody permission to delete it, and an owner reference does not route traffic. Change a Pod's `app` label and the ReplicaSet stops counting it (releasing it from ownership) and creates a replacement, while the old Pod keeps running as an orphan. Operators use exactly that trick to take a misbehaving Pod out of service while keeping it alive for inspection.
 
 One more rule: a Deployment's `selector` must match its template's labels, and it cannot be changed after creation, because changing it could make it unclear which Pods belong to whom.
 

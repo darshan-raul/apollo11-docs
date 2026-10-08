@@ -14,17 +14,17 @@ sidebar_label: "Mission briefing"
 3. [DNS and namespaces](../learn/networking/dns-and-namespaces)
 4. [NodePort and LoadBalancer](../learn/networking/nodeport-and-loadbalancer)
 5. [Ingress and TLS](../learn/networking/ingress-and-tls)
-6. [Gateway API](../learn/networking/gateway-api): second pass; needed for the full lab.
+6. [Gateway API](../learn/networking/gateway-api): second pass; needed for the full walkthrough.
 
 First pass: stop after chapter 5. You are done when you can trace **DNS → address → edge proxy → Service → ready Pod**.
 
-## Ready for the lab when you can answer
+## Ready for the walkthrough when you can answer
 
 - What decides whether a Pod is an endpoint of a Service?
 - What name does booking use to reach flight in another namespace?
 - NodePort vs LoadBalancer: who allocates the address?
 - Who may attach a route to a Gateway? Who may send traffic to a Service in another namespace?
 
-## Lab
+## Walkthrough
 
-- [Build Stage 2](../stage-2)
+- [Stage 2 walkthrough](../stage-2)

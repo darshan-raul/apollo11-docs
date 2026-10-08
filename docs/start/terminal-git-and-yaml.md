@@ -1,12 +1,12 @@
 ---
 title: "Terminal, Git, and YAML Essentials"
 sidebar_label: "Terminal, Git & YAML"
-description: "Minimum shell, Git and YAML needed for the labs."
+description: "Minimum shell, Git and YAML needed for the walkthroughs."
 ---
 
 # Terminal, Git, and YAML essentials
 
-**You will be able to:** read any command in the labs before running it, and read a manifest in four passes.
+**You will be able to:** read any command in the walkthroughs before running it, and read a manifest in four passes.
 
 ## Shell
 
@@ -29,7 +29,7 @@ git status --short      # empty = clean
 git rev-parse HEAD      # exact commit
 ```
 
-- Use a dedicated lab clone. Pinned commit: see [setup](../labs/setup#prepare-the-verified-workspace).
+- Use a dedicated clone. Pinned commit: see [setup](../labs/setup#prepare-the-verified-workspace).
 
 ## YAML
 

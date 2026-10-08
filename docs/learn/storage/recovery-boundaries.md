@@ -59,7 +59,7 @@ persistentVolumeClaimRetentionPolicy:
 
 | Event | Survived by | Needs |
 |---|---|---|
-| Container restart / Pod delete | The PVC | Done in the Stage 3 lab |
+| Container restart / Pod delete | The PVC | Shown in Stage 3 |
 | PVC deleted | `Retain` plus a backup | A backup you can restore |
 | Node lost (kind) | Nothing | Replication or network storage |
 | Logical corruption | A point-in-time backup | A restored copy |

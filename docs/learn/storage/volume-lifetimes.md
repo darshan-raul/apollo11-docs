@@ -46,7 +46,7 @@ Apollo's kind cluster uses a storage class called `local-path`. It solves one pr
 - **Solves:** the PVC survives Pod replacement. The new Pod remounts the same directory, so the database files are still there.
 - **Does not solve:** the directory is a plain folder inside **one** node container (`/var/local-path-provisioner/…`). Lose that node and the data goes with it. It also *pins* the Pod to that node, because only that node has the folder.
 
-So the lab proves survival across **Pod replacement**, and only that.
+So Stage 3 proves survival across **Pod replacement**, and only that.
 
 ## Try it
 

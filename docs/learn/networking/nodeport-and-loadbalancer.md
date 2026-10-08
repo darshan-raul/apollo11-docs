@@ -35,7 +35,7 @@ flowchart LR
 
 A NodePort Service involves three port numbers: `port` (the Service's own), `targetPort` (the container's) and `nodePort` (opened on each node). Without the kind mapping, the NodePort works inside the nodes but your laptop cannot reach it.
 
-NodePort is fine for a lab but poor for production: awkward port range (users expect 80/443), opened on every node, and it works only at layer 4 with no host or path routing.
+NodePort is fine for a local cluster but poor for production: awkward port range (users expect 80/443), opened on every node, and it works only at layer 4 with no host or path routing.
 
 ## How it works: LoadBalancer and MetalLB
 

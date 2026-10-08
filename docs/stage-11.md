@@ -13,6 +13,16 @@ sidebar_label: "Stage 11: Specializations (Planned)"
 
 **You will be able to:** explain what a CRD is and is not, and tell planned tracks from existing resources.
 
+## Where we left off
+
+- By Stage 10 you operate a platform. Stage 11 is about **building platforms for others**:
+  - your own Kubernetes API types (CRDs and controllers),
+  - event-driven scaling,
+  - developer portals,
+  - cost visibility,
+  - clusters that create clusters.
+- Each track extends a different earlier stage: a CRD + controller is the reconciliation loop from Ignition, written by you. KEDA extends Stage 7's HPA. Kubecost builds on Stage 4's requests.
+
 ## Planned independent tracks
 
 | Track | Idea |
@@ -32,33 +42,20 @@ sidebar_label: "Stage 11: Specializations (Planned)"
 - A **controller** makes it do something by reconciling desired vs observed state. A CRD alone adds no behaviour.
 - Every track is held to the same evidence standard: status, events, logs/metrics, application behaviour, failure recovery, clean-up.
 
-## Exercise: where the catalog ends
-
-**Goal:** confirm the six tracks and the legacy label.
-**Time:** ~5 min
-
-1. **Do:**
+## Check the repo's status
 
 ```bash
-cd Apollo11
 sed -n '1,100p' stages/stage11/README.md
 find stages/stage11 -maxdepth 2 -type f | sort
 grep -n "not implemented" stages/stage11/README.md
 grep -n "legacy library-management" stages/stage11/README.md
 ```
 
-2. **Check:** README marks it not implemented and lists the same six tracks.
-3. **Your turn:** for the CRD track, list the three objects a working design needs (CRD, controller Deployment, RBAC for the controller) and what *evidence* would show the controller reconciles. Which of the three exist in the repo today?
+- The README marks it not implemented. None of the three pieces a CRD track needs exists as Apollo files: the CRD, the controller Deployment, and the controller's RBAC.
 
-<details>
-<summary>Answer</summary>
+## You should now be able to explain
 
-None exist as Apollo files. Evidence: creating a custom resource changes real cluster state; deleting the controller stops that; status on the resource reports what the controller observed.
-</details>
-
-## You can now
-
-- [ ] Separate "adds a kind" from "builds a working controller".
-- [ ] Refuse to invent manifests for unimplemented stages.
+- Separate "adds a kind" from "builds a working controller".
+- Refuse to invent manifests for unimplemented stages.
 
 Finish with the [Core Capstone](./capstone).

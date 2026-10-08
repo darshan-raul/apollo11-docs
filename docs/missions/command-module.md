@@ -5,7 +5,7 @@ sidebar_label: "Mission briefing"
 
 # Command Module: security
 
-**Status:** concepts only. No runnable Apollo lab exists yet (see [Stage 8](../stage-8)).
+**Status:** concepts only. No runnable Apollo stage exists yet (see [Stage 8](../stage-8)).
 
 **Problem:** who may call the API, what may enter the cluster, who may reach a Pod, who may read a secret.
 
@@ -19,4 +19,4 @@ sidebar_label: "Mission briefing"
 ## Rules for this mission
 
 - Each control guards a different boundary. None replaces another.
-- Planned controls stay labelled *planned* until a lab proves them.
+- Planned controls stay labelled *planned* until a stage demonstrates them.

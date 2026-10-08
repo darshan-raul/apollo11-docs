@@ -16,13 +16,13 @@ sidebar_label: "Mission briefing"
 5. [Initialization and seeding](../learn/storage/initialization-and-seeding)
 6. [Recovery boundaries](../learn/storage/recovery-boundaries)
 
-## Ready for the lab when you can answer
+## Ready for the walkthrough when you can answer
 
 - Delete the Pod: do the PVC and PV remain? Delete the PVC: what happens?
 - What does `identity-db-0` keep across replacement that a Deployment Pod would not?
 - Why does a headless Service return Pod IPs instead of one virtual IP?
 - Which failures does a PVC **not** protect against (node loss, cluster loss, bad `DELETE`)?
 
-## Lab
+## Walkthrough
 
-- [Build Stage 3](../stage-3)
+- [Stage 3 walkthrough](../stage-3)

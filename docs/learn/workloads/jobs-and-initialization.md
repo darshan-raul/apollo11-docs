@@ -56,7 +56,7 @@ Because retries and manual reruns happen, initialization must be **idempotent**:
 
 ## What `Complete` proves
 
-It proves the container exited `0`. It does **not** prove the schema matches the current app, that future changes are safe, or that data was preserved. And a completed Job does not run again on its own: if the database is wiped later, you must recreate the Job (you will see this in the Stage 1 lab).
+It proves the container exited `0`. It does **not** prove the schema matches the current app, that future changes are safe, or that data was preserved. And a completed Job does not run again on its own: if the database is wiped later, you must recreate the Job (the Stage 1 apply script deletes and recreates the Jobs for this reason).
 
 ## Try it
 

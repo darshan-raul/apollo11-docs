@@ -39,7 +39,7 @@ They do different jobs:
 | After applying | Exits | Keeps looping |
 | Helm release record? | Yes (Helm) | **No.** Argo renders the chart itself and applies the result |
 
-## How it works in the local lab
+## How it works on the local cluster
 
 Argo CD runs inside the kind cluster, so it cannot read files on your laptop, and you probably cannot push to the upstream repository. Apollo handles this two ways:
 

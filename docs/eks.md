@@ -1,18 +1,22 @@
 ---
 title: "Cloud Appendix — EKS Research Boundary"
-description: "What the EKS prototype contains, why it is not a lab, and how local concepts map to AWS."
+description: "What the EKS prototype contains, why it is not a supported stage, and how local concepts map to AWS."
 sidebar_label: "Cloud Appendix: EKS Boundary"
 ---
 
 # Cloud appendix: EKS research boundary
 
-:::danger[Do not run the EKS scripts as a learner lab]
+:::danger[Do not run the EKS scripts as a learner stage]
 - `stages/eks/` is classed **research input only**. Its README and the roadmap record unresolved Terraform, routing and teardown defects.
 - It can create billable AWS resources; its cleanup is not accepted as ownership-safe. Do not run `up.sh`, `apply-workloads.sh` or `down.sh`.
 - Sources: `stages/eks/README.md`, `README.md`, `ROADMAP.md`.
 :::
 
 **You will be able to:** map each local mechanism to its AWS counterpart, and explain why the code is evidence of intent, not of a safe lifecycle.
+
+## Where we left off
+
+- Every stage so far ran on kind, and every kind piece has a cloud counterpart. This page maps each one, so you know what changes when the same Helm chart runs on EKS.
 
 ## Local → EKS prototype
 
@@ -36,41 +40,29 @@ sidebar_label: "Cloud Appendix: EKS Boundary"
 
 - EBS volumes are **zonal**: the Pod must run where the volume can attach. `WaitForFirstConsumer` aligns first placement; it is not replication.
 
-## Exercise: read-only trace (no AWS credentials)
-
-**Goal:** classify each resource as cluster-scoped, AWS-managed, stateful or billable, and explain why cleanup needs ownership-scoped discovery.
-**Time:** ~10 min
-
-1. **Predict:** which resources in a `down.sh` would be dangerous to delete by tag or region alone?
-2. **Do:**
+## Read the prototype (no AWS credentials)
 
 ```bash
-cd Apollo11
 sed -n '1,120p' stages/eks/README.md
 sed -n '1,120p' stages/eks/terraform/storage/storageclass.tf
 sed -n '1,120p' stages/eks/terraform/cluster/pod-identity.tf
 sed -n '1,120p' stages/eks/scripts/down.sh
-grep -n "research input only" stages/stage9/README.md
-grep -n "do not promote prototype scripts" ROADMAP.md
 ```
-
-3. **Check:** both `grep`s match. If not, the repo changed since this page was written: re-read the READMEs before relying on it.
-4. **Fill in:**
 
 | Resource | Scope | Stateful? | Billable? |
 |---|---|---|---|
 | EKS cluster | AWS-managed | No | Yes |
-| EBS volume | Zonal | Yes | Yes |
+| EBS volume | One zone | Yes | Yes |
 | NLB | AWS-managed | No | Yes |
 | ECR repo | Regional | Images | Storage |
 | IAM role | Account | No | No |
 
-5. **Your turn:** write the rule a safe teardown script must follow when choosing what to delete (hint: tags set by *your* Terraform run, not a broad regional sweep).
+- **The rule a safe teardown must follow:** delete only what *your own* Terraform run created and tagged. Never sweep a region by tag or name.
 
-## You can now
+## You should now be able to explain
 
-- [ ] Map kind concepts to AWS ones.
-- [ ] Explain why Pod-replacement persistence is not AZ recovery.
-- [ ] Say why scripts in `stages/eks/` are reference-only.
+- Map kind concepts to AWS ones.
+- Explain why Pod-replacement persistence is not AZ recovery.
+- Say why scripts in `stages/eks/` are reference-only.
 
 Next: [Stage 8](./stage-8) or back to [Stage 7](./stage-7).

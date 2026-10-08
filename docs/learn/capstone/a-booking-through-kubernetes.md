@@ -66,7 +66,7 @@ Infrastructure recovery restores **capacity**, not the outcome of one in-flight 
 
 ## Self-assessment
 
-Explain one booking and score one point per row; aim for 8 or more before the capstone lab.
+Explain one booking and score one point per row; aim for 8 or more before the capstone walkthrough.
 
 | Criterion | You can… |
 |---|---|

@@ -16,13 +16,13 @@ sidebar_label: "Mission briefing"
 5. [Traces](../learn/observability/traces)
 6. [Correlating a booking](../learn/observability/correlating-a-booking)
 
-## Ready for the lab when you can answer
+## Ready for the walkthrough when you can answer
 
 - Rate/latency vs one event vs one request's route: metric, log or trace?
 - ServiceMonitor vs Prometheus: which one scrapes?
 - Does an alert fix anything?
 - What breaks a trace in the middle of a call chain?
 
-## Lab
+## Walkthrough
 
-- [Build Stage 6](../stage-6)
+- [Stage 6 walkthrough](../stage-6)

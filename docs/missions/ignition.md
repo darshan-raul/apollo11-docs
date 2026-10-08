@@ -14,13 +14,13 @@ sidebar_label: "Mission briefing"
 3. [Reconciliation and components](../learn/cluster/reconciliation-and-components)
 4. [Pod lifecycle](../learn/cluster/pod-lifecycle)
 
-## Ready for the lab when you can answer
+## Ready for the walkthrough when you can answer
 
 - Which component picks the node? Which starts the container?
 - `kubectl apply` returned. What has actually happened so far?
 - A Pod is `Pending`. Which component's events do you look for?
 - A Pod is `ImagePullBackOff`. Which component is reporting?
 
-## Lab
+## Walkthrough
 
-- [Build Ignition](../ignition): creates the 3-node `kind` cluster and runs a bare Pod.
+- [Ignition walkthrough](../ignition): creates the 3-node `kind` cluster and runs a bare Pod.

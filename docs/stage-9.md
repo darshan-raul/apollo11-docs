@@ -1,6 +1,6 @@
 ---
 title: "Stage 9 — AWS Cloud Lifecycle Roadmap"
-description: "Planned AWS/EKS capstone, the untrusted legacy boundary, and what a cloud lab must prove."
+description: "Planned AWS/EKS capstone, the untrusted legacy boundary, and what a cloud stage must prove."
 sidebar_label: "Stage 9: Cloud (Planned)"
 ---
 
@@ -12,7 +12,17 @@ sidebar_label: "Stage 9: Cloud (Planned)"
 - Sources: `stages/stage9/README.md`, `ROADMAP.md`, `stages/eks/README.md`.
 :::
 
-**You will be able to:** list what a trustworthy cloud lab must demonstrate, and verify the repo's own status.
+**You will be able to:** list what a trustworthy cloud stage must demonstrate, and verify the repo's own status.
+
+## Where we left off
+
+- Stages 1–7 (and the planned Stage 8) all run on **kind**: three Docker containers on your laptop.
+- That hides everything a real cloud adds:
+  - a `LoadBalancer` Service gets a real, billable load balancer, not a MetalLB address,
+  - a PVC becomes a disk in **one availability zone**,
+  - nodes can be added and removed by an autoscaler,
+  - upgrades, backups and teardown cost real money when they go wrong.
+- Stage 9 is where "production-shaped" meets real infrastructure.
 
 ## Planned journey (AWS/EKS primary)
 
@@ -40,36 +50,24 @@ sidebar_label: "Stage 9: Cloud (Planned)"
 
 - A PVC surviving Pod deletion proves one narrow thing, not multi-AZ availability, restorable backups or an RPO.
 
-## Exercise: audit the boundary (no AWS credentials)
+## Check the repo's status
 
-**Goal:** show why neither Stage 9 nor `stages/eks/` is a supported continuation.
-**Time:** ~5 min
-
-1. **Predict:** which two phrases will the repo use to mark these directories?
-2. **Do:**
+Read-only, no AWS credentials needed:
 
 ```bash
-cd Apollo11
 sed -n '1,120p' stages/stage9/README.md
 grep -n "not implemented" stages/stage9/README.md
 grep -n "research input only" stages/stage9/README.md
-grep -n "production-shaped" ROADMAP.md
 sed -n '1,80p' stages/eks/README.md
 ```
 
-3. **Check:** each `grep` returns a line. If one is empty, the repo changed: re-read the READMEs before trusting any script.
-4. **Your turn:** from the roadmap list above, pick the three steps most likely to leave billable leftovers and name the resource each would leave (load balancer, EBS volume, NAT gateway, ECR image, snapshot).
+- Both `grep`s should match. If one doesn't, the repo has changed, so re-read the READMEs before trusting any script.
+- **The steps most likely to leave billable leftovers:** step 4 (load balancer, Elastic IP), steps 5–6 (extra nodes and EBS volumes after scale-up), step 8 (Velero snapshots and S3 objects), plus NAT gateways and ECR images from steps 1 and 3.
 
-<details>
-<summary>Answer</summary>
+## You should now be able to explain
 
-Step 4 (provider load balancer, Elastic IP), step 5/6 (extra nodes/EBS volumes left after scale-up), step 8 (Velero snapshots/S3 objects). Also NAT gateways and ECR images from steps 1 and 3.
-</details>
-
-## You can now
-
-- [ ] Explain why the current EKS files are not a supported lab.
-- [ ] Say why persistence ≠ availability-zone recovery.
-- [ ] Treat cleanup verification as part of the lab.
+- Explain why the current EKS files are not a supported stage.
+- Say why persistence ≠ availability-zone recovery.
+- Treat cleanup verification as part of the stage.
 
 Next: [Stage 10](./stage-10) or the [EKS boundary](./eks).

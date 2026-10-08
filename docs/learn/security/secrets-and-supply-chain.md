@@ -8,7 +8,7 @@ description: "External secret stores, digests and signatures: planned controls f
 *Command Module · Planned*
 
 :::note[Conceptual chapter]
-Vault, External Secrets Operator, signing and admission enforcement are planned architecture, not installed in the Apollo lab.
+Vault, External Secrets Operator, signing and admission enforcement are planned architecture, not installed in any Apollo stage yet.
 :::
 
 **You will be able to:** explain what an external secret store changes, and why a tag is not provenance.
@@ -57,7 +57,7 @@ flowchart LR
   Adm -->|missing or invalid| Reject
 ```
 
-## Evidence (future lab)
+## Evidence (future stage)
 
 ```bash
 kubectl get externalsecrets -n apollo-airlines-apps

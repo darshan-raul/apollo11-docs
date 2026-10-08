@@ -56,7 +56,7 @@ securityContext:
 
 **Where Apollo stands today:** Launchpad's Compose file already sets `read_only`, `cap_drop` and `no-new-privileges`, but the Kubernetes Deployments through Stage 7 do **not** set these fields. That is the planned Stage 8 gap.
 
-## Evidence (future lab)
+## Evidence (future stage)
 
 ```bash
 kubectl get events -n apollo-airlines-apps --field-selector reason=FailedCreate

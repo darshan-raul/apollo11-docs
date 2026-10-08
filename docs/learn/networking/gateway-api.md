@@ -8,7 +8,7 @@ description: "GatewayClass, Gateway, HTTPRoute and ReferenceGrant: who owns what
 *Stage 2 · Guidance*
 
 :::info[Advanced chapter]
-First pass: finish [Ingress and TLS](./ingress-and-tls) and stop. Return here for the full Stage 2 lab, route status, and cross-namespace permission.
+First pass: finish [Ingress and TLS](./ingress-and-tls) and stop. Return here for the Stage 2 walkthrough, route status, and cross-namespace permission.
 :::
 
 **You will be able to:** name which object owns the listener, the route and each permission, read Gateway status as a chain, and diagnose a failing hostname.

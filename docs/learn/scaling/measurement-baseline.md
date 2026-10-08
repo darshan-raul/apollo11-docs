@@ -27,7 +27,7 @@ A valid baseline has five parts:
 | 4 | **Saturation signals:** what else could be the limit | `kubectl top`, dropped iterations (is the *generator* the bottleneck?) |
 | 5 | **Time window:** steady state | Warm-up traffic excluded in `setup()` |
 
-These thresholds are lab acceptance criteria, not a production SLO.
+These thresholds are this course's acceptance criteria, not a production SLO.
 
 ## Why one `curl` is not evidence
 

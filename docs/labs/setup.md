@@ -46,7 +46,7 @@ git rev-parse HEAD       # expect 69113dcc80f77e32301d8ee7b9e73a67c923de96
 
 ## Know the stage boundary
 
-- Each stage is a snapshot, not a patch on the previous one. Confirm directory, cluster and namespace before each lab.
+- Each stage is a snapshot, not a patch on the previous one. Confirm directory, cluster and namespace before each stage.
 
 | Part of journey | Primary application namespace | Extra namespaces |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ git rev-parse HEAD       # expect 69113dcc80f77e32301d8ee7b9e73a67c923de96
 | Scaling (Stage 7) | `apollo-airlines-apps` | `apollo-observability`, `apollo-airlines-ui` |
 
 - The stage page wins if it names a more specific boundary.
-- Before starting another stage, run the current stage's `scripts/teardown.sh` and confirm its namespaces and PVCs are gone (the Stage 6 guide requires this). Do not stack stages unless a lab says its stack carries over.
+- Before starting another stage, run the current stage's `scripts/teardown.sh` and confirm its namespaces and PVCs are gone (the Stage 6 guide requires this). Do not stack stages unless a walkthrough says its stack carries over.
 
 ## The learner-work directory
 
@@ -82,7 +82,7 @@ docker ps --format '{{.Ports}}' | grep -E '3000|8080|8081|8082|8083|8084' || tru
 - Last command prints nothing: Launchpad ports are free. Output means something holds them. Identify it before stopping it.
 - `apply` success = API accepted the objects. It says nothing about scheduling, endpoints, telemetry or bookings.
 
-## Order of labs
+## Order of stages
 
 - [Launchpad](../launchpad) (Docker Compose) → [Ignition](../ignition) (kind) → Stages 1–7.
 - Each stage names its own start state and cleanup. Do not mix commands across snapshots.
@@ -92,10 +92,10 @@ docker ps --format '{{.Ports}}' | grep -E '3000|8080|8081|8082|8083|8084' || tru
 Check in order:
 
 1. `git rev-parse HEAD` is the pinned hash.
-2. `pwd` is the repo / stage directory the lab names.
+2. `pwd` is the repo root.
 3. `kubectl config current-context` is `kind-apollo11`.
 4. `kubectl get namespaces` shows the stage's namespace.
-5. The exercise's own troubleshooting note.
+5. The walkthrough's "When something looks wrong" table.
 
 | Symptom | Usually |
 |---|---|
