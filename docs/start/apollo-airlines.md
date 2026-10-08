@@ -25,13 +25,27 @@ Launchpad also runs Dozzle (port 8085) as a log viewer. It is tooling, not part 
 ## One booking, end to end
 
 ```mermaid
-flowchart LR
-  B[Browser] --> F[Frontend]
-  F --> K[Booking]
-  K -->|validate token| I[Identity]
-  K -->|get flight, decrement seats| FL[Flight]
-  K -->|insert row| DB[(booking-db)]
-  K -->|confirmation| N[Notification]
+architecture-beta
+  service browser(internet)[Browser]
+
+  group ui(cloud)[UI tier]
+  service frontend(server)[Frontend] in ui
+
+  group apps(cloud)[Backend tier]
+  service booking(server)[Booking] in apps
+  service identity(server)[Identity] in apps
+  service flight(server)[Flight] in apps
+  service notification(server)[Notification] in apps
+  service bookingdb(database)[booking db] in apps
+  junction calls in apps
+
+  browser:R --> L:frontend
+  frontend:R --> L:booking
+  booking:T --> B:identity
+  booking:B --> T:bookingdb
+  booking:R -- L:calls
+  calls:T --> B:flight
+  calls:B --> T:notification
 ```
 
 - Booking calls **identity** (is this token valid?), then **flight** (get flight, decrement seats).

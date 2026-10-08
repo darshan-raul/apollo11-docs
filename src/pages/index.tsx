@@ -1,6 +1,7 @@
 import type {CSSProperties, ReactNode} from 'react';
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
+import ToolMap from '@site/src/components/ToolMap';
 
 import styles from './index.module.css';
 
@@ -166,6 +167,20 @@ function StagesSection() {
   );
 }
 
+function ToolsSection() {
+  return (
+    <section className={styles.toolsSection}>
+      <div className={styles.sectionHeader}>
+        <h2 className={styles.sectionTitle}>The Mission Toolkit</h2>
+        <p className={styles.sectionSubtitle}>The cloud-native tools you meet along the way, from fundamentals to platform engineering.</p>
+      </div>
+      <div className={styles.toolsContainer}>
+        <ToolMap />
+      </div>
+    </section>
+  );
+}
+
 function FeaturesSection() {
   const features = [
     {
@@ -238,6 +253,7 @@ export default function Home(): ReactNode {
       <HomepageHero />
       <main>
         <StagesSection />
+        <ToolsSection />
         <FeaturesSection />
         <CtaSection />
       </main>
