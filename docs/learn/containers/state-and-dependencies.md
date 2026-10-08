@@ -100,4 +100,4 @@ No. You only proved survival across container removal on one host.
 
 ## Where this leads
 
-Launchpad ends with a question Compose cannot answer: who keeps this running across machines and failures? That is orchestration, and the next stage starts with it.
+One more Launchpad idea remains: what each container is *allowed* to do. That is [Least privilege for containers](./least-privilege).

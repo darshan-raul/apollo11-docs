@@ -87,4 +87,4 @@ Each booking would create a new time series, exploding memory. Use logs and trac
 
 ## Where this leads
 
-Metrics exist only if Prometheus collects them. Next: how it finds what to scrape, and how to find which link in that chain is broken.
+Signals exist only if the code produces them and something carries them out of the Pod. Next: [How signals leave a service](./instrumenting-services).

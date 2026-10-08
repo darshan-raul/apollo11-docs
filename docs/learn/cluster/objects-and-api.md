@@ -48,6 +48,20 @@ The identity fields:
 
 Only the API server writes to the cluster database (`etcd`). Everything else, including `kubectl`, talks to the API.
 
+## What happens to a request at the API server
+
+Every `kubectl apply` is an HTTP request to the API server, and it passes through the same steps before anything is stored:
+
+1. **Authentication:** who is asking? (your kubeconfig's certificate, or a ServiceAccount token)
+2. **Authorization:** may they do this verb on this resource? (RBAC, Stage 8)
+3. **Mutating admission:** fill in and adjust. This is where **defaults** are added: `schedulerName`, `dnsPolicy`, `serviceAccountName: default`, tolerations for not-ready nodes.
+4. **Validation:** is the object well formed for its kind?
+5. **Validating admission:** do policies allow it? (Kyverno and Pod Security, Stage 8)
+6. **Store in etcd,** and notify everything watching that kind.
+
+- `kubectl apply --dry-run=server -o yaml` runs steps 1–5 and shows you the result without step 6. That is how Ignition reveals the fields you never wrote.
+- Only step 6 makes anything *happen*, and even then only indirectly: the scheduler, controllers and kubelets react to the stored object.
+
 ## Read any object in three passes
 
 1. **Identity:** what is it called and where does it live?

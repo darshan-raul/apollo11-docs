@@ -64,6 +64,14 @@ persistentVolumeClaimRetentionPolicy:
 
 Retention protects one path to data loss; it is not a backup. A retained claim can hold corrupted data, and a node-local volume can be unreachable after node loss.
 
+## A volume only keeps what the app writes to it
+
+A PVC keeps bytes. Whether the *right* bytes are there depends on the app:
+
+- **Postgres** writes every committed transaction to disk before replying, so its PVC has the data.
+- **Redis** keeps data in memory. By default it only saves a snapshot now and then, so a crash loses everything since the last snapshot. Stage 3 starts Redis with `--appendonly yes`: every write is appended to a log file on the PVC, and on restart Redis replays it.
+- **Lesson:** a StatefulSet and a PVC give the app a place that survives. The app's own settings decide how much of its state actually reaches that place.
+
 ## When a StatefulSet is the wrong tool
 
 Use a Deployment for interchangeable HTTP replicas. A managed database service provides its own identity, replication and storage outside Kubernetes. Choose a StatefulSet because the workload needs stable identity or per-member claims.

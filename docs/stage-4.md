@@ -9,7 +9,7 @@ sidebar_label: "Stage 4: Flight Control (Reliability)"
 :::info[Page type · stage walkthrough]
 - Repo folder: [`stages/stage4`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage4) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: [Stage 3](./stage-3) (StatefulSets, PVCs, Envoy Gateway on MetalLB). Namespaces: `apollo-airlines-apps` and `apollo-airlines-ui`.
-- Concepts behind this stage: [Probes](./learn/reliability/probes) · [Termination and draining](./learn/reliability/termination-and-draining) · [Requests, limits and pressure](./learn/reliability/requests-limits-and-pressure) · [Scheduling and placement](./learn/reliability/scheduling) · [Disruption budgets](./learn/reliability/disruption-budgets)
+- Concepts behind this stage: [Probes](./learn/reliability/probes) · [Termination and draining](./learn/reliability/termination-and-draining) · [Requests, limits and pressure](./learn/reliability/requests-limits-and-pressure) · [Scheduling and placement](./learn/reliability/scheduling) · [Priority and spreading](./learn/reliability/priority-and-spreading) · [Disruption budgets](./learn/reliability/disruption-budgets)
 :::
 
 ## Where we left off
@@ -215,6 +215,7 @@ kubectl get pods -n apollo-airlines-apps -l app=booking \
 - **Spreading:** the two booking Pods normally sit on `apollo11-worker` and `apollo11-worker2`. If one node is lost, the other copy keeps serving.
 - **Why `ScheduleAnyway`:** with `DoNotSchedule`, a full node would leave the Pod `Pending`. Here a lopsided placement is better than a missing replica.
 - **Compared with Stage 3:** both booking Pods could end up on the same node, and nothing ranked one workload above another.
+- More in [Priority and spreading](./learn/reliability/priority-and-spreading).
 
 ### Step 7: See what a PodDisruptionBudget allows
 

@@ -62,6 +62,37 @@ The budget makes a trade-off explicit: while it is healthy, take risks and ship 
 
 *Source: the `PrometheusRule` records `apollo:booking_error_ratio:{5m,1h,28d}` and `apollo:booking_error_budget_remaining:28d`. The alert `ApolloBookingErrorBudgetBurn` fires when both a short and a long window burn the budget faster than 14.4 times the allowed rate for two minutes.*
 
+## How it works: recording rules and burn rate
+
+Two more ideas turn the SLO from a definition into something Prometheus watches.
+
+**Recording rules** save a query's answer as a new, named series. The booking error ratio is a long expression, and it is needed in three windows, on dashboards and in alerts. A recording rule evaluates it every 30 seconds and stores the result under a name:
+
+```yaml
+# PrometheusRule apollo-services, group apollo.booking-slo (trimmed)
+- record: apollo:booking_error_ratio:5m          # level:metric:window naming
+  expr: |
+    (sum(rate(http_requests_total{service="booking",method="POST",path="/api/bookings",status=~"5.."}[5m])) or vector(0))
+    / sum(rate(http_requests_total{service="booking",method="POST",path="/api/bookings",status=~"2..|5.."}[5m]))
+- record: apollo:booking_error_budget_remaining:28d
+  expr: 1 - apollo:booking_error_ratio:28d / 0.005
+```
+
+- **Why:** the expensive expression is computed once, everyone uses the same definition, and the alert reads a simple series.
+- **`or vector(0)`:** with no failures, the 5xx part would be an empty result. This turns it into 0 so the ratio still exists.
+
+**Burn rate** is how fast you are using the budget, compared with the speed that would use it up exactly at the end of the window. A burn rate of 1 spends the 0.5% budget in exactly 28 days. A burn rate of 14.4 spends it in about two days.
+
+```yaml
+- alert: ApolloBookingErrorBudgetBurn
+  expr: apollo:booking_error_ratio:5m > (14.4 * 0.005)
+    and apollo:booking_error_ratio:1h > (14.4 * 0.005)
+  for: 2m
+```
+
+- **Why two windows:** the 1-hour window proves the problem is big enough to matter, and the 5-minute window proves it is still happening. Either alone is worse: 1h by itself keeps firing long after a fix, and 5m by itself pages on every blip.
+- **Why alert on burn rate and not on "error ratio > X":** a fixed threshold either pages too often or too late. Burn rate asks the question that matters: *at this pace, will we break the promise?*
+
 ## Limits to respect
 
 - **No traffic means no ratio.** The series is absent. It is not "100% available".

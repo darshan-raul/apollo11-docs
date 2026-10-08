@@ -62,6 +62,13 @@ The loop does not stop after launch. Delete a Pod and the ReplicaSet controller 
 
 A controller can see that a replica is missing; it cannot diagnose a failing SQL query. The kubelet can see a container exit; it does not decide whether a release should be promoted. This is why debugging follows the chain rather than deleting Pods first. It is also **asynchronous**: the actors do not all notice a change at the same instant, so a short delay between steps is normal.
 
+## Two special ways Pods get created
+
+Most Pods are created by a controller through the API server. Two kinds are not quite like that, and you meet both in Ignition:
+
+- **Static Pods.** The kubelet reads Pod manifests from a folder on its own node (`/etc/kubernetes/manifests`) and runs them directly, with no scheduler and no controller. This is how the control plane starts: the API server itself can't be scheduled by an API server that isn't running yet. The kubelet then shows a read-only copy (a *mirror Pod*) in the API, named after the node.
+- **DaemonSets.** A controller that wants **one Pod on every node** (or every matching node). `kube-proxy` and `kindnet` are DaemonSets because every node needs its own Service forwarding and Pod networking. Add a node, and the DaemonSet puts a Pod on it automatically. Stage 6's Alloy log collector uses the same pattern.
+
 ## Where it runs in this course: `kind`
 
 In a cloud, nodes are virtual machines. Here we use **kind** ("Kubernetes in Docker"), where **each node is a Docker container** on your laptop: `apollo11-control-plane`, `apollo11-worker`, `apollo11-worker2`. Inside each, `containerd` runs the real application containers.

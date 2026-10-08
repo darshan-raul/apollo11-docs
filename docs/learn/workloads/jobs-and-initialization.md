@@ -58,6 +58,19 @@ Because retries and manual reruns happen, initialization must be **idempotent**:
 
 It proves the container exited `0`. It does **not** prove the schema matches the current app, that future changes are safe, or that data was preserved. And a completed Job does not run again on its own: if the database is wiped later, you must recreate the Job (the Stage 1 apply script deletes and recreates the Jobs for this reason).
 
+## Start-up order: Kubernetes converges, it doesn't sequence
+
+Compose had `depends_on`. Kubernetes has no equivalent: apply booking and its database together, and both start at once. Booking fails readiness until the database answers, and Kubernetes keeps retrying until everything converges.
+
+That works for long-running services, because readiness keeps traffic away until they are ready ([Services and readiness](./services-and-readiness)). It works badly for one-shot work: a seed Job that runs before its database exists can use up its `backoffLimit` and fail for good. So order is added only where it matters:
+
+| Where | How Apollo orders it |
+|---|---|
+| Stage 1–4 scripts | `apply.sh` applies config, then databases, waits for them, then runs the Jobs and waits for `Complete`, then the apps |
+| Inside a Job | The Job's own retry loop waits for `pg_isready` before running SQL |
+| Stage 5 Helm | CRD bundles are installed before the chart, because a chart can't create objects of a kind that doesn't exist yet |
+| Inside a Pod | Readiness keeps an unready container out of traffic, so a slow dependency delays traffic, not start-up |
+
 ## Try it
 
 ```bash

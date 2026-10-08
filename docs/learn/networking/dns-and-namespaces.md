@@ -63,6 +63,15 @@ Shared ConfigMaps should use at least `<service>.<namespace>`.
 | NetworkPolicy | Per-namespace firewall rules |
 | Quotas | ResourceQuota, LimitRange |
 
+### What splitting Apollo into namespaces costs
+
+Stage 2 moves the backend services and databases to `apollo-airlines-apps` and the frontend to `apollo-airlines-ui`. The DNS side is easy: callers use `booking.apollo-airlines-apps` instead of `booking`. The less obvious part is what *doesn't* cross the line:
+
+- **ConfigMaps and Secrets are namespaced.** A Pod can only read them from its own namespace. So each namespace gets its own copy.
+- **That is a feature.** The UI namespace's Secret holds only `JWT_SECRET`. The frontend never needs the database password, so it isn't there to leak.
+- **Labels and selectors stop at the boundary too.** A Service only selects Pods in its own namespace.
+- **Some things deliberately cross it,** and each needs explicit permission. A Gateway route attached from another namespace needs a `ReferenceGrant` ([Gateway API](./gateway-api)).
+
 ## Try it
 
 ```bash

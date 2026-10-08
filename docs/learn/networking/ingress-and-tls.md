@@ -57,6 +57,21 @@ sequenceDiagram
 
 So TLS protects only the browser → proxy leg in Stage 2. If the Secret is missing or invalid, Traefik falls back to its own default certificate (`CN=TRAEFIK DEFAULT CERT`) instead of dropping the connection, which means the application is fine but the certificate is wrong.
 
+## How a client decides to trust a certificate
+
+Encryption alone isn't the point of TLS. An attacker can encrypt too. The client also needs to know it's talking to the *real* `booking.apollo.local`. It checks three things:
+
+1. **Signature:** the certificate is signed by an authority (CA) the client already trusts. Browsers and operating systems ship a list of public CAs.
+2. **Name:** the hostname you asked for is listed in the certificate. Apollo's is valid for `*.apollo.local`, so `untrusted.apollo.invalid` fails.
+3. **Dates:** it hasn't expired.
+
+Apollo's local certificate is **self-signed**: no public CA signed it, so by default nothing trusts it. You have two options:
+
+- **Turn checking off** (`curl -k`). That proves only that a TLS port answered, not that it's the right server.
+- **Add the certificate to the client's trust** (`curl --cacert /tmp/apollo-ca.crt`). Now all three checks run for real. This is what Stage 2's `verify-tls.sh` does.
+
+In production, a public CA (often through cert-manager and Let's Encrypt) signs the certificate, so every client already trusts it, and renewal is automatic.
+
 ## What a local self-signed certificate does not give you
 
 | Missing | Effect |

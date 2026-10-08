@@ -9,7 +9,7 @@ sidebar_label: "Launchpad (Docker Compose)"
 :::info[Page type · stage walkthrough]
 - Repo folder: [`stages/launchpad`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/launchpad) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from `stages/launchpad` unless stated.
 - Builds on: nothing. This is the start. You need Docker with Compose, `curl` and `jq`.
-- Concepts behind this stage: [Process, image, container](./learn/containers/process-image-container) · [Images and configuration](./learn/containers/images-and-configuration) · [Networks and clients](./learn/containers/networks-and-clients) · [State and dependencies](./learn/containers/state-and-dependencies)
+- Concepts behind this stage: [Process, image, container](./learn/containers/process-image-container) · [Images and configuration](./learn/containers/images-and-configuration) · [Networks and clients](./learn/containers/networks-and-clients) · [State and dependencies](./learn/containers/state-and-dependencies) · [Least privilege for containers](./learn/containers/least-privilege)
 :::
 
 ## Where we left off
@@ -299,7 +299,7 @@ docker inspect -f 'readonly={{.HostConfig.ReadonlyRootfs}} caps={{.HostConfig.Ca
 - **Why:** each setting removes something an attacker could use. None is a guarantee against escape.
 - **Why `identity-db` runs as root:** the official `postgres` image starts as root to prepare its data directory, then drops to the `postgres` user. Database containers are not hardened in this stage.
 - **Why Dozzle is optional:** it mounts the Docker socket. Access to that socket is close to root on the host, even when the mount is read-only.
-- **Where this comes back:** Kubernetes expresses the same controls as `securityContext`. Stage 8 makes them explicit and enforced.
+- **Where this comes back:** Kubernetes expresses the same controls as `securityContext`. Stage 8 makes them explicit and enforced. More in [Least privilege for containers](./learn/containers/least-privilege).
 
 ## When something looks wrong
 

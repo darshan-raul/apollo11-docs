@@ -85,4 +85,4 @@ Not necessarily. A toleration only permits it. Affinity or scoring decides wheth
 
 ## Where this leads
 
-Placement and eviction can also be triggered by people: a node drain for maintenance. The last reliability chapter covers limiting that.
+Filtering and scoring decide where a Pod *can* go. Two questions remain: who wins when there is no room, and how replicas are laid out. That is [Priority and spreading](./priority-and-spreading).

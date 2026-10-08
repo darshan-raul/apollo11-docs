@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
         'learn/containers/images-and-configuration',
         'learn/containers/networks-and-clients',
         'learn/containers/state-and-dependencies',
+        'learn/containers/least-privilege',
         {type: 'doc', id: 'launchpad', label: 'Launchpad walkthrough'},
       ],
     },
@@ -81,6 +82,7 @@ const sidebars: SidebarsConfig = {
         'learn/reliability/termination-and-draining',
         'learn/reliability/requests-limits-and-pressure',
         'learn/reliability/scheduling',
+        'learn/reliability/priority-and-spreading',
         'learn/reliability/disruption-budgets',
         {type: 'doc', id: 'stage-4', label: 'Stage 4 walkthrough'},
       ],
@@ -102,6 +104,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'missions/mission-operations',
         'learn/observability/signals-and-metrics',
+        'learn/observability/instrumenting-services',
         'learn/observability/discovery-and-collection',
         'learn/observability/queries-alerts-and-objectives',
         'learn/observability/logs',

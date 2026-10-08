@@ -9,7 +9,7 @@ sidebar_label: "Stage 6: Mission Ops (Observability)"
 :::info[Page type · stage walkthrough]
 - Repo folder: [`stages/stage6`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the Stage 5 Helm chart and the `kind-apollo11` cluster. Tear down Stage 5 first. Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui`, and new `apollo-observability`. Allow about 8 GB of free RAM.
-- Concepts behind this stage: [Signals and metrics](./learn/observability/signals-and-metrics) · [Discovery and collection](./learn/observability/discovery-and-collection) · [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives) · [Logs](./learn/observability/logs) · [Distributed traces](./learn/observability/traces) · [Correlating a booking](./learn/observability/correlating-a-booking)
+- Concepts behind this stage: [Signals and metrics](./learn/observability/signals-and-metrics) · [How signals leave a service](./learn/observability/instrumenting-services) · [Discovery and collection](./learn/observability/discovery-and-collection) · [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives) · [Logs](./learn/observability/logs) · [Distributed traces](./learn/observability/traces) · [Correlating a booking](./learn/observability/correlating-a-booking)
 :::
 
 :::caution[Verification status]
@@ -105,6 +105,7 @@ httpRequestsTotal.WithLabelValues(service, c.Request.Method, path, status).Inc()
 - **Why labels are route patterns:** each distinct label value creates a separate time series. A booking ID as a label would create one series per booking. IDs belong in logs and traces, not metrics.
 - **Why the Service changed too:** Stage 6 gives each app Service an `app: <name>` label and names its port `http`. The ServiceMonitor in Step 2 selects on exactly those two things.
 - **Compared with Stage 5:** `/metrics` returned `{"http_requests_total": 0, ...}` as JSON. Nothing could scrape it. The deployment layer didn't change, the code did.
+- **How each signal gets out:** metrics are pulled, traces pushed, logs written to stdout. See [How signals leave a service](./learn/observability/instrumenting-services).
 - **Still missing:** right now you can still only `kubectl logs` one Pod and `curl` one `/metrics`. Each step below adds one signal.
 
 ### Step 2: Metrics: let Prometheus find and scrape the apps

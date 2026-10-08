@@ -13,6 +13,7 @@ sidebar_label: "Mission briefing"
 2. [Images and runtime configuration](../learn/containers/images-and-configuration): what is baked in vs injected at start.
 3. [Networks and clients](../learn/containers/networks-and-clients): why `localhost` differs for browser and backend.
 4. [State and dependencies](../learn/containers/state-and-dependencies): volumes, health, and startup order.
+5. [Least privilege for containers](../learn/containers/least-privilege): non-root, read-only, no capabilities.
 
 ## Ready for the walkthrough when you can answer
 

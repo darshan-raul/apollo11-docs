@@ -57,6 +57,33 @@ Apollo's two main environments differ in a handful of values:
 |---|---|
 | 1 replica, `:latest`, PDBs off | 3 replicas, `:v1.0.0`, PDBs on |
 
+## The Apollo chart, file by file
+
+```text
+stages/stage5/helm/apollo11/
+  Chart.yaml            # name and version of the chart
+  values.yaml           # every default, for every environment
+  values-dev.yaml       # only what dev changes (1 replica, PDBs off, …)
+  values-staging.yaml
+  values-prod.yaml      # pinned tag, more replicas, PDBs on
+  values.schema.json    # types and limits for values; bad input fails at render
+  templates/
+    _helpers.tpl        # shared snippets (labels, names)
+    config/             # ConfigMap, Secret, ServiceAccounts, PriorityClasses
+    infra/              # Postgres and Redis StatefulSets
+    jobs/               # seed Jobs
+    apps/               # one template per backend service
+    ui/                 # frontend
+    gateway/            # Gateway, HTTPRoutes, MetalLB pool
+    pdb/                # PodDisruptionBudgets
+  bundles/              # vendored Envoy Gateway and MetalLB installs
+```
+
+- **Values are layered.** Helm starts from `values.yaml`, then applies `-f values-dev.yaml` on top, then any `--set`. The later source wins, key by key. An environment file therefore lists only its *differences*, which is what makes dev and prod easy to compare.
+- **The templates are grouped by job**, mirroring the Stage 1–4 folders (`config/`, `infra/`, `apps/`…). The Kubernetes objects are the same ones; only the way they are written changed.
+- **`bundles/` holds third-party installs.** Envoy Gateway and MetalLB bring their own CRDs. A Gateway object can't be created until the Gateway CRD exists, so `apply.sh` installs the bundles first and then installs the chart with the bundle switches off.
+- **Upgrades need the same inputs as the install.** `helm upgrade` renders from the values you pass *now*. Leave out a `--set` that the install used, and the upgrade quietly changes that setting back. `--reuse-values` or an identical command line avoids it.
+
 ## The habit: render, review, then apply
 
 Because the real output is just YAML, you can read exactly what you are about to send.

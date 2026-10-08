@@ -10,11 +10,12 @@ sidebar_label: "Mission briefing"
 ## Chapters
 
 1. [Signals and metrics](../learn/observability/signals-and-metrics)
-2. [Discovery and collection](../learn/observability/discovery-and-collection)
-3. [Queries, alerts and objectives](../learn/observability/queries-alerts-and-objectives)
-4. [Logs](../learn/observability/logs)
-5. [Traces](../learn/observability/traces)
-6. [Correlating a booking](../learn/observability/correlating-a-booking)
+2. [How signals leave a service](../learn/observability/instrumenting-services)
+3. [Discovery and collection](../learn/observability/discovery-and-collection)
+4. [Queries, alerts and objectives](../learn/observability/queries-alerts-and-objectives)
+5. [Logs](../learn/observability/logs)
+6. [Traces](../learn/observability/traces)
+7. [Correlating a booking](../learn/observability/correlating-a-booking)
 
 ## Ready for the walkthrough when you can answer
 
