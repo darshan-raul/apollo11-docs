@@ -39,6 +39,8 @@ sidebar_label: "Stage 5: Payload (Delivery)"
 
 ## Exercise 1: Render and compare environments without touching the cluster
 
+**Concepts:** [Rendering and Helm](./learn/delivery/rendering-and-helm)
+
 **Goal:** trace one value from a values file to a rendered field, and list exactly what dev and prod differ in.
 **Time:** ~10 min
 
@@ -95,6 +97,8 @@ Later `-f` files win. The tag change touches every image line, not only booking,
 
 ## Exercise 2: Install, then read the release record
 
+**Concepts:** [Rendering and Helm](./learn/delivery/rendering-and-helm) · [Promotion and rollback](./learn/delivery/promotion-and-rollback)
+
 **Goal:** show that `helm install` adds a release record that `kubectl apply` would not.
 **Time:** ~15 min · **Needs:** a clean `kind-apollo11` (no earlier stage left running).
 
@@ -136,6 +140,8 @@ kubectl get deploy booking -n apollo-airlines-apps -o jsonpath='{.spec.replicas}
 ---
 
 ## Exercise 3: Break it: a bad upgrade that Helm calls successful
+
+**Concepts:** [Promotion and rollback](./learn/delivery/promotion-and-rollback) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback)
 
 **Goal:** see that `deployed` means "applied", not "healthy", and use rollback and `--atomic` correctly.
 **Time:** ~15 min · **Needs:** Exercise 2 state.
@@ -215,6 +221,8 @@ Rollback restores Kubernetes objects from the stored manifest. Data written to P
 
 ## Exercise 4: Kustomize: patch existing YAML, and write an overlay yourself
 
+**Concepts:** [Kustomize comparison](./learn/delivery/kustomize-comparison)
+
 **Goal:** render an overlay, then author your own, and see what a bad path looks like.
 **Time:** ~12 min · **Needs:** nothing running.
 
@@ -280,6 +288,8 @@ Either can render; to compare against live state use `kubectl diff -k <overlay>`
 
 ## Exercise 5: Same app, plain manifests: switch installers safely
 
+**Concepts:** [Rendering and Helm](./learn/delivery/rendering-and-helm) · [Kustomize comparison](./learn/delivery/kustomize-comparison)
+
 **Goal:** move from the Helm release to the Kustomize path and see that ownership, not YAML, changes.
 **Time:** ~10 min
 
@@ -307,6 +317,8 @@ Typically labels, annotations and sometimes probe or resource blocks, because th
 ---
 
 ## Exercise 6 (optional): Argo CD enforces Git, not you
+
+**Concepts:** [GitOps and ownership](./learn/delivery/gitops-and-ownership)
 
 **Goal:** show Argo CD reverting a manual change, and show where it stops.
 **Time:** ~20 min · **Needs:** all other installers torn down (`teardown.sh --mode kustomize`); more memory than earlier exercises.

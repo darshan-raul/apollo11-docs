@@ -31,6 +31,8 @@ sidebar_label: "Stage 4: Flight Control (Reliability)"
 
 ## Exercise 1: Read the contract from the live cluster
 
+**Concepts:** [Probes](./learn/reliability/probes)
+
 **Goal:** confirm every row above on real objects, not on trust.
 **Time:** ~8 min
 
@@ -63,6 +65,8 @@ With two workers, the third Pod makes the split 2/1, which satisfies `maxSkew: 1
 ---
 
 ## Exercise 2: One probe lab, three different kubelet actions
+
+**Concepts:** [Probes](./learn/reliability/probes)
 
 **Goal:** trigger each probe's failure and observe three different outcomes.
 **Time:** ~15 min
@@ -195,6 +199,8 @@ kubectl delete pod lab-probes lab-slow -n $NS; kubectl delete svc lab-probes -n 
 
 ## Exercise 3: Break it: a dependency outage on the real booking service
 
+**Concepts:** [Probes](./learn/reliability/probes) · [Services and readiness](./learn/workloads/services-and-readiness)
+
 **Goal:** use the probes you just studied on Apollo itself, and see *unready, not restarted*.
 **Time:** ~8 min
 
@@ -244,6 +250,8 @@ B /healthz/ready
 ---
 
 ## Exercise 4: Shutdown timing, a stubborn process, and a rollout under load
+
+**Concepts:** [Termination and draining](./learn/reliability/termination-and-draining)
 
 **Goal:** measure the shutdown sequence and compare a graceful process with one that ignores SIGTERM.
 **Time:** ~20 min
@@ -327,6 +335,8 @@ A higher request rate and more samples, so some requests are in flight at the in
 
 ## Exercise 5: Requests, QoS and a Pod that cannot fit
 
+**Concepts:** [Requests, limits and pressure](./learn/reliability/requests-limits-and-pressure) · [Scheduling](./learn/reliability/scheduling)
+
 **Goal:** show requests as a scheduling promise, and QoS as an eviction ranking.
 **Time:** ~10 min
 
@@ -377,6 +387,8 @@ Write a few tens of MB into a memory-backed path: `sh -c 'head -c 60m /dev/zero 
 ---
 
 ## Exercise 6: What a PDB does and does not stop
+
+**Concepts:** [Disruption budgets](./learn/reliability/disruption-budgets)
 
 **Goal:** separate voluntary eviction (budgeted) from deletion (not budgeted).
 **Time:** ~12 min · **Needs:** 2 healthy `booking` Pods.

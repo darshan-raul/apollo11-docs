@@ -37,6 +37,8 @@ Two relationships to keep apart for the whole stage:
 
 ## Exercise 1: Deploy and prove it works
 
+**Concepts:** [Ownership and replicas](./learn/workloads/ownership-and-replicas) · [Services and readiness](./learn/workloads/services-and-readiness)
+
 **Goal:** apply Stage 1, then show it works at every evidence rung.
 **Time:** ~10 min
 
@@ -96,6 +98,8 @@ Expect `{"status":"ok"}`. Delete it afterwards: `kubectl delete svc booking-inte
 
 ## Exercise 2: Labels select, owners own: quarantine a Pod
 
+**Concepts:** [Ownership and replicas](./learn/workloads/ownership-and-replicas)
+
 **Goal:** separate selection from ownership by pulling one Pod out of service while keeping it alive.
 **Time:** ~10 min
 
@@ -143,6 +147,8 @@ The ReplicaSet re-adopts the matching Pod (`ownerReferences` set again). It now 
 
 ## Exercise 3: Replace a Pod under live traffic
 
+**Concepts:** [Services and readiness](./learn/workloads/services-and-readiness) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback)
+
 **Goal:** show that the Pod's name, IP and UID change while the Service address does not, and measure the gap.
 **Time:** ~8 min
 
@@ -181,6 +187,8 @@ Scale-down ranks candidates: unscheduled, then not-ready, then newer. Removing a
 ---
 
 ## Exercise 4: Break it: a Service with no endpoints
+
+**Concepts:** [Services and readiness](./learn/workloads/services-and-readiness)
 
 **Goal:** diagnose the quietest failure in the stage, a selector that matches nothing.
 **Time:** ~8 min
@@ -235,6 +243,8 @@ Endpoints exist (they list `podIP:9999`), but nothing listens on 9999, so connec
 
 ## Exercise 5: Follow configuration into a Pod
 
+**Concepts:** [Configuration and identity](./learn/workloads/configuration-and-identity) · [Jobs and initialization](./learn/workloads/jobs-and-initialization)
+
 **Goal:** trace one setting from its source object to the process, and show Secrets are encoded, not encrypted.
 **Time:** ~8 min
 
@@ -270,6 +280,8 @@ kubectl get deploy -n apollo-airlines -o json | jq -r '.items[] | .metadata.name
 ---
 
 ## Exercise 6: Break it: two bad releases, two different symptoms
+
+**Concepts:** [Rollouts and rollback](./learn/workloads/rollouts-and-rollback) · [Services and readiness](./learn/workloads/services-and-readiness)
 
 **Goal:** tell *"image can't start"* from *"Pod runs but never becomes Ready"*, and learn why `rollout undo` fixes one but not the other.
 **Time:** ~15 min
@@ -356,6 +368,8 @@ Each revision's template shows its image. To tie rollouts to config, put a hash 
 ---
 
 ## Exercise 7: Lose a database with `emptyDir`
+
+**Concepts:** [Ephemeral state](./learn/workloads/ephemeral-state)
 
 **Goal:** show what a Deployment replaces and what it cannot restore.
 **Time:** ~10 min

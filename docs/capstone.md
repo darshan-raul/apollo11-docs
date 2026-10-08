@@ -10,6 +10,7 @@ sidebar_label: "Core Capstone"
 - Repo: `Apollo11` at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Local path only: Ignition → Stage 7.
 - Security and cloud controls are *planned*; the audit in Mission 5 keeps them labelled that way.
 - Optional read-first: [A Passenger's Booking](./learn/capstone/a-booking-through-kubernetes).
+- Stuck on a mission? Refresh: [reconciliation](./learn/cluster/reconciliation-and-components) · [Services and readiness](./learn/workloads/services-and-readiness) · [probes](./learn/reliability/probes) · [volume lifetimes](./learn/storage/volume-lifetimes) · [correlating a booking](./learn/observability/correlating-a-booking).
 :::
 
 **You are the on-call engineer.** You will establish a baseline, take a request apart, diagnose a fault you did not choose, prove what survives a database restart, and audit what the platform does not yet protect.

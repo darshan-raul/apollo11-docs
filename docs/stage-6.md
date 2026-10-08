@@ -44,6 +44,8 @@ sidebar_label: "Stage 6: Mission Ops (Observability)"
 
 ## Exercise 0: Baseline: what can you not answer?
 
+**Concepts:** [Signals and metrics](./learn/observability/signals-and-metrics)
+
 **Goal:** start with no telemetry and write down what you would be unable to explain.
 **Time:** ~10 min
 
@@ -67,6 +69,8 @@ echo "${TOKEN:0:12}..."
 ---
 
 ## Exercise 1: Metrics: prove Prometheus is actually scraping
+
+**Concepts:** [Discovery and collection](./learn/observability/discovery-and-collection) · [Signals and metrics](./learn/observability/signals-and-metrics)
 
 **Goal:** see that a `ServiceMonitor` object is a *request* to scrape, and that collection is a separate fact.
 **Time:** ~15 min
@@ -133,6 +137,8 @@ The target stays listed but `health: down` with an error such as `connection ref
 
 ## Exercise 2: Dashboards are not the data
 
+**Concepts:** [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives)
+
 **Goal:** show that Grafana only displays; Prometheus keeps answering without it.
 **Time:** ~8 min
 
@@ -166,6 +172,8 @@ sleep 3; curl -s localhost:13000/api/health
 ---
 
 ## Exercise 3: Turn failures into a number: the booking SLO
+
+**Concepts:** [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives)
 
 **Goal:** drive an exact outage and read error ratio, remaining budget and alert state.
 **Time:** ~20 min
@@ -219,6 +227,8 @@ It would not consume budget, since 4xx are excluded. For sold-out flights that i
 ---
 
 ## Exercise 4: Logs: a historical log is not a working pipeline
+
+**Concepts:** [Logs](./learn/observability/logs)
 
 **Goal:** find one request in Loki by a unique ID, then stop collection and show *new* requests vanish while old ones remain.
 **Time:** ~15 min
@@ -275,6 +285,8 @@ sleep 20; L $RID3
 ---
 
 ## Exercise 5: Traces: break the exporter, not the API
+
+**Concepts:** [Traces](./learn/observability/traces)
 
 **Goal:** show tracing as a separate pipeline that can fail while bookings keep working.
 **Time:** ~20 min
@@ -333,6 +345,8 @@ A service that does not forward `traceparent` on its outbound call starts a new 
 
 ## Exercise 6: Correlate one booking: metric → trace → log
 
+**Concepts:** [Correlating a booking](./learn/observability/correlating-a-booking)
+
 **Goal:** go from a symptom on a graph to the exact request and its log lines.
 **Time:** ~15 min
 
@@ -369,6 +383,8 @@ The booking returns `201` (notification is called asynchronously after the row i
 ---
 
 ## Exercise 7: Re-ask the Exercise 0 questions
+
+**Concepts:** [Correlating a booking](./learn/observability/correlating-a-booking)
 
 **Goal:** close the loop on your original gap list.
 **Time:** ~5 min

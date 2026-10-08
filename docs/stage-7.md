@@ -28,6 +28,8 @@ sidebar_label: "Stage 7: Orbital (Scaling)"
 
 ## Exercise 1: Prove the cache with three independent signals
 
+**Concepts:** [Cache-aside](./learn/scaling/cache-aside) · [Measurement baseline](./learn/scaling/measurement-baseline)
+
 **Goal:** show a cache hit by header, by counter and by the key's TTL in Redis, not by the header alone.
 **Time:** ~12 min
 
@@ -75,6 +77,8 @@ Each (origin, destination, date) is its own entry, so a workload that spreads ac
 ---
 
 ## Exercise 2: Break it: stale data and a dead cache
+
+**Concepts:** [Cache-aside](./learn/scaling/cache-aside)
 
 **Goal:** see the two cache failure modes: wrong answers (stale) and no cache (degraded).
 **Time:** ~12 min · **Needs:** Exercise 1 helpers.
@@ -143,6 +147,8 @@ Every search becomes a `flight` query, so `flight` and the database see the full
 
 ## Exercise 3: A controlled benchmark: cache off vs on
 
+**Concepts:** [Measurement baseline](./learn/scaling/measurement-baseline) · [Cache-aside](./learn/scaling/cache-aside)
+
 **Goal:** make one claim ("the cache helps") with evidence from a fair experiment.
 **Time:** ~25 min · **Needs:** k6, Exercise 1 setup.
 
@@ -206,6 +212,8 @@ If latency did not improve, check whether the bottleneck is elsewhere (CPU satur
 
 ## Exercise 4: HPA: read it, predict it, break its inputs
 
+**Concepts:** [HPA](./learn/scaling/hpa)
+
 **Goal:** be able to predict the HPA's replica number, and recognise `<unknown>` as a missing input.
 **Time:** ~15 min
 
@@ -257,6 +265,8 @@ Roughly double the replicas (up to 10). If nodes cannot fit more Pods, the extra
 ---
 
 ## Exercise 5: Watch the controllers hand off under real load
+
+**Concepts:** [HPA](./learn/scaling/hpa) · [Requests, limits and pressure](./learn/reliability/requests-limits-and-pressure)
 
 **Goal:** see scheduling (taint + affinity) and autoscaling act together, then be restored.
 **Time:** ~15 min · **Needs:** two worker nodes, working metrics-server.
@@ -311,6 +321,8 @@ They would stay `Pending`: required affinity is a hard filter, so the scheduler 
 ---
 
 ## Exercise 6: VPA: advice without action (read-only)
+
+**Concepts:** [VPA and capacity](./learn/scaling/vpa-and-capacity)
 
 **Goal:** show what VPA in `Off` mode is, and why it sits beside an HPA.
 **Time:** ~8 min · **Needs:** nothing running (dev disables VPA on purpose).

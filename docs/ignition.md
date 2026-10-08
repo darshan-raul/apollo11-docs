@@ -38,6 +38,8 @@ sidebar_label: "Ignition (First Cluster)"
 
 ## Exercise 1: Build the cluster and map nodes to containers
 
+**Concepts:** [Why orchestration](./learn/cluster/why-orchestration) · [Reconciliation and components](./learn/cluster/reconciliation-and-components)
+
 **Goal:** prove each Kubernetes node is a Docker container, and identify which control-plane components run where.
 **Time:** ~5 min · **Needs:** Docker running, no existing `apollo11` kind cluster.
 
@@ -89,6 +91,8 @@ kubectl -n kube-system get daemonsets
 ---
 
 ## Exercise 2: Author a Pod and see what the API server adds
+
+**Concepts:** [Objects and the API](./learn/cluster/objects-and-api)
 
 **Goal:** write a Pod manifest yourself and identify the fields you did not write.
 **Time:** ~10 min · **Needs:** Exercise 1.
@@ -143,6 +147,8 @@ kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
 ---
 
 ## Exercise 3: Trace one Pod through the components
+
+**Concepts:** [Reconciliation and components](./learn/cluster/reconciliation-and-components)
 
 **Goal:** match every event and field to the component that produced it.
 **Time:** ~10 min · **Needs:** `apollo-shell` Running.
@@ -199,6 +205,8 @@ The node IP is the Docker container's IP on the `kind` network. The Pod IP comes
 ---
 
 ## Exercise 4: Break it: a Pod nothing can schedule
+
+**Concepts:** [Pod lifecycle](./learn/cluster/pod-lifecycle) · [Scheduling](./learn/reliability/scheduling)
 
 **Goal:** recognise a scheduling failure and fix it without recreating the Pod.
 **Time:** ~8 min · **Needs:** Exercise 1.
@@ -271,6 +279,8 @@ The control plane has the taint `node-role.kubernetes.io/control-plane:NoSchedul
 
 ## Exercise 5: Break it: a Pod the kubelet cannot start
 
+**Concepts:** [Pod lifecycle](./learn/cluster/pod-lifecycle)
+
 **Goal:** tell a kubelet failure from a scheduling failure using one column.
 **Time:** ~8 min · **Needs:** Exercise 1.
 
@@ -339,6 +349,8 @@ kubectl get pod bad-image -o jsonpath='{.status.containerStatuses[0].restartCoun
 ---
 
 ## Exercise 6: Delete a bare Pod and find out who cares
+
+**Concepts:** [Reconciliation and components](./learn/cluster/reconciliation-and-components) · [Ownership and replicas](./learn/workloads/ownership-and-replicas)
 
 **Goal:** prove nothing recreates a bare Pod, and say what Stage 1 adds.
 **Time:** ~5 min · **Needs:** `apollo-shell` Running.

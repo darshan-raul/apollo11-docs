@@ -41,6 +41,8 @@ docker compose ps
 
 ## Exercise 1: Prove each service is alive *and* ready
 
+**Concepts:** [State and dependencies](./learn/containers/state-and-dependencies) · [Pod lifecycle](./learn/cluster/pod-lifecycle)
+
 **Goal:** replace "docker says healthy" with direct evidence for all six APIs.
 **Time:** ~5 min
 
@@ -74,6 +76,8 @@ After the rebuild, `docker compose images booking` shows a new image ID, but `do
 ---
 
 ## Exercise 2: Make one booking and follow it through the logs
+
+**Concepts:** [Networks and clients](./learn/containers/networks-and-clients)
 
 **Goal:** trace a single request across four services by its request ID.
 **Time:** ~10 min
@@ -118,6 +122,8 @@ Bad flight: booking asks flight, which answers 404; booking returns 404 `Flight 
 ---
 
 ## Exercise 3: Resolve the same name from three places
+
+**Concepts:** [Networks and clients](./learn/containers/networks-and-clients)
 
 **Goal:** show that `localhost` and service names mean different things to the host, the browser and a container.
 **Time:** ~8 min
@@ -166,6 +172,8 @@ Both end in `8082` here because the mapping is `8082:8082`. The left number is t
 ---
 
 ## Exercise 4: Which bytes survive which operation?
+
+**Concepts:** [State and dependencies](./learn/containers/state-and-dependencies) · [Process, image, container](./learn/containers/process-image-container)
 
 **Goal:** build the survival table for a container's writable layer, a named volume, and a database row.
 **Time:** ~10 min
@@ -238,6 +246,8 @@ docker compose exec identity-db rm -f /var/lib/postgresql/data/vol.txt
 ---
 
 ## Exercise 5: Break a dependency and trace how readiness spreads
+
+**Concepts:** [State and dependencies](./learn/containers/state-and-dependencies)
 
 **Goal:** inject three different faults, predict which `/readyz` endpoints go red, and show that a red `/readyz` does not always mean a failed booking.
 **Time:** ~15 min
@@ -323,6 +333,8 @@ Remove the `notification` entry from the `dependencies` slice. Booking then repo
 
 ## Exercise 6: Kill a container vs remove it
 
+**Concepts:** [Process, image, container](./learn/containers/process-image-container)
+
 **Goal:** show what Compose's `restart: always` does and does not do, the gap Kubernetes controllers fill.
 **Time:** ~6 min
 
@@ -369,6 +381,8 @@ It stays stopped. The daemon distinguishes an explicit stop from an unexpected e
 ---
 
 ## Exercise 7: Probe the sandbox
+
+**Concepts:** [Process, image, container](./learn/containers/process-image-container) · [Images and configuration](./learn/containers/images-and-configuration)
 
 **Goal:** verify the hardening settings in the Compose file actually hold.
 **Time:** ~4 min

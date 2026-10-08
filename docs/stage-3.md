@@ -31,6 +31,8 @@ Chain to memorise: `StatefulSet → volumeClaimTemplate → PVC → PV → Stora
 
 ## Exercise 1: Deploy, then find the actual bytes
 
+**Concepts:** [Claims and provisioning](./learn/storage/claims-and-provisioning) · [Volume lifetimes](./learn/storage/volume-lifetimes)
+
 **Goal:** follow the chain from StatefulSet to a directory on a node.
 **Time:** ~10 min
 
@@ -75,6 +77,8 @@ docker exec $NODE ls $DIR/pgdata | head -5
 ---
 
 ## Exercise 2: Build the survival table with real deletes
+
+**Concepts:** [Volume lifetimes](./learn/storage/volume-lifetimes) · [Recovery boundaries](./learn/storage/recovery-boundaries)
 
 **Goal:** replace "it's persistent" with a measured table of what each operation destroys.
 **Time:** ~20 min
@@ -170,6 +174,8 @@ Q "SELECT count(*) FROM users;"
 
 ## Exercise 3: Names that survive vs addresses that do not
 
+**Concepts:** [StatefulSets and headless DNS](./learn/storage/statefulsets-and-headless-dns)
+
 **Goal:** show which of the two DNS names stays correct after the Pod is replaced.
 **Time:** ~10 min
 
@@ -214,6 +220,8 @@ curl -s -o /dev/null -w 'identity readyz=%{http_code}\n' -H "Host: identity.apol
 ---
 
 ## Exercise 4: Two Pending claims, one is normal
+
+**Concepts:** [Claims and provisioning](./learn/storage/claims-and-provisioning)
 
 **Goal:** tell a healthy `Pending` PVC from a broken one.
 **Time:** ~8 min
@@ -274,6 +282,8 @@ local-path generally accepts it: the request is recorded but the directory is no
 
 ## Exercise 5: Break it: the volume pins the Pod to a node
 
+**Concepts:** [StatefulSet storage and operations](./learn/storage/statefulset-storage-and-operations) · [Scheduling](./learn/reliability/scheduling)
+
 **Goal:** show that local-path persistence is also a scheduling constraint.
 **Time:** ~8 min
 
@@ -307,6 +317,8 @@ kubectl get pod identity-db-0 -n $NS -o wide
 ---
 
 ## Exercise 6: Why the seed is not an init container
+
+**Concepts:** [Initialization and seeding](./learn/storage/initialization-and-seeding)
 
 **Goal:** understand the deadlock the repo avoided, and show first-start-only seeding.
 **Time:** ~5 min

@@ -52,6 +52,8 @@ flowchart LR
 
 ## Exercise 1: Resolve a Service by name across namespaces
 
+**Concepts:** [DNS and namespaces](./learn/networking/dns-and-namespaces)
+
 **Goal:** show why `identity` fails from the UI namespace and `identity.apollo-airlines-apps` works.
 **Time:** ~10 min
 
@@ -86,6 +88,8 @@ $C curl -s http://identity.apollo-airlines-apps.svc.cluster.local:8080/healthz
 ---
 
 ## Exercise 2: Break it: readiness removes Pods from the endpoint list
+
+**Concepts:** [Service control and data paths](./learn/networking/service-control-and-data-paths) · [Services and readiness](./learn/workloads/services-and-readiness)
 
 **Goal:** see a dependency outage turn into "no ready endpoints" while every Pod stays `Running`.
 **Time:** ~10 min · **Needs:** Exercise 1. (Stage 1 already covered a selector typo; this is the other way endpoints go empty.)
@@ -147,6 +151,8 @@ $C curl -s http://search.apollo-airlines-apps:8083/readyz
 
 ## Exercise 3: NodePort, and the part kind adds for you
 
+**Concepts:** [NodePort and LoadBalancer](./learn/networking/nodeport-and-loadbalancer)
+
 **Goal:** separate `port`, `targetPort` and `nodePort`, and prove why a NodePort is not automatically reachable from your laptop.
 **Time:** ~10 min
 
@@ -191,6 +197,8 @@ Add the node port to `extraPortMappings` in `kind-config.yaml` and **recreate th
 
 ## Exercise 4: Route by hostname and read a 404
 
+**Concepts:** [Ingress and TLS](./learn/networking/ingress-and-tls)
+
 **Goal:** prove Ingress routes on the `Host` header, and tell a routing miss from a backend failure.
 **Time:** ~10 min
 
@@ -234,6 +242,8 @@ kubectl rollout status deploy/booking -n apollo-airlines-apps
 
 ## Exercise 5: Break it: TLS Secret deleted behind Traefik
 
+**Concepts:** [Ingress and TLS](./learn/networking/ingress-and-tls)
+
 **Goal:** tell a certificate fault from an application fault.
 **Time:** ~8 min · **Needs:** Exercise 4 (Substage 3 state).
 
@@ -270,6 +280,8 @@ curl -kv --resolve identity.apollo.local:30443:127.0.0.1 https://identity.apollo
 ---
 
 ## Exercise 6: LoadBalancer addresses come from a controller
+
+**Concepts:** [NodePort and LoadBalancer](./learn/networking/nodeport-and-loadbalancer)
 
 **Goal:** see `type: LoadBalancer` fulfilled by MetalLB, and see what an unfulfillable request looks like.
 **Time:** ~10 min
@@ -331,6 +343,8 @@ kubectl delete svc lb-test -n apollo-airlines-apps
 ---
 
 ## Exercise 7: Gateway API: chain, status and who may attach
+
+**Concepts:** [Gateway API](./learn/networking/gateway-api)
 
 **Goal:** read each Gateway API object's status, then break the two permissions that people confuse.
 **Time:** ~20 min
@@ -399,6 +413,8 @@ Without a grant: `ResolvedRefs=False (RefNotPermitted)`. Adding a `ReferenceGran
 ---
 
 ## Exercise 8: TLS properly: trust, hostname, and a deleted Secret
+
+**Concepts:** [Ingress and TLS](./learn/networking/ingress-and-tls) · [Gateway API](./learn/networking/gateway-api)
 
 **Goal:** prove HTTPS works for real (not just with `-k`), then show listeners fail independently.
 **Time:** ~15 min · **Needs:** Substage 5 healthy.
