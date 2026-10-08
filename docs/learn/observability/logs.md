@@ -50,7 +50,7 @@ flowchart LR
 
 ```logql
 {service="booking", namespace="apollo-airlines-apps"} |= "error" | json | level="error"
-{service=~".+"} |= "<request-id>"
+{service=~".+"} |= "<trace-id>"
 ```
 
 ```bash

@@ -52,7 +52,7 @@ Expect `201`. Cancel afterwards with `DELETE /api/bookings/<id>` to give the sea
 | 2 | Host header → service | **HTTPRoute** `booking` | Stage 2 | Ingress rules (earlier in Stage 2) | `kubectl get httproute -n apollo-airlines-apps` |
 | 3 | Route → a healthy Pod | **Service** + EndpointSlice, *Ready* Pods only | Stage 1; readiness sharpened in Stage 4 | Docker DNS (Launchpad) | `kubectl get endpointslice -n apollo-airlines-apps -l kubernetes.io/service-name=booking` |
 | 4 | Booking checks the token and reads the flight | Cluster DNS names `identity`, `flight` | Stage 1; cross-namespace in Stage 2 | Compose service names | trace: `booking → identity`, `booking → flight` |
-| 5 | Flight read served fast | **Redis cache-aside** | Stage 7 | A Postgres query on every read | `trace-test.sh` services list; cache metrics |
+| 5 | (Before booking) the flight search was served fast | **Redis cache-aside** in `search` | Stage 7 | `search` → `flight` → Postgres on every search | `X-Cache: HIT` on the search response; `cache_hits_total` |
 | 6 | Booking row written and kept | **StatefulSet** `booking-db` + **PVC** | Stage 3 | `emptyDir` (Stage 1), lost on Pod replacement | `kubectl get sts,pvc -n apollo-airlines-apps` |
 | 7 | Confirmation sent | `notification`, called after the write | Stage 1 | — | trace: the notification span comes after the DB write |
 | 8 | Enough booking Pods for the load | **HPA** on CPU, using Stage 4's requests | Stage 7 | Fixed `replicas:` | `kubectl get hpa -n apollo-airlines-apps` |
@@ -75,7 +75,7 @@ Expect `201`. Cancel afterwards with `DELETE /api/bookings/<id>` to give the sea
 | Booking hangs | Liveness fails, and the kubelet restarts the container | Stage 4 | A brief error, then recovery |
 | A bad image is released | The rollout stalls and old Pods keep serving; then `helm rollback` to the last good revision | Stages 1 and 5 | Nothing |
 | A node is drained | The PDB limits how many Pods leave at once (prod values; off in dev) | Stage 4 | Nothing, with 2+ replicas |
-| Traffic doubles | The HPA adds Pods, and the cache absorbs repeated reads | Stage 7 | Steady latency |
+| Traffic doubles | The HPA adds Pods, and the search cache absorbs repeated searches | Stage 7 | Steady latency |
 | The error rate climbs | The SLO error budget burns on the dashboard | Stage 6 | Someone notices before passengers complain |
 
 ## Where the data lives, and what would still lose it

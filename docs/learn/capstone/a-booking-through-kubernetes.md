@@ -20,7 +20,7 @@ Throughout, keep one distinction in mind. *Configuration* (Gateway, HTTPRoute, S
 |---|---|---|---|---|
 | 1 | Browser → edge | DNS and the `Host` header reach a load-balancer address and a running Gateway proxy. Gateway and HTTPRoute are configuration | Gateway `Programmed`, route `Accepted`, **a live response** | Accepted config ≠ proxy listening ≠ this request matched |
 | 2 | Edge → Pod | Proxy → Service ClusterIP → node rules → a **ready** Pod chosen from the EndpointSlice | Ready endpoints; the request succeeds | A packet never passes through an API object |
-| 3 | Application work | booking calls identity, flight, writes to booking-db, then notification asynchronously, each call starting from booking's own network view | Logs or a trace with one request ID | `Ready=True` does not mean this call succeeds |
+| 3 | Application work | booking calls identity, flight, writes to booking-db, then notification asynchronously, each call starting from booking's own network view | A trace, and logs sharing its `trace_id` | `Ready=True` does not mean this call succeeds |
 | 4 | Storage | The reservation lives in Postgres on a PVC; a StatefulSet ordinal remounts its own claim | New Pod UID, same claim, DB opens, the app returns the booking | Backup or replication |
 | 5 | Recovery | Kubelet restarts containers; a ReplicaSet replaces Pods | `restartCount` versus a UID change | The outcome of the interrupted request |
 | 6 | Delivery | CI → image → manifest → rollout (Helm, Kustomize, Argo) | `imageID`, rollout status, Argo Synced + Healthy | That rollback undoes writes or emails |

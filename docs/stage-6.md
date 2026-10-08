@@ -1,420 +1,401 @@
 ---
 title: "Stage 6 — Mission Operations: Observability & Tracing"
-description: "Add metrics, dashboards, an SLO, logs and traces one at a time; break each pipeline and prove what you can and cannot see."
+description: "Add metrics, dashboards, a booking SLO, logs and traces one signal at a time, and understand what each one answers that the others cannot."
 sidebar_label: "Stage 6: Mission Ops (Observability)"
 ---
 
-# Build Stage 6: Mission Operations
+# Stage 6: Mission Operations
 
-:::info[Page type · lab]
-- Repo: `Apollo11` at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui`, `apollo-observability`.
-- Read the [Mission Operations chapters](./learn/observability/signals-and-metrics) first.
-- Needs: no other stage's workloads running (`teardown.sh` from the last stage). ~8 GB free RAM.
-- Work from `stages/stage6` (`cd stages/stage6`) and `export KUBE_CONTEXT=kind-apollo11`; the scripts refuse other contexts.
+:::info[Page type · stage walkthrough]
+- Repo folder: [`stages/stage6`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Builds on: the Stage 5 Helm chart and the `kind-apollo11` cluster. Tear down Stage 5 first. Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui`, and new `apollo-observability`. Allow about 8 GB of free RAM.
+- Concepts behind this stage: [Signals and metrics](./learn/observability/signals-and-metrics) · [Discovery and collection](./learn/observability/discovery-and-collection) · [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives) · [Logs](./learn/observability/logs) · [Distributed traces](./learn/observability/traces) · [Correlating a booking](./learn/observability/correlating-a-booking)
 :::
 
 :::caution[Verification status]
 `stages/stage6/SIGNALS.md` describes this ordered path as implemented, noting that a clean end-to-end lifecycle run is still required before it replaces the older all-in-one installer (`apply.sh --mode helm --env dev`). If a step here differs from what you see, trust the output and record it.
 :::
 
-**Skill this lab builds:** pick the right signal for a question, and prove each signal is *actually collected* instead of assuming it is.
+## Where we left off
 
-## Which signal answers which question
+- **Stage 4** made every Pod say whether it is alive and ready, and gave it CPU and memory requests.
+- **Stage 5** packaged all of it as a Helm chart (with a Kustomize alternative), with one values file per environment, and let Argo CD keep the cluster equal to Git.
+- So we can now deploy Apollo the same way every time. But we still cannot answer the question operations actually gets asked:
 
-| Question | Signal | Tool |
+  > *"Is booking healthy for passengers right now, and if not, why?"*
+
+- Today the only tools are:
+  - **`kubectl get pods`**: tells you a Pod is Running and Ready. It says nothing about how many bookings fail.
+  - **`kubectl logs`**: one Pod at a time, and only while that Pod exists. A replaced Pod takes its history with it.
+  - **`/metrics`**: in Stage 5 it returns placeholder JSON (`"http_requests_total": 0`). There is nothing to count.
+- A booking crosses four services: booking → identity → flight → notification. When it is slow, there is no way to see which hop took the time.
+
+Stage 6 adds the three signals that answer these questions:
+
+- **Metric:** a number over time ("what fraction of bookings failed in the last 5 minutes?").
+- **Log:** a line of text from one service at one moment ("what did booking say?").
+- **Trace:** the path of *one* request through every service, with timings ("where did this booking spend its time?").
+
+## What changes in this stage
+
+| Concern | Stage 5 | Stage 6 | Why it's better |
+|---|---|---|---|
+| What the code emits | `/metrics` placeholder JSON; the log field `trace_id` actually holds the `X-Request-ID` | Real Prometheus counters and histograms; OpenTelemetry spans; `trace_id` in log lines | The apps now produce data worth collecting |
+| Collecting metrics | Nothing | **Prometheus**, run by the **Prometheus Operator**, finds apps through **ServiceMonitors** | Scrapes every backend every 30 s and keeps 30 days of history |
+| Looking at metrics | `curl` one Pod | **Grafana** with five provisioned dashboards | Shared views across all services, over time |
+| "Is booking OK?" | A judgement call | **Booking SLO** as recording rules plus a burn-rate alert | Health becomes a number: error ratio and remaining error budget |
+| Logs | `kubectl logs`, one Pod, lost with the Pod | **Alloy** on every node ships logs to **Loki** | Search all services at once, after Pods are gone |
+| Following one request | Not possible | **OpenTelemetry Collector** forwards spans to **Tempo** | One booking shows as one trace across four services |
+| Joining signals | — | Shared `trace_id` in spans and log lines | Go from "error rate rose" to "this request" to "what the service said" |
+| Delivery | Three Argo CD Applications | Four: dev/staging/prod plus one shared `apollo11-observability` | The shared observability namespace is owned once, not three times |
+
+## What's in the folder
+
+| Path | What it is | New or replaces |
 |---|---|---|
-| How many / how fast / what fraction failed, over a window? | Metric | Prometheus (PromQL) |
-| What did service X say at time T? | Log | Loki (`{service="x"} \|= "<id>"`) |
-| Where did the time go in **this** request? | Trace | Tempo (trace ID) |
-| Are we burning our error budget? | Recording rule + alert | Prometheus rules |
+| `code/{booking,flight,search,notification}/main.go`, `code/identity/main.py` | Same services, now instrumented: Prometheus metrics, OpenTelemetry tracing, `traceparent` on outbound calls | Replaces Stage 5's code (which had placeholder `/metrics`) |
+| `bundles/prometheus-operator-v0.93.0.yaml` | Operator CRDs and controller | New. Kept outside the chart so Helm's release Secret stays under Kubernetes' 1 MiB object limit |
+| `helm/apollo11/templates/observability/` | Prometheus, ServiceMonitors, rules, Grafana + dashboards, Loki + Alloy, Tempo, OTel Collector, Grafana HTTPRoute | New |
+| `helm/apollo11/templates/apps/*.yaml` | App templates: Service gains an `app` label and a named `http` port; Pods get `OTEL_*` env vars | Changed from Stage 5 |
+| `helm/apollo11/values.yaml` | New `observability:` block (images, retention, storage, resources) | Extends Stage 5's values |
+| `overlays/` | Plain-manifest Kustomize path, now including observability | Same role as Stage 5 |
+| `argocd/applications/observability.yaml` | Fourth Argo CD Application for the shared stack | New |
+| `scripts/apply.sh` | Installer. `--without-observability` installs only the Stage 5-compatible baseline | Extends Stage 5's |
+| `scripts/signals-lab.sh`, `select-signals.py` | Add the signals one at a time (substages 1–6) | New |
+| `scripts/slo-lab.sh` | A bounded, self-restoring booking outage | New |
+| `scripts/trace-test.sh` | Makes a booking and checks for one trace across four services | New |
+| `SIGNALS.md` | The ordered signal path this page follows | New |
 
-## The ladder
+## Walkthrough
 
-| Substage | Adds | Proof of collection |
-|---|---|---|
-| Baseline | Apollo only | Login + flight search work |
-| 1 | Prometheus Operator, Prometheus, ServiceMonitors | `/api/v1/targets` shows app targets `up` |
-| 2 | Grafana + dashboards | `/api/health`; a panel reacts to traffic |
-| 3 | PrometheusRule (booking SLO) | Rule exists; error-ratio series responds to a failure |
-| 4 | Loki + Alloy | A unique request ID is found in Loki |
-| 5 | Tempo + OTel Collector | A trace with all four services |
-| 6 | Correlation | One booking found as metric → trace → log |
-
----
-
-## Exercise 0: Baseline: what can you not answer?
-
-**Concepts:** [Signals and metrics](./learn/observability/signals-and-metrics)
-
-**Goal:** start with no telemetry and write down what you would be unable to explain.
-**Time:** ~10 min
-
-1. **Predict:** Apollo is running with no Prometheus, Loki or Tempo. A passenger says "booking took 10 s". List what you could check today.
-2. **Do:**
+Set the context once. Every Stage 6 script refuses to run against any other context.
 
 ```bash
-cd stages/stage6
 export KUBE_CONTEXT=kind-apollo11
-bash scripts/apply.sh --without-observability
-kubectl get ns | grep apollo
-TOKEN=$(kubectl run c0 --rm -i --restart=Never -n apollo-airlines-apps --image=curlimages/curl:8.10.1 -- \
-  curl -s -H 'Content-Type: application/json' -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' http://identity:8080/api/users/login | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
-echo "${TOKEN:0:12}..."
 ```
 
-3. **Check:** no `apollo-observability` namespace; a token is returned.
-4. **Why:** you can see Pod state and `kubectl logs` per Pod, but not rates over time, not a request's path, not history after a Pod is replaced. That is the gap each substage closes.
-5. **Your turn:** write down three concrete questions you cannot answer (for example "what was booking's error rate 10 minutes ago?"). You will re-ask them at Exercise 7.
-
----
-
-## Exercise 1: Metrics: prove Prometheus is actually scraping
-
-**Concepts:** [Discovery and collection](./learn/observability/discovery-and-collection) · [Signals and metrics](./learn/observability/signals-and-metrics)
-
-**Goal:** see that a `ServiceMonitor` object is a *request* to scrape, and that collection is a separate fact.
-**Time:** ~15 min
-
-1. **Predict:** what is the difference between `kubectl get servicemonitor` listing a monitor and Prometheus having a target `up`?
-2. **Render before you apply:**
+### Step 1: Install the baseline, and see what the code now emits
 
 ```bash
-bash scripts/signals-lab.sh render 1 helm | grep -E '^kind:' | sort | uniq -c
+bash stages/stage6/scripts/apply.sh --without-observability
+kubectl get ns | grep apollo                          # no apollo-observability yet
+kubectl exec -n apollo-airlines-apps deploy/search -- \
+  wget -qO- http://127.0.0.1:8083/metrics | grep '^http_requests_total' | head -3
 ```
 
-   - You see `Prometheus`, several `ServiceMonitor`, RBAC for discovery. Rendering touched nothing.
-3. **Apply and prove collection:**
+The apps are instrumented already. Only the collectors are missing. The key part of [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/code/booking/main.go):
+
+```go
+// booking/main.go (trimmed)
+httpRequestsTotal = prometheus.NewCounterVec(
+    prometheus.CounterOpts{Name: "http_requests_total"},
+    []string{"service", "method", "path", "status"},   // labels: small, fixed sets of values
+)
+httpRequestDurationMs = prometheus.NewHistogramVec(
+    prometheus.HistogramOpts{Name: "http_request_duration_ms",
+        Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000}},
+    []string{"service", "method", "path"},
+)
+// metricsMiddleware runs after every request:
+path := c.FullPath()            // the route pattern, e.g. /api/bookings/:id, not the real ID
+httpRequestsTotal.WithLabelValues(service, c.Request.Method, path, status).Inc()
+```
+
+- **What happens:** every request adds 1 to a counter and drops its duration into a histogram bucket. `/metrics` shows the current totals in Prometheus text format.
+- **Why labels are route patterns:** each distinct label value creates a separate time series. A booking ID as a label would create one series per booking. IDs belong in logs and traces, not metrics.
+- **Why the Service changed too:** Stage 6 gives each app Service an `app: <name>` label and names its port `http`. The ServiceMonitor in Step 2 selects on exactly those two things.
+- **Compared with Stage 5:** `/metrics` returned `{"http_requests_total": 0, ...}` as JSON. Nothing could scrape it. The deployment layer didn't change, the code did.
+- **Still missing:** right now you can still only `kubectl logs` one Pod and `curl` one `/metrics`. Each step below adds one signal.
+
+### Step 2: Metrics: let Prometheus find and scrape the apps
 
 ```bash
-bash scripts/signals-lab.sh apply 1 helm
+bash stages/stage6/scripts/signals-lab.sh render 1 helm | grep -E '^kind:' | sort | uniq -c   # look first, changes nothing
+bash stages/stage6/scripts/signals-lab.sh apply 1 helm
 kubectl port-forward -n apollo-observability svc/prometheus 19090:9090 >/dev/null 2>&1 &
-sleep 3
-T() { curl -s localhost:19090/api/v1/targets | jq -r '.data.activeTargets[] | "\(.scrapePool)  \(.health)"' | sort; }
-T
+curl -s localhost:19090/api/v1/targets | jq -r '.data.activeTargets[] | "\(.labels.job) \(.health)"' | sort
 ```
 
-   - Expect one `up` target per app service.
-4. **Generate traffic and read it back:**
+[`signals-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/scripts/signals-lab.sh) installs the Operator bundle, then applies the observability objects for the chosen substage. Two objects do the work:
 
-```bash
-for i in $(seq 1 30); do kubectl exec -n apollo-airlines-apps deploy/search -- wget -qO- "http://127.0.0.1:8083/healthz" >/dev/null; done
-sleep 20
-curl -sG localhost:19090/api/v1/query --data-urlencode 'query=sum(rate(http_requests_total[2m])) by (service)' | jq -r '.data.result[]|"\(.metric.service) \(.value[1])"'
-```
-
-   - A non-zero rate for `search`. An idle service may be absent: no traffic ≠ broken.
-5. **Break: remove the discovery object**
-
-```bash
-kubectl -n apollo-observability get servicemonitor
-kubectl -n apollo-observability get servicemonitor search -o yaml > /tmp/search-monitor.yaml    # use the real name from the list
-kubectl -n apollo-observability delete servicemonitor search
-sleep 40; T
-```
-
-   - The `search` target **disappears** from the list. The Service and Pods are fine, only the instruction to scrape is gone.
-6. **Recover and prove:**
-
-```bash
-kubectl apply -f /tmp/search-monitor.yaml
-sleep 40; T
-for i in $(seq 1 20); do kubectl exec -n apollo-airlines-apps deploy/search -- wget -qO- http://127.0.0.1:8083/healthz >/dev/null; done
-sleep 20
-curl -sG localhost:19090/api/v1/query --data-urlencode 'query=rate(http_requests_total{service="search"}[2m])' | jq -r '.data.result[].value[1]'
-```
-
-   - Target `up` again, and new samples with a non-zero rate. Do not claim recovery until the **rate** moves.
-7. **Why:** `ServiceMonitor` selects Services and ports; the Operator turns it into scrape config; Prometheus scrapes. Object exists ≠ target up ≠ samples advancing.
-8. **Your turn:** make a target `down` (rather than missing). Scale `notification` to 0, wait one scrape interval, and read its target health and last error. What is different from step 5, and which query shows the outage as a *number*?
-
-<details>
-<summary>Answer</summary>
-
-The target stays listed but `health: down` with an error such as `connection refused`/no endpoints. `up{job=...} == 0` (or `up` for that service) shows it as a metric. Missing target = discovery problem; down target = scrape problem. Restore with `kubectl scale deploy/notification -n apollo-airlines-apps --replicas=<original>`.
-</details>
-
+```yaml
+# servicemonitors/booking-sm.yaml
+kind: ServiceMonitor
+metadata:
+  labels: {app.kubernetes.io/part-of: apollo-airlines}   # Prometheus selects monitors by this label
+spec:
+  selector: {matchLabels: {app: booking}}   # which Service(s)
+  namespaceSelector: {any: true}            # the Service lives in apollo-airlines-apps
+  endpoints:
+    - port: http                            # the named port added in Step 1
+      path: /metrics
+      interval: 30s
 ---
+# prometheus/deployment.yaml
+kind: Prometheus                            # a custom resource; the Operator turns it into a StatefulSet
+spec:
+  serviceMonitorSelector:
+    matchLabels: {app.kubernetes.io/part-of: apollo-airlines}
+  retention: "30d"
+  storage: {volumeClaimTemplate: ...}       # metrics survive a Prometheus restart (Stage 3's PVCs again)
+```
 
-## Exercise 2: Dashboards are not the data
-
-**Concepts:** [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives)
-
-**Goal:** show that Grafana only displays; Prometheus keeps answering without it.
-**Time:** ~8 min
-
-1. **Predict:** you scale Grafana to 0. Does Prometheus still answer?
-2. **Do:**
+- **What happens:** the Operator watches ServiceMonitors, writes Prometheus's scrape config from them, and Prometheus scrapes each matching Service's endpoints every 30 s. You should see five targets `up`: booking, flight, identity, notification, search.
+- **Why a ServiceMonitor, not a list of URLs:** Pods come and go. A ServiceMonitor selects by label, exactly like a Service selects Pods in Stage 1. New Pods are scraped without anyone editing config.
+- **Annotations too:** the chart also adds `prometheus.io/scrape` annotations to Pods. This Operator-managed Prometheus does not read them. ServiceMonitors are what it uses.
+- **Watch out:** a ServiceMonitor object is a *request* to scrape. It proves nothing on its own. Only a target `up` with samples advancing proves collection:
 
 ```bash
-bash scripts/signals-lab.sh apply 2 helm
+curl -sG localhost:19090/api/v1/query \
+  --data-urlencode 'query=sum by (service) (rate(http_requests_total[2m]))' | jq -r '.data.result[] | "\(.metric.service) \(.value[1])"'
+```
+
+- An idle service may be missing from that result. No traffic is not the same as broken. The [discovery chapter](./learn/observability/discovery-and-collection) covers the full selector chain.
+- **Compared with Stage 5:** the first time Apollo has history. "What was booking's request rate ten minutes ago?" now has an answer.
+
+### Step 3: Dashboards: a view, not a store
+
+```bash
+bash stages/stage6/scripts/signals-lab.sh apply 2 helm
 kubectl port-forward -n apollo-observability svc/grafana 13000:3000 >/dev/null 2>&1 &
-sleep 3; curl -s localhost:13000/api/health
-kubectl scale deploy/grafana -n apollo-observability --replicas=0
-sleep 10
-curl -s -m 3 localhost:13000/api/health || echo "grafana: down"
-curl -s localhost:19090/-/ready
+curl -s localhost:13000/api/health
 ```
 
-3. **Check:** Grafana health `ok` first; after the scale-down it is unreachable; Prometheus still says `Prometheus Server is Ready.`
-4. **Recover and prove:**
+Open `http://localhost:13000` (`admin` / `apollo-admin`, from `observability.grafana` in [`values.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/helm/apollo11/values.yaml)). Grafana is also routed through the Stage 2 Envoy Gateway at `grafana.apollo.local`.
+
+| Dashboard (folder `Apollo11`) | Shows |
+|---|---|
+| Apollo Overview | Targets up, requests/s and p95 latency per service |
+| Booking Service | Booking p50/p95/p99, error rate, requests by status code |
+| Service Errors | 5xx and 4xx rates and error % per service |
+| Service Runtime | Process CPU and resident memory per target |
+| Trace Viewer | Recent booking traces from Tempo |
+
+- **What happens:** Grafana sends PromQL to Prometheus and draws the answer. Dashboards and datasources are ConfigMaps in the chart, so every install gets the same views.
+- **Why it matters that Grafana stores nothing:** if Grafana is down, no data is lost. Prometheus keeps scraping. The reverse also holds: a healthy dashboard can show an empty panel when no samples exist.
+- **Watch out:** the Loki and Tempo datasources are already configured, but Loki and Tempo are not installed until Steps 5 and 6. A configured datasource proves nothing about whether that signal works.
+
+### Step 4: Turn "is booking OK?" into a number
 
 ```bash
-kubectl scale deploy/grafana -n apollo-observability --replicas=1
-kubectl rollout status deploy/grafana -n apollo-observability --timeout=120s
-pkill -f 'port-forward.*13000' ; kubectl port-forward -n apollo-observability svc/grafana 13000:3000 >/dev/null 2>&1 &
-sleep 3; curl -s localhost:13000/api/health
+bash stages/stage6/scripts/signals-lab.sh apply 3 helm
+curl -s localhost:19090/api/v1/rules | jq -r '.data.groups[].rules[] | "\(.type) \(.name)"' | sort -u
 ```
 
-   - Open `http://localhost:13000` (credentials: `grafana` section of `helm/apollo11/values.yaml`), open the request-rate panel, generate traffic, and see it move.
-5. **Why:** the data lives in Prometheus. A dashboard outage never loses data, and a healthy dashboard can show an empty panel if no samples exist.
-6. **Your turn:** Grafana's datasources for logs and traces are configured at substage 2 even though Loki and Tempo do not exist yet. Find them in the UI. Why does a configured-but-dead datasource tell you nothing about whether that signal works?
+First, two terms:
 
----
+- **SLO (service level objective):** a target for how often something should work. Here: **99.5% of eligible booking-creation requests succeed**.
+- **Error budget:** the 0.5% that may fail. Spending it faster than planned is the warning sign.
 
-## Exercise 3: Turn failures into a number: the booking SLO
+The rules are in [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/helm/apollo11/templates/observability/prometheus/rules.yaml):
 
-**Concepts:** [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives)
-
-**Goal:** drive an exact outage and read error ratio, remaining budget and alert state.
-**Time:** ~20 min
-
-1. **Predict:** objective is 99.5% successful *eligible* booking attempts (2xx or 5xx; 4xx excluded). During a 150 s `flight` outage with ~1 request/s all failing with 502, will the error ratio be ~0, ~1, or in between? What if there is no traffic at all?
-2. **Apply the rules:**
-
-```bash
-bash scripts/signals-lab.sh apply 3 helm
-curl -s localhost:19090/api/v1/rules | jq -r '.data.groups[].rules[] | select(.name|test("booking";"i")) | "\(.type) \(.name)"' | sort -u
+```yaml
+# group apollo.booking-slo (trimmed)
+- record: apollo:booking_error_ratio:5m      # also :1h and :28d
+  expr: |
+    (sum(rate(http_requests_total{service="booking",method="POST",path="/api/bookings",status=~"5.."}[5m])) or vector(0))
+    / sum(rate(http_requests_total{service="booking",method="POST",path="/api/bookings",status=~"2..|5.."}[5m]))
+    and sum(rate(...same eligible requests...[5m])) > 0   # no traffic -> no value, not "100% fine"
+- record: apollo:booking_error_budget_remaining:28d
+  expr: 1 - apollo:booking_error_ratio:28d / 0.005      # negative = overspent; not clamped
+- alert: ApolloBookingErrorBudgetBurn
+  expr: apollo:booking_error_ratio:5m > (14.4 * 0.005) and apollo:booking_error_ratio:1h > (14.4 * 0.005)
+  for: 2m
 ```
 
-   - Expect recording rules `apollo:booking_error_ratio:5m`, `:1h`, `:28d`, `apollo:booking_error_budget_remaining:28d`, and alerts such as `ApolloBookingErrorBudgetBurn`.
-3. **Baseline:** query the error ratio *before* any failure (rule names from step 2):
+- **What a recording rule is:** a query Prometheus evaluates every 30 s and stores as a new series. Dashboards and alerts read `apollo:booking_error_ratio:5m` instead of repeating the long expression.
+- **Why 4xx are excluded:** "eligible" means 2xx or 5xx. A wrong password or a sold-out flight (`409 No seats available`) is the service working correctly. Only server failures spend budget.
+- **Why "no traffic" is empty, not zero:** with no bookings the ratio is undefined. Reporting it as 100% would hide an outage that also stops traffic.
+- **Why two windows in the alert:** the 5-minute window reacts quickly. The 1-hour window confirms it isn't a blip. 14.4× is the burn speed that would use the whole budget far too early. The [objectives chapter](./learn/observability/queries-alerts-and-objectives) explains burn rates.
+- **The other rules:** `ApolloServiceDown` (`up == 0` for 2 m), `ApolloErrorRateHigh` (5xx above 5% per service), `ApolloBookingLatencyP95High` (p95 above 500 ms).
+
+Now see the number move. Read [`slo-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/scripts/slo-lab.sh) first: it saves flight's replica count, scales flight to 0, sends real booking attempts for 150 s (each gets a 502), restores flight, then makes and cancels one recovery booking. It restores flight on exit even if interrupted.
 
 ```bash
 Q() { curl -sG localhost:19090/api/v1/query --data-urlencode "query=$1" | jq -c '.data.result'; }
-Q 'apollo:booking_error_ratio:5m'
-```
-
-   - Expect **empty** (`[]`), not `0` and not `1`: with no traffic the ratio is undefined. "No data" is not "perfect availability".
-4. **Inject the exact outage (bounded, self-restoring):**
-
-```bash
-bash scripts/slo-lab.sh
-```
-
-   - Read it first: it records `flight`'s replica count, scales it to 0, sends 502-producing bookings for 150 s, restores `flight`, makes one recovery booking and cancels it. It restores on exit even if you interrupt it.
-5. **Read the result (while or after):**
-
-```bash
-Q 'apollo:booking_error_ratio:5m'
-Q 'apollo:booking_error_budget_remaining:28d'
+Q 'apollo:booking_error_ratio:5m'                 # before: [] (no bookings yet)
+bash stages/stage6/scripts/slo-lab.sh
+Q 'apollo:booking_error_ratio:5m'                 # near 1 during and just after the outage
+Q 'apollo:booking_error_budget_remaining:28d'     # negative
 curl -s localhost:19090/api/v1/alerts | jq -r '.data.alerts[] | "\(.labels.alertname) \(.state)"'
 ```
 
-   - 5-minute ratio near `1` (all eligible attempts failed); remaining budget **negative** (not clamped); alert `pending` then `firing`.
-6. **Prove recovery:** after the script ends, wait a few minutes and re-run step 5: the 5-minute ratio falls while the 1-hour and 28-day ratios decay slowly. The alert eventually resolves.
-7. **Why:**
-   - 4xx are excluded: a wrong password is the caller's fault, not an outage.
-   - A short drill cannot prove a 28-day SLO: a fresh cluster has only minutes of history.
-   - A latency histogram cannot say whether a given request succeeded; that is why error ratio is a separate series.
-8. **Your turn:** change which responses count as errors: would a booking returning `409 No seats available` (a 4xx) consume budget? Check the rule expression with `jq` on the rules API and justify whether that is the right call for a flight that is sold out.
+- **What you see:** the 5-minute ratio jumps toward 1, the budget goes negative, and `ApolloBookingErrorBudgetBurn` goes `pending` then `firing`. Minutes later the 5-minute ratio falls; the 1-hour and 28-day ratios fall slowly.
+- **Why a drill can't prove the SLO:** a fresh cluster has minutes of history. The 28-day window only *looks* like a monthly number.
+- **Where alerts go:** nowhere yet. There is no Alertmanager. You see alert state on the Prometheus alerts page and in Grafana.
+- **Compared with Stage 4:** readiness told the kubelet whether *one Pod* should get traffic. The SLO tells *people* whether *passengers* are being served.
 
-<details>
-<summary>Answer</summary>
-
-It would not consume budget, since 4xx are excluded. For sold-out flights that is correct: the service worked. If seat-assignment failed due to a bug (a 5xx), it would count.
-</details>
-
----
-
-## Exercise 4: Logs: a historical log is not a working pipeline
-
-**Concepts:** [Logs](./learn/observability/logs)
-
-**Goal:** find one request in Loki by a unique ID, then stop collection and show *new* requests vanish while old ones remain.
-**Time:** ~15 min
-
-1. **Predict:** you stop the log shipper. Can you still find yesterday's log lines? Today's new requests?
-2. **Apply and ship one request:**
+### Step 5: Logs: one place, all services, after Pods are gone
 
 ```bash
-bash scripts/signals-lab.sh apply 4 helm
+bash stages/stage6/scripts/signals-lab.sh apply 4 helm
+kubectl get ds alloy -n apollo-observability          # one Alloy Pod per node
 kubectl port-forward -n apollo-observability svc/loki 13100:3100 >/dev/null 2>&1 &
-sleep 3
-NS=apollo-airlines-apps
-RID=lab-log-$RANDOM
-kubectl run c4 --rm -i --restart=Never -n $NS --image=curlimages/curl:8.10.1 -- \
-  curl -s -H "X-Request-ID: $RID" http://identity:8080/healthz >/dev/null
-L() { curl -sG localhost:13100/loki/api/v1/query_range --data-urlencode "query={service=~\".+\"} |= \"$1\"" --data-urlencode 'limit=5' | jq '.data.result|length'; }
-sleep 15; L $RID
+curl -sG localhost:13100/loki/api/v1/query_range \
+  --data-urlencode 'query={namespace="apollo-airlines-apps", service="booking"}' \
+  --data-urlencode 'limit=5' | jq -r '.data.result[].values[][1]'
 ```
 
-   - Expect `1` or more streams. If `0`, send a request that logs (a login or flight search carries the ID into the log line) and retry. Use `kubectl logs -n $NS deploy/identity | grep $RID` as the cross-check.
-3. **Break: stop shipping by scheduling Alloy onto no node**
+Alloy is the per-node collector. Its config in [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml):
+
+```alloy
+discovery.kubernetes "pods" {
+  role = "pod"
+  selectors { role = "pod"  field = "spec.nodeName=" + sys.env("NODE_NAME") }   # only Pods on my node
+}
+discovery.relabel "pod_logs" {
+  rule { source_labels = ["__meta_kubernetes_namespace"]     target_label = "namespace" }
+  rule { source_labels = ["__meta_kubernetes_pod_label_app"] target_label = "service" }   # the app label again
+  rule { source_labels = ["__meta_kubernetes_pod_name"]      target_label = "pod" }
+}
+loki.write "local" { endpoint { url = "http://loki.apollo-observability.svc.cluster.local:3100/loki/api/v1/push" } }
+```
+
+- **What happens:** each Alloy Pod reads container logs for Pods on its own node, attaches `namespace`, `service`, `pod` and `container` labels, and pushes them to Loki. Loki keeps them on a PVC (`retention: 168h` in values).
+- **Why a DaemonSet:** logs live on the node that ran the container. One collector per node covers every Pod, including ones scheduled later.
+- **Why Loki indexes only labels:** labels pick the streams; `|= "text"` then searches inside them. That keeps the index small. As with metrics, don't make IDs into labels.
+- **What's in a line:** the apps write JSON with `timestamp`, `level`, `service`, `trace_id`, `span_id`, `message`. In Stage 6, `trace_id` is filled from the request's span, so log lines can be joined to traces (Step 7).
+- **Compared with Stage 5:** `kubectl logs` read one Pod's current container. Here you query every service at once, and lines from deleted Pods are still there.
+- **Watch out:** finding *old* lines proves nothing about *current* collection. To test the pipeline, look for a request you just made.
+
+### Step 6: Traces: follow one booking through four services
 
 ```bash
-kubectl -n apollo-observability patch ds alloy --type=merge -p '{"spec":{"template":{"spec":{"nodeSelector":{"apollo11.io/log-break":"true"}}}}}'
-sleep 15; kubectl get ds alloy -n apollo-observability
-RID2=lab-log-$RANDOM
-kubectl run c4b --rm -i --restart=Never -n $NS --image=curlimages/curl:8.10.1 -- \
-  curl -s -H "X-Request-ID: $RID2" http://identity:8080/healthz >/dev/null
-sleep 20
-echo "old: $(L $RID)  new: $(L $RID2)"
+bash stages/stage6/scripts/signals-lab.sh apply 5 helm
+bash stages/stage6/scripts/trace-test.sh             # prints trace_id=... services=...
 ```
 
-4. **Symptom:** `DESIRED 0`; the old ID is still found, the new one is **not**.
-5. **Recover and prove:**
+A **span** is one timed operation (an incoming request, or one outgoing call). A **trace** is all spans that share one `trace_id`. The code that keeps one booking in one trace, from [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/code/booking/main.go):
 
-```bash
-kubectl -n apollo-observability patch ds alloy --type=merge -p '{"spec":{"template":{"spec":{"nodeSelector":{"apollo11.io/log-break":null}}}}}'
-kubectl rollout status ds/alloy -n apollo-observability --timeout=120s
-RID3=lab-log-$RANDOM
-kubectl run c4c --rm -i --restart=Never -n $NS --image=curlimages/curl:8.10.1 -- curl -s -H "X-Request-ID: $RID3" http://identity:8080/healthz >/dev/null
-sleep 20; L $RID3
+```go
+r.Use(otelgin.Middleware("booking"))      // reads an incoming traceparent header, starts a server span
+
+func callService(parent context.Context, url, method, body, requestID string, ...) (int, []byte) {
+    ctx, span := otel.Tracer("booking-service").Start(parent, ...)   // child span for the outbound call
+    req, _ := http.NewRequestWithContext(ctx, method, url, ...)
+    req.Header.Set("X-Request-ID", requestID)
+    addTraceparent(req)                   // writes the W3C traceparent header for the next service
+    ...
+}
 ```
 
-   - New ID found again. Never delete Loki's PVCs.
-6. **Why:** searchable history proves nothing about *current* collection. Always test with a freshly generated ID.
-7. **Your turn:** logs carry `service`; request IDs carry across services. Query Loki for one booking ID across all services and list which services logged it (use the `service` label in the result).
+The Pods send spans to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector.apollo-observability.svc.cluster.local:4317`, set by the app templates). The Collector config, [`otel-collector/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/helm/apollo11/templates/observability/otel-collector/config.yaml):
 
-<details>
-<summary>Answer</summary>
-
-`curl -sG … --data-urlencode "query={service=~\".+\"} |= \"$RID\"" | jq -r '.data.result[].stream.service' | sort -u` prints each service that logged the ID.
-</details>
-
----
-
-## Exercise 5: Traces: break the exporter, not the API
-
-**Concepts:** [Traces](./learn/observability/traces)
-
-**Goal:** show tracing as a separate pipeline that can fail while bookings keep working.
-**Time:** ~20 min
-
-1. **Predict:** you point the OTel Collector at a dead Tempo port. Do bookings fail? Does the trace appear?
-2. **Apply and prove a good trace:**
-
-```bash
-bash scripts/signals-lab.sh apply 5 helm
-bash scripts/trace-test.sh
+```yaml
+receivers:  {otlp: {protocols: {grpc: {endpoint: 0.0.0.0:4317}, http: {endpoint: 0.0.0.0:4318}}}}
+processors: {memory_limiter: {...}, batch: {timeout: 2s}}
+exporters:  {otlp/tempo: {endpoint: tempo.apollo-observability.svc.cluster.local:4317}}
+service:
+  pipelines:
+    traces: {receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp/tempo]}
 ```
-
-   - The script starts a client Pod, logs in, books with a generated `traceparent`, checks seat counts, polls Tempo until **one trace contains booking, identity, flight and notification**, cancels the booking and restores the seat. Keep its `trace_id=… services=…` line.
-3. **Read the trace directly:**
 
 ```bash
 kubectl port-forward -n apollo-observability svc/tempo 13200:3100 >/dev/null 2>&1 &
-sleep 3
-TRACE_ID=<paste the trace_id>
-curl -s localhost:13200/api/traces/$TRACE_ID | jq -r '[.batches[].resource.attributes[]|select(.key=="service.name").value.stringValue]|unique'
+TRACE_ID=<paste the trace_id from trace-test.sh>
+curl -s localhost:13200/api/traces/$TRACE_ID \
+  | jq -r '[.batches[].resource.attributes[] | select(.key=="service.name").value.stringValue] | unique'
 ```
 
-4. **Break: dead exporter endpoint**
+- **What happens:** [`trace-test.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/scripts/trace-test.sh) logs in as the seeded passenger, books with a generated `traceparent`, waits until Tempo holds one trace containing booking, identity, flight and notification, then cancels the booking and checks the seat comes back.
+- **Why every service must forward `traceparent`:** each hop only knows the trace it was handed. If one service builds its outbound request from a fresh context, the next service starts a new trace and the chain breaks. The README lists this as a lesson from building the stage.
+- **Why a Collector in between:** apps send to one nearby endpoint and don't need to know about Tempo. Batching, memory limits and the backend choice live in one config.
+- **Tracing is out of band:** if the Collector can't reach Tempo, bookings keep working and traces are silently lost. That is good for passengers, and a reason to check traces as their own pipeline.
+- **Compared with Steps 2 and 5:** a p95 says "some bookings were slow". A trace says "*this* booking spent its time in the flight seat update".
+
+### Step 7: Correlate one booking across all three signals
+
+Substage 6 installs nothing new. It joins what you already have.
 
 ```bash
-kubectl -n apollo-observability get cm otel-collector-config -o yaml > /tmp/otel-original.yaml
-sed 's/tempo.apollo-observability.svc.cluster.local:4317/tempo.apollo-observability.svc.cluster.local:1/' /tmp/otel-original.yaml > /tmp/otel-broken.yaml
-kubectl apply -f /tmp/otel-broken.yaml
-kubectl -n apollo-observability rollout restart ds/otel-collector
-kubectl -n apollo-observability rollout status ds/otel-collector --timeout=120s
-bash scripts/trace-test.sh ; echo "exit=$?"
-kubectl -n apollo-observability logs ds/otel-collector --tail=15 | grep -iE "error|export|refused|dropp" | head -5
+bash stages/stage6/scripts/signals-lab.sh apply 6 helm
+# 1. Metric: when, and how much?
+Q 'sum by (status) (rate(http_requests_total{service="booking"}[5m]))'
+# 2. Trace: where? (Step 6 command, same TRACE_ID)
+curl -s localhost:13200/api/traces/$TRACE_ID | jq '.batches | length'
+# 3. Log: what did the service say?
+curl -sG localhost:13100/loki/api/v1/query_range \
+  --data-urlencode "query={namespace=\"apollo-airlines-apps\"} |= \"$TRACE_ID\"" \
+  | jq -r '.data.result[] | "\(.stream.service): \(.values[0][1])"'
 ```
 
-5. **Symptom:** the script's booking steps succeed but it **fails at the Tempo check** (no complete trace). The Collector logs show export errors. The API never noticed.
-6. **Recover and prove:**
+| Signal | Answers | Can't answer |
+|---|---|---|
+| Metric | *That* booking errors rose, and since when | Which request |
+| Trace | *Where* in the call chain one request failed or waited | What the code was thinking |
+| Log | *Why*, in the service's own words (`Booking created`, `User check failed`) | Rates and trends |
 
-```bash
-kubectl apply -f /tmp/otel-original.yaml
-kubectl -n apollo-observability rollout restart ds/otel-collector
-kubectl -n apollo-observability rollout status ds/otel-collector --timeout=120s
-bash scripts/trace-test.sh
-```
+- **What joins them:** the `trace_id`. It is in every span, and booking writes it into its log lines. Time is the join between metrics and the other two.
+- **The usual order:** a metric or alert tells you something is wrong → a trace from that window shows which hop → logs for that `trace_id` give the detail.
+- **Compared with Stage 5:** the log field `trace_id` used to hold the `X-Request-ID`. Now it holds the real OpenTelemetry trace ID. The request ID still travels between services as a header, but is no longer written into log lines, so search Loki by trace ID.
+- **Watch out:** not every failure logs. In the Step 4 drill, booking returns `502 Flight service unavailable` without writing a log line. The trace's failed `booking → flight` span is the evidence.
+- The [correlation chapter](./learn/observability/correlating-a-booking) walks through more cases, including a notification failure under a successful booking.
 
-   - A new `trace_id=… services=…` line with all four services. Delete `/tmp/otel-*.yaml`.
-7. **Why:** tracing is out-of-band: apps send spans to a local Collector, which forwards to Tempo. A broken exporter loses traces without affecting requests, which also means you will not be told. Metrics and logs stay up (check them now).
-8. **Your turn:** the trace-test sends its own `traceparent`. Remove that header from one hop's code path in your head: which services' spans would drop out of the trace, and why does context propagation have to be done by every service?
+## When something looks wrong
 
-<details>
-<summary>Answer</summary>
+| You see | Likely cause | First command |
+|---|---|---|
+| ServiceMonitor exists, target missing | Selector or port name doesn't match the Service, or monitor lacks `app.kubernetes.io/part-of` | `kubectl get svc -n apollo-airlines-apps --show-labels`; `curl localhost:19090/api/v1/targets` |
+| Target listed but `down` | Pods gone or `/metrics` failing | `curl -s localhost:19090/api/v1/targets \| jq '.data.activeTargets[] \| {job: .labels.job, lastError}'` |
+| `apollo:booking_error_ratio:5m` returns `[]` | No eligible bookings in the window (by design) | Make a booking, wait 30–60 s |
+| Grafana panel empty, Prometheus has data | Wrong time range or datasource, or Grafana not ready | `curl localhost:13000/api/health` |
+| Old logs in Loki, no new ones | Alloy not running on that node | `kubectl get ds alloy -n apollo-observability` |
+| Bookings work, no new traces | Collector can't export to Tempo | `kubectl logs -n apollo-observability ds/otel-collector --tail=20` |
+| Trace missing one service | That hop didn't forward `traceparent` | Check the service's outbound call uses the request context |
+| `signals-lab.sh` refuses a substage | You went backwards | `bash stages/stage6/scripts/teardown.sh --purge`, then start again |
 
-A service that does not forward `traceparent` on its outbound call starts a new trace for the downstream service, so its spans become a separate trace. Every hop must copy the header.
-</details>
+The [troubleshooting page](./troubleshooting) has more.
 
----
+## What this stage does not solve yet
 
-## Exercise 6: Correlate one booking: metric → trace → log
+| Limitation you can see now | Why it hurts | Fixed in |
+|---|---|---|
+| Every search goes search → flight → flight-db, even for identical queries | Repeated work; the database sees the full read rate | [Stage 7](./stage-7): Redis cache-aside |
+| Replica counts are fixed per environment (dev 1, staging 2, prod 3) | Too many Pods at night, too few in a spike | [Stage 7](./stage-7): HPA |
+| Stage 4's CPU/memory requests were educated guesses | Wasted capacity or throttling, and nothing suggests better values | [Stage 7](./stage-7): VPA recommendations |
+| `kubectl top` returns nothing | No metrics-server on kind | [Stage 7](./stage-7) |
+| Alerts fire but notify nobody | No Alertmanager or contact point is configured | No stage page plans this yet |
+| Grafana allows anonymous access; its admin password is in `values.yaml` | Anyone who reaches Grafana can read operations data | [Stage 8](./stage-8) (planned): Command Module (security) |
+| One Prometheus, one Loki, one Tempo, on local PVCs | Telemetry is lost if the node or volume is | [Stage 9](./stage-9) (planned): Lunar Orbit, on real cloud storage |
+| A rollout is gated only by readiness; nothing checks the error ratio before it continues | A bad release spends the error budget before anyone reacts | [Stage 10](./stage-10) (planned): Argo Rollouts mission |
 
-**Concepts:** [Correlating a booking](./learn/observability/correlating-a-booking)
+## The journey so far
 
-**Goal:** go from a symptom on a graph to the exact request and its log lines.
-**Time:** ~15 min
+| Concern | Launchpad | Ignition | Stage 1 | Stage 2 | Stage 3 | Stage 4 | Stage 5 | **Stage 6** |
+|---|---|---|---|---|---|---|---|---|
+| Runs on | One Docker host | 3-node kind | Same | Same | Same | Same | Same | Same |
+| Unit of deployment | Compose service | Bare Pod | Deployment | Deployment | + StatefulSet | Same | Helm release | Same, + observability |
+| Recovery | `restart:` | None | ReplicaSet | Same | Same | + probes restart / drain | + Argo CD self-heal | Same |
+| Service discovery | Docker DNS | Pod IP | Service + DNS | + cross-namespace DNS | + headless Services | Same | Same | + ServiceMonitors |
+| Entry point | `ports:` | `port-forward` | NodePort | DNS → NodePort → Traefik + TLS → MetalLB → Envoy Gateway API | Envoy Gateway | Same | Same | + `grafana.apollo.local` |
+| Config / secrets | `environment:` | Inline | ConfigMap / Secret | Same | Same | Same | Rendered from values | + `observability:` values |
+| Data | Named volume | — | `emptyDir` | `emptyDir` | PVCs | Same | Same | + PVCs for Prometheus, Grafana, Loki, Tempo |
+| Health checks | Compose healthcheck | None | Liveness + readiness | Same | Same | Startup / liveness / readiness | Same | + SLO and alerts |
+| Resources | None | None | None | None | None | Requests = limits, PDBs | Per-env values | Same |
+| How it's deployed | `docker compose up` | `kubectl apply` | `apply.sh` | Same | Same | Same | Helm / Kustomize / Argo CD | Same, + `signals-lab.sh` |
+| Observability | `docker logs` | `kubectl logs` | `kubectl logs` | Same | Same | Same | Same | **Metrics, dashboards, SLO, logs, traces** |
+| Scaling | Fixed | — | Fixed (2) | Fixed | Fixed | Fixed | Fixed per env | Fixed per env |
 
-1. **Predict:** a booking fails with 502. In which order do you consult metric, trace and log, and what does each narrow down?
-2. **Create a failure on purpose (short):**
-
-```bash
-NS=apollo-airlines-apps
-ORIG=$(kubectl get deploy flight -n $NS -o jsonpath='{.spec.replicas}'); kubectl scale deploy/flight -n $NS --replicas=0
-kubectl rollout status deploy/flight -n $NS --timeout=60s
-TRACE=$(openssl rand -hex 16); RID=corr-$TRACE
-kubectl run c6 --rm -i --restart=Never -n $NS --image=curlimages/curl:8.10.1 --command -- sh -c "
-  T=\$(curl -s -H 'Content-Type: application/json' -d '{\"email\":\"passenger@apolloairlines.com\",\"password\":\"pass123\"}' http://identity:8080/api/users/login | sed -n 's/.*\"token\":\"\\([^\"]*\\)\".*/\\1/p')
-  curl -s -o /dev/null -w 'booking -> %{http_code}\n' -X POST -H \"Authorization: Bearer \$T\" -H 'Content-Type: application/json' \
-    -H 'X-Request-ID: $RID' -H 'traceparent: 00-$TRACE-0123456789abcdef-01' \
-    -d '{\"flightId\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"}' http://booking:8082/api/bookings"
-kubectl scale deploy/flight -n $NS --replicas=$ORIG; kubectl rollout status deploy/flight -n $NS --timeout=120s
-```
-
-   - Prints `booking -> 502`.
-3. **Follow it:**
-   1. **Metric:** error ratio / 5xx rate for booking rose (Exercise 3 queries). Tells you *that* and *since when*. Not which request.
-   2. **Trace:** `curl -s localhost:13200/api/traces/$TRACE | jq` shows the `booking → flight` span failing. Tells you *where*.
-   3. **Log:** query Loki for `$RID` (Exercise 4's `L`) and read booking's message (`Flight service unavailable`). Tells you *why*, in the app's words.
-4. **Why:** each signal answers a different question. An aggregate percentile cannot give you the trace of one slow booking; the shared IDs (`X-Request-ID`, `trace_id`) are what join them.
-5. **Your turn:** repeat with `notification` scaled to 0 instead. Predict the booking status code, then use the three signals to prove the passenger's booking succeeded while one downstream call failed. Which signal first reveals it?
-
-<details>
-<summary>Answer</summary>
-
-The booking returns `201` (notification is called asynchronously after the row is saved). The *trace* shows a failed notification span under a successful booking; the metric for booking may not move at all; logs contain the failed notify call. This is why "the booking succeeded" and "everything worked" are different claims.
-</details>
-
----
-
-## Exercise 7: Re-ask the Exercise 0 questions
-
-**Concepts:** [Correlating a booking](./learn/observability/correlating-a-booking)
-
-**Goal:** close the loop on your original gap list.
-**Time:** ~5 min
-
-For each question you wrote in Exercise 0, name the signal and the exact query or command that now answers it. Anything you still cannot answer is a gap worth noting.
-
-## Clean-up
+## Clean up
 
 ```bash
 pkill -f 'port-forward' || true
-rm -f /tmp/otel-*.yaml /tmp/search-monitor.yaml
-bash scripts/teardown.sh --purge     # add --mode kustomize if you used it
-cd ../..
+bash stages/stage6/scripts/verify.sh --mode helm      # optional: the full automated check
+bash stages/stage6/scripts/teardown.sh --purge        # add --mode kustomize if you used it
+kubectl get ns | grep apollo                          # nothing
 ```
 
-- Confirm `kubectl get ns | grep apollo` shows nothing before starting Stage 7.
+`--purge` removes the app, UI and observability namespaces, their PVCs, the controllers and the Operator CRDs. The kind cluster stays for Stage 7.
 
-## You can now
+## You should now be able to explain
 
-- [ ] Pick metric, log or trace for a given question.
-- [ ] Show a ServiceMonitor is not collection, and a historical log is not a working pipeline.
-- [ ] Read an SLO error ratio and budget, including why "no data" is not "100%".
-- [ ] Break and restore a telemetry pipeline without affecting the API.
-- [ ] Go from a metric spike to the trace and logs of one request.
+- Why Stage 5's `/metrics` could not be scraped, and what the code added.
+- Why a ServiceMonitor existing does not mean Prometheus is collecting.
+- Why a booking ID must never be a metric label.
+- What `apollo:booking_error_ratio:5m` measures, why 4xx are excluded, and why "no data" is not "100%".
+- Why a two-minute drill cannot prove a 28-day SLO.
+- Why finding old log lines doesn't prove log shipping works now.
+- How `traceparent` keeps one booking in one trace, and what happens when one hop drops it.
+- Which signal answers "since when", which "where", and which "why".
 
-## Checkpoint
-
-1. Why avoid putting a booking ID in a Prometheus label?
-2. Which header joins spans across services?
-3. Collector exporter dead: which signals survive?
-4. Why can a 99.5% SLO not be proven by a two-minute drill?
-
-Next: [Stage 7: Orbital Maneuvering](./stage-7).
+**Next:** [Stage 7: Orbital Maneuvering](./stage-7) uses these measurements to add a cache and autoscaling, and to prove whether they help.

@@ -21,7 +21,7 @@ Finding a leak in a building: first notice that water use is up (where is the pr
 |---|---|---|---|
 | 1 | How widespread? Since when? | Prometheus | Rate, p99 or error ratio around the incident |
 | 2 | Where did the time go? | Tempo (trace ID) | The slow or failing span |
-| 3 | What did that service say? | Loki (`trace_id` or request ID) | The error text |
+| 3 | What did that service say? | Loki (`trace_id`) | The error text |
 | 4 | Why? | Metrics on the resource | CPU, connection pool, queue depth |
 
 ```mermaid
@@ -37,7 +37,7 @@ The signals are connected by shared identifiers:
 
 - **Time window** links a metric spike to traces from that window.
 - **`trace_id`** links a trace to the log lines from the same request.
-- **`X-Request-ID`** links log lines across services.
+- **`X-Request-ID`** still travels between services as a header, but from Stage 6 the log lines carry `trace_id`, so search Loki by trace ID.
 
 ## Useful commands
 
@@ -62,7 +62,7 @@ curl -s localhost:13200/api/traces/<trace-id> | jq '.batches[].scopeSpans[].span
 <details>
 <summary>Which identifiers join a metric spike to the right log lines?</summary>
 
-The time window (metric), then `trace_id` from the trace, then the same ID (or `X-Request-ID`) in Loki.
+The time window (metric), then `trace_id` from the trace, then the same `trace_id` in Loki.
 </details>
 
 ## Where this leads

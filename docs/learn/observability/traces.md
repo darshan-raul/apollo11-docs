@@ -46,7 +46,7 @@ traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
              └ version
 ```
 
-If a service forgets to copy `traceparent` onto an outgoing call, the next service starts a **new** trace, and its spans appear as an unrelated root. Every hop must propagate. Booking also forwards `X-Request-ID`, which is how log lines from different services are matched.
+If a service forgets to copy `traceparent` onto an outgoing call, the next service starts a **new** trace, and its spans appear as an unrelated root. Every hop must propagate. Booking also forwards `X-Request-ID` for backwards compatibility, but log lines are matched by the `trace_id` they carry.
 
 ### Getting spans to storage
 
