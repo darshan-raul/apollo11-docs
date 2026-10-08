@@ -234,6 +234,16 @@
   background: linear-gradient(180deg, #1a0a2e 0%, #0d0115 100%);
 }
 
+.toolsSection {
+  padding: 6rem 2rem;
+  background: #0d0115;
+}
+
+.toolsContainer {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
 .sectionHeader {
   text-align: center;
   margin-bottom: 4rem;
@@ -436,6 +446,7 @@
   }
 
   .stagesSection,
+  .toolsSection,
   .featuresSection,
   .ctaSection {
     padding: 4rem 1rem;

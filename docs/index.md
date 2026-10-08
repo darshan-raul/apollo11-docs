@@ -38,6 +38,14 @@ sidebar_label: "Flight Plan & Overview"
 - Runnable local path: Launchpad → Stage 7. Details: [Mission Status](./status).
 - Optional: [Mission Extensions](./stage-10), [Towards Mars](./stage-11).
 
+## The toolkit
+
+The cloud-native tools the course meets along the way. **Fundamentals** are what every Kubernetes engineer reaches for; **Advanced** is what a platform team adds once those hold. Which stage uses which tool, and what is runnable today, is on [Mission Status](./status). Each logo links to the project's own site.
+
+import ToolMap from '@site/src/components/ToolMap';
+
+<ToolMap compact />
+
 ## Reference
 
 - [Troubleshooting](./troubleshooting)
