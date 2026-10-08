@@ -1,138 +1,267 @@
-import type {CSSProperties, ReactNode} from 'react';
+import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 import ToolMap from '@site/src/components/ToolMap';
 
+import {markTransform, wheelPath} from './_kubernetesMark';
 import styles from './index.module.css';
 
 const stages = [
-  {number: 'PREP', title: 'Launchpad', emoji: '🧱', description: 'Meet Apollo Airlines. Learn what it takes to get its containers talking on one machine.', href: '/docs/learn/containers/process-image-container', color: '#9b59b6'},
-  {number: 'GO', title: 'Ignition', emoji: '🔥', description: 'Bring Kubernetes into the story. Who turns your declaration into a running application?', href: '/docs/learn/cluster/why-orchestration', color: '#e74c3c'},
-  {number: '01', title: 'Liftoff', emoji: '🚀', description: 'A booking Pod disappears. Discover who replaces it and how the application finds its feet again.', href: '/docs/learn/workloads/ownership-and-replicas', color: '#3498db'},
-  {number: '02', title: 'Guidance', emoji: '🧭', description: 'Follow a passenger’s request through names, addresses, and routes to the right service.', href: '/docs/learn/networking/pod-network-and-cni', color: '#2ecc71'},
-  {number: '03', title: 'Mission Data', emoji: '💾', description: 'The database Pod is gone. Find out what must survive for the passenger’s reservation to remain.', href: '/docs/learn/storage/volume-lifetimes', color: '#f39c12'},
-  {number: '04', title: 'Flight Control', emoji: '🎛️', description: 'Decide when a service is ready, when it needs help, and how it should leave gracefully.', href: '/docs/learn/reliability/probes', color: '#1abc9c'},
-  {number: '05', title: 'Payload Integration', emoji: '📦', description: 'Ship the next version of Apollo Airlines and understand what a rollback can recover.', href: '/docs/learn/delivery/rendering-and-helm', color: '#9b59b6'},
-  {number: '06', title: 'Mission Operations', emoji: '📡', description: 'A booking is slow. Follow the metrics, logs, and traces to discover where the time went.', href: '/docs/learn/observability/signals-and-metrics', color: '#e67e22'},
-  {number: '07', title: 'Orbital Maneuvering', emoji: '🛰️', description: 'More passengers arrive. Explore which work to cache, when to scale, and what to measure.', href: '/docs/learn/scaling/measurement-baseline', color: '#8e44ad'},
-  {number: 'NEXT', title: 'Beyond the Local Mission', emoji: '🌕', description: 'Explore Command Module security, Lunar Orbit cloud operations, and the missions still ahead.', href: '/docs/status', color: '#c0392b'}
+  {number: 'PREP', title: 'Launchpad', description: 'Meet Apollo Airlines. Learn what it takes to get its containers talking on one machine.', href: '/docs/learn/containers/process-image-container'},
+  {number: 'GO', title: 'Ignition', description: 'Bring Kubernetes into the story. Who turns your declaration into a running application?', href: '/docs/learn/cluster/why-orchestration'},
+  {number: '01', title: 'Liftoff', description: 'A booking Pod disappears. Discover who replaces it and how the application finds its feet again.', href: '/docs/learn/workloads/ownership-and-replicas'},
+  {number: '02', title: 'Guidance', description: 'Follow a passenger’s request through names, addresses, and routes to the right service.', href: '/docs/learn/networking/pod-network-and-cni'},
+  {number: '03', title: 'Mission Data', description: 'The database Pod is gone. Find out what must survive for the passenger’s reservation to remain.', href: '/docs/learn/storage/volume-lifetimes'},
+  {number: '04', title: 'Flight Control', description: 'Decide when a service is ready, when it needs help, and how it should leave gracefully.', href: '/docs/learn/reliability/probes'},
+  {number: '05', title: 'Payload Integration', description: 'Ship the next version of Apollo Airlines and understand what a rollback can recover.', href: '/docs/learn/delivery/rendering-and-helm'},
+  {number: '06', title: 'Mission Operations', description: 'A booking is slow. Follow the metrics, logs, and traces to discover where the time went.', href: '/docs/learn/observability/signals-and-metrics'},
+  {number: '07', title: 'Orbital Maneuvering', description: 'More passengers arrive. Explore which work to cache, when to scale, and what to measure.', href: '/docs/learn/scaling/measurement-baseline'},
+  {number: 'NEXT', title: 'Beyond the Local Mission', description: 'Explore Command Module security, Lunar Orbit cloud operations, and the missions still ahead.', href: '/docs/status'}
 ];
 
-function StarField() {
+const features = [
+  {
+    title: 'One airline, every stage',
+    description: 'Stay with Apollo Airlines as its needs grow. A passenger’s booking gives every new Kubernetes concept a reason to exist.'
+  },
+  {
+    title: 'Hands-on labs',
+    description: 'Predict what will happen, try it on a local cluster, then investigate the result. You can also follow the whole story without running a lab.'
+  },
+  {
+    title: 'Learn through recovery',
+    description: 'A missing Pod, a stalled rollout, a slow booking: learn to follow the clues and explain why the system behaves the way it does.'
+  },
+  {
+    title: 'A mission you can explain',
+    description: 'Finish by following one booking across the system, connecting what you learned, and naming the questions still ahead.'
+  }
+];
+
+// Tools in orbit around the moon. `start` is the angle each one begins at.
+const satellites = [
+  {logo: 'argo.svg', radius: 150, duration: 26, start: 200, trail: 9, reverse: false},
+  {logo: 'helm.svg', radius: 215, duration: 44, start: 325, trail: 6, reverse: true},
+  {logo: 'opentelemetry.svg', radius: 280, duration: 70, start: 35, trail: 8, reverse: false},
+  {logo: 'linkerd.svg', radius: 280, duration: 70, start: 215, trail: 8, reverse: false}
+];
+
+// Seeded so the server render and the client hydration agree on every star.
+function seededRandom(seed: number) {
+  let state = seed;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function buildStars(count: number, seed: number) {
+  const random = seededRandom(seed);
+  return Array.from({length: count}, (_, i) => ({
+    cx: Math.round(random() * 1600),
+    cy: Math.round(random() * 900),
+    r: Math.round((0.4 + random() * 1.1) * 10) / 10,
+    opacity: Math.round((0.25 + random() * 0.65) * 100) / 100,
+    twinkle: i % 5 === 0,
+    delay: Math.round(random() * 60) / 10
+  }));
+}
+
+const heroStars = buildStars(140, 11);
+const ctaStars = buildStars(70, 1969);
+
+function StarField({stars}: {stars: ReturnType<typeof buildStars>}) {
   return (
-    <div className={styles.starField}>
-      {Array.from({length: 80}).map((_, i) => (
-        <div
+    <svg
+      className={styles.starField}
+      viewBox="0 0 1600 900"
+      preserveAspectRatio="xMidYMid slice"
+      aria-hidden="true">
+      {stars.map((star, i) => (
+        <circle
           key={i}
-          className={styles.star}
-          style={{
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-            animationDelay: `${Math.random() * 3}s`,
-            animationDuration: `${2 + Math.random() * 3}s`,
-            width: `${1 + Math.random() * 2}px`,
-            height: `${1 + Math.random() * 2}px`
-          }}
+          className={star.twinkle ? styles.twinkle : undefined}
+          cx={star.cx}
+          cy={star.cy}
+          r={star.r}
+          opacity={star.opacity}
+          style={star.twinkle ? {animationDelay: `${star.delay}s`} : undefined}
         />
       ))}
-    </div>
+    </svg>
   );
 }
 
-function GlowOrb({color, size, position}: {color: string; size: string; position: CSSProperties}) {
+function Satellite({logo, radius, duration, start, trail, reverse}: (typeof satellites)[number]) {
+  const logoUrl = useBaseUrl(`/img/stack/${logo}`);
+  const x = 300 + radius;
+  const timing = {
+    animationDuration: `${duration}s`,
+    animationDirection: reverse ? 'reverse' : 'normal'
+  };
   return (
-    <div
-      className={styles.glowOrb}
-      style={{
-        background: `radial-gradient(circle, ${color} 0%, transparent 70%)`,
-        width: size,
-        height: size,
-        ...position,
-      }}
-    />
+    <g transform={`rotate(${start} 300 300)`}>
+      <g className={styles.orbiter} style={timing}>
+        <circle
+          className={styles.trail}
+          cx="300"
+          cy="300"
+          r={radius}
+          pathLength="100"
+          strokeDasharray={`${trail} ${100 - trail}`}
+          strokeDashoffset={reverse ? 0 : trail}
+        />
+        {/* Counter-rotate the chip so the logo stays upright all the way round. */}
+        <g className={styles.upright} style={{...timing, transformOrigin: `${x}px 300px`}}>
+          <g transform={`rotate(${-start} ${x} 300)`}>
+            <circle className={styles.chip} cx={x} cy="300" r="15" />
+            <image href={logoUrl} x={x - 9.5} y="290.5" width="19" height="19" />
+          </g>
+        </g>
+      </g>
+    </g>
   );
 }
 
-function Rocket() {
+function OrbitDiagram() {
+  // Scale the Kubernetes wheel to sit on the moon, centred on the diagram.
+  const moonTransform = `translate(189.28 192.57) scale(0.285) ${markTransform}`;
   return (
-    <div className={styles.rocket}>
-      {/* CSS rocket using transforms — no external assets needed */}
-      <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="none">
-        {/* Rocket body — upright for left-to-right flight */}
-        <path d="M24 4 C24 4 38 16 38 28 C38 34 32 42 24 46 C16 42 10 34 10 28 C10 16 24 4 24 4Z"
-              fill="#bb8fce" opacity="0.9"/>
-        {/* Nose cone highlight */}
-        <path d="M24 4 C24 4 30 12 30 20 C30 20 24 18 24 4Z" fill="#e8d5f2" opacity="0.5"/>
-        {/* Left fin */}
-        <path d="M10 28 L4 38 L10 35Z" fill="#9b59b6"/>
-        {/* Right fin */}
-        <path d="M38 28 L44 38 L38 35Z" fill="#9b59b6"/>
-        {/* Center fin */}
-        <path d="M20 32 L18 44 L24 40 L30 44 L28 32Z" fill="#8e44c9"/>
-        {/* Window */}
-        <circle cx="24" cy="22" r="5" fill="#1a0a2e" stroke="#e8d5f2" strokeWidth="1.5" opacity="0.9"/>
-        <circle cx="22" cy="20" r="1.5" fill="#fff" opacity="0.6"/>
-        {/* Engine nozzle */}
-        <rect x="21" y="40" width="6" height="4" rx="1" fill="#7d3c98"/>
-        {/* Exhaust flame */}
-        <ellipse cx="24" cy="47" rx="4" ry="3" fill="#f39c12" opacity="0.8"/>
-        <ellipse cx="24" cy="47" rx="2" ry="5" fill="#e74c3c" opacity="0.6"/>
-      </svg>
-    </div>
+    <svg className={styles.orbit} viewBox="0 0 600 600" fill="none" aria-hidden="true">
+      <defs>
+        <radialGradient id="moonSurface" cx="0.3" cy="0.26" r="0.9">
+          <stop offset="0" stopColor="#f1ebf7" />
+          <stop offset="0.45" stopColor="#b6a8ca" />
+          <stop offset="0.85" stopColor="#5f4d79" />
+          <stop offset="1" stopColor="#2a1c3b" />
+        </radialGradient>
+        <linearGradient id="moonShade" x1="0.2" y1="0.1" x2="0.88" y2="0.95">
+          <stop offset="0.45" stopColor="#0d0716" stopOpacity="0" />
+          <stop offset="1" stopColor="#0d0716" stopOpacity="0.6" />
+        </linearGradient>
+        <linearGradient id="moonWheel" x1="0.2" y1="0.1" x2="0.85" y2="0.95">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="1" stopColor="#d8cce8" />
+        </linearGradient>
+        {/* Mottled regolith: coarse dark blotches plus a fine speckle. */}
+        <filter id="moonTexture" x="0" y="0" width="1" height="1">
+          <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="4" seed="11" result="coarse" />
+          <feColorMatrix in="coarse" type="matrix" values="0 0 0 0 0.09  0 0 0 0 0.05  0 0 0 0 0.14  1.7 0 0 0 -0.7" result="blotches" />
+          <feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="2" seed="4" result="fine" />
+          <feColorMatrix in="fine" type="matrix" values="0 0 0 0 0.09  0 0 0 0 0.05  0 0 0 0 0.14  0 0.9 0 0 -0.38" result="speckle" />
+          <feMerge>
+            <feMergeNode in="blotches" />
+            <feMergeNode in="speckle" />
+          </feMerge>
+        </filter>
+        <radialGradient id="moonHalo" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0.45" stopColor="#c4a1e0" stopOpacity="0.28" />
+          <stop offset="1" stopColor="#c4a1e0" stopOpacity="0" />
+        </radialGradient>
+        <clipPath id="moonClip">
+          <circle cx="300" cy="300" r="108" />
+        </clipPath>
+      </defs>
+
+      <circle cx="300" cy="300" r="210" fill="url(#moonHalo)" />
+
+      <g className={styles.rings}>
+        <circle cx="300" cy="300" r="150" />
+        <circle cx="300" cy="300" r="215" strokeDasharray="2 7" />
+        <circle cx="300" cy="300" r="280" />
+        <path d="M300 8v24M300 568v24M8 300h24M568 300h24" />
+      </g>
+
+      {/* A cratered moon with the Kubernetes wheel inlaid. */}
+      <circle cx="300" cy="300" r="108" fill="url(#moonSurface)" />
+      <g clipPath="url(#moonClip)">
+        <rect x="180" y="185" width="240" height="230" filter="url(#moonTexture)" />
+        <g className={styles.craters}>
+          <circle cx="232" cy="262" r="9" />
+          <circle cx="350" cy="232" r="6" />
+          <circle cx="380" cy="300" r="11" />
+          <circle cx="262" cy="372" r="13" />
+          <circle cx="216" cy="318" r="5" />
+          <circle cx="342" cy="384" r="7" />
+          <circle cx="300" cy="216" r="4" />
+        </g>
+      </g>
+      <path className={styles.wheelShadow} d={wheelPath} transform={`translate(2 3) ${moonTransform}`} />
+      <path className={styles.wheel} d={wheelPath} transform={moonTransform} fill="url(#moonWheel)" />
+      <circle cx="300" cy="300" r="108" fill="url(#moonShade)" />
+      <circle className={styles.moonRim} cx="300" cy="300" r="108" />
+
+      <g className={styles.orbitLabels}>
+        <text x="300" y="142">LAUNCHPAD</text>
+        <text x="300" y="77">LIFTOFF</text>
+        <text x="300" y="46">ORBIT</text>
+      </g>
+
+      {satellites.map((satellite) => (
+        <Satellite key={satellite.logo} {...satellite} />
+      ))}
+    </svg>
+  );
+}
+
+function ArrowIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
   );
 }
 
 function HomepageHero() {
   return (
     <header className={styles.hero}>
-      <StarField />
-      <GlowOrb color="rgba(155, 89, 182, 0.4)" size="600px" position={{top: '-200px', left: '-100px'}} />
-      <GlowOrb color="rgba(187, 143, 206, 0.3)" size="400px" position={{bottom: '-100px', right: '-50px'}} />
-      <Rocket />
-      <div className={styles.heroContent}>
-        <div className={styles.badge}>One application. A mission through Kubernetes.</div>
-        <h1 className={styles.heroTitle}>
-          <span className={styles.heroTitleMain}>Apollo 11</span>
-          <span className={styles.heroTitleSub}>Your Kubernetes Learning Mission</span>
-        </h1>
-        <p className={styles.heroDescription}>
-          Take Apollo Airlines from its first container to a system you can
-          explain, troubleshoot, and recover. Every stage begins with a problem
-          worth solving. Read the story, then take the controls when you’re ready.
-        </p>
-        <div className={styles.heroCta}>
-          <Link className={styles.primaryButton} to="/docs">
-            <span>Start Your Journey</span>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M5 12h14M12 5l7 7-7 7"/>
-            </svg>
-          </Link>
-          <Link className={styles.secondaryButton} to="/docs/labs/setup">
-            Prepare Your Launchpad
-          </Link>
+      <StarField stars={heroStars} />
+      <div className={styles.heroGlow} />
+      <div className={styles.heroInner}>
+        <div className={styles.heroContent}>
+          <p className={styles.eyebrow}>
+            <span className={styles.eyebrowDot} />
+            One application. A mission through Kubernetes.
+          </p>
+          <h1 className={styles.heroTitle}>
+            <span className={styles.heroTitleMain}>Apollo 11</span>
+            <span className={styles.heroTitleSub}>Your Kubernetes learning mission</span>
+          </h1>
+          <p className={styles.heroDescription}>
+            Take Apollo Airlines from its first container to a system you can
+            explain, troubleshoot, and recover. Every stage begins with a problem
+            worth solving. Read the story, then take the controls when you’re ready.
+          </p>
+          <div className={styles.heroCta}>
+            <Link className={styles.primaryButton} to="/docs">
+              <span>Start your journey</span>
+              <span className={styles.buttonIcon}><ArrowIcon /></span>
+            </Link>
+            <Link className={styles.textLink} to="/docs/labs/setup">
+              Prepare your launchpad
+            </Link>
+          </div>
+          <dl className={styles.heroStats}>
+            <div className={styles.stat}>
+              <dt className={styles.statNumber}>01</dt>
+              <dd className={styles.statLabel}>Airline to build</dd>
+            </div>
+            <div className={styles.stat}>
+              <dt className={styles.statNumber}>Read</dt>
+              <dd className={styles.statLabel}>Follow the story</dd>
+            </div>
+            <div className={styles.stat}>
+              <dt className={styles.statNumber}>Fly</dt>
+              <dd className={styles.statLabel}>Try the labs</dd>
+            </div>
+          </dl>
         </div>
-        <div className={styles.heroStats}>
-          <div className={styles.stat}>
-            <span className={styles.statNumber}>01</span>
-            <span className={styles.statLabel}>Airline to build</span>
-          </div>
-          <div className={styles.statDivider} />
-          <div className={styles.stat}>
-            <span className={styles.statNumber}>Read</span>
-            <span className={styles.statLabel}>Follow the story</span>
-          </div>
-          <div className={styles.statDivider} />
-          <div className={styles.stat}>
-            <span className={styles.statNumber}>Fly</span>
-            <span className={styles.statLabel}>Try the labs</span>
-          </div>
+        <div className={styles.heroVisual}>
+          <OrbitDiagram />
         </div>
-      </div>
-      <div className={styles.scrollIndicator}>
-        <span>Scroll to explore</span>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 5v14M19 12l-7 7-7-7"/>
-        </svg>
       </div>
     </header>
   );
@@ -140,28 +269,25 @@ function HomepageHero() {
 
 function StagesSection() {
   return (
-    <section className={styles.stagesSection}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Your Flight Plan</h2>
-        <p className={styles.sectionSubtitle}>Launchpad to orbit. Each mission starts where the last one leaves a question.</p>
-      </div>
-      <div className={styles.stagesGrid}>
-        {stages.map((stage) => {
-          return (
-            <Link key={stage.number} to={stage.href} className={styles.stageCard}>
-              <div className={styles.stageCardGlow} style={{background: stage.color}} />
-              <div className={styles.stageNumber} style={{color: stage.color}}>{stage.number}</div>
-              <div className={styles.stageEmoji}>{stage.emoji}</div>
-              <h3 className={styles.stageTitle}>{stage.title}</h3>
-              <p className={styles.stageDescription}>{stage.description}</p>
-              <div className={styles.stageArrow}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M12 5l7 7-7 7"/>
-                </svg>
-              </div>
-            </Link>
-          );
-        })}
+    <section className={styles.section}>
+      <div className={styles.split}>
+        <div className={styles.splitHeader}>
+          <p className={styles.sectionLabel}>01 / Flight plan</p>
+          <h2 className={styles.sectionTitle}>Your flight plan</h2>
+          <p className={styles.sectionSubtitle}>Launchpad to orbit. Each mission starts where the last one leaves a question.</p>
+        </div>
+        <ol className={styles.stageList}>
+          {stages.map((stage) => (
+            <li key={stage.number} className={styles.reveal}>
+              <Link to={stage.href} className={styles.stageRow}>
+                <span className={styles.stageNumber}>{stage.number}</span>
+                <h3 className={styles.stageTitle}>{stage.title}</h3>
+                <p className={styles.stageDescription}>{stage.description}</p>
+                <span className={styles.stageArrow}><ArrowIcon /></span>
+              </Link>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   );
@@ -169,56 +295,41 @@ function StagesSection() {
 
 function ToolsSection() {
   return (
-    <section className={styles.toolsSection}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>The Mission Toolkit</h2>
-        <p className={styles.sectionSubtitle}>The cloud-native tools you meet along the way, from fundamentals to platform engineering.</p>
-      </div>
-      <div className={styles.toolsContainer}>
-        <ToolMap />
+    <section className={styles.section}>
+      <div className={styles.container}>
+        <div className={styles.sectionHeader}>
+          <p className={styles.sectionLabel}>02 / Toolkit</p>
+          <h2 className={styles.sectionTitle}>The mission toolkit</h2>
+          <p className={styles.sectionSubtitle}>The cloud-native tools you meet along the way, from fundamentals to platform engineering.</p>
+        </div>
+        <div className={styles.toolsContainer}>
+          <ToolMap />
+        </div>
       </div>
     </section>
   );
 }
 
 function FeaturesSection() {
-  const features = [
-    {
-      icon: '🎯',
-      title: 'One Airline, Every Stage',
-      description: 'Stay with Apollo Airlines as its needs grow. A passenger’s booking gives every new Kubernetes concept a reason to exist.'
-    },
-    {
-      icon: '⚡',
-      title: 'Hands-On Labs',
-      description: 'Predict what will happen, try it on a local cluster, then investigate the result. You can also follow the whole story without running a lab.'
-    },
-    {
-      icon: '🔄',
-      title: 'Learn Through Recovery',
-      description: 'A missing Pod, a stalled rollout, a slow booking: learn to follow the clues and explain why the system behaves the way it does.'
-    },
-    {
-      icon: '🚀',
-      title: 'A Mission You Can Explain',
-      description: 'Finish by following one booking across the system, connecting what you learned, and naming the questions still ahead.'
-    }
-  ];
-
   return (
-    <section className={styles.featuresSection}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Why Apollo 11</h2>
-        <p className={styles.sectionSubtitle}>Designed for engineers who want real competence</p>
-      </div>
-      <div className={styles.featuresGrid}>
-        {features.map((feature, index) => (
-          <div key={index} className={styles.featureCard}>
-            <div className={styles.featureIcon}>{feature.icon}</div>
-            <h3 className={styles.featureTitle}>{feature.title}</h3>
-            <p className={styles.featureDescription}>{feature.description}</p>
-          </div>
-        ))}
+    <section className={styles.section}>
+      <div className={styles.container}>
+        <div className={styles.sectionHeader}>
+          <p className={styles.sectionLabel}>03 / Approach</p>
+          <h2 className={styles.sectionTitle}>Why Apollo 11</h2>
+          <p className={styles.sectionSubtitle}>Designed for engineers who want real competence.</p>
+        </div>
+        <div className={styles.featuresGrid}>
+          {features.map((feature, index) => (
+            <article key={feature.title} className={`${styles.featureCard} ${styles.reveal}`}>
+              <span className={styles.featureIndex}>{String(index + 1).padStart(2, '0')}</span>
+              <div>
+                <h3 className={styles.featureTitle}>{feature.title}</h3>
+                <p className={styles.featureDescription}>{feature.description}</p>
+              </div>
+            </article>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -227,18 +338,17 @@ function FeaturesSection() {
 function CtaSection() {
   return (
     <section className={styles.ctaSection}>
-      <div className={styles.ctaGlow} />
-      <h2 className={styles.ctaTitle}>Ready for Liftoff?</h2>
-      <p className={styles.ctaDescription}>
-        Your first stop is Launchpad. Bring your curiosity—we’ll meet the airline,
-        unpack its first container, and build from there.
-      </p>
-      <div className={styles.ctaButtons}>
+      <StarField stars={ctaStars} />
+      <div className={styles.ctaHorizon} />
+      <div className={styles.ctaContent}>
+        <h2 className={styles.ctaTitle}>Ready for liftoff?</h2>
+        <p className={styles.ctaDescription}>
+          Your first stop is Launchpad. Bring your curiosity. We’ll meet the airline,
+          unpack its first container, and build from there.
+        </p>
         <Link className={styles.primaryButton} to="/docs">
-          <span>Launch Your Mission</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-          </svg>
+          <span>Launch your mission</span>
+          <span className={styles.buttonIcon}><ArrowIcon /></span>
         </Link>
       </div>
     </section>
@@ -250,13 +360,15 @@ export default function Home(): ReactNode {
     <Layout
       title="Your Kubernetes Learning Mission"
       description="Follow Apollo Airlines from Launchpad to orbit: learn Kubernetes through one application's story, with hands-on labs when you're ready.">
-      <HomepageHero />
-      <main>
-        <StagesSection />
-        <ToolsSection />
-        <FeaturesSection />
-        <CtaSection />
-      </main>
+      <div className={styles.page}>
+        <HomepageHero />
+        <main>
+          <StagesSection />
+          <ToolsSection />
+          <FeaturesSection />
+          <CtaSection />
+        </main>
+      </div>
     </Layout>
   );
 }

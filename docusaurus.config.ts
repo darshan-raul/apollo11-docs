@@ -33,6 +33,15 @@ const config: Config = {
 
   themes: ['@docusaurus/theme-mermaid'],
 
+  // Geist is the homepage display face; the docs keep the Infima stack.
+  headTags: [
+    {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://fonts.googleapis.com'}},
+    {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'}},
+  ],
+  stylesheets: [
+    'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap',
+  ],
+
   presets: [
     [
       'classic',
