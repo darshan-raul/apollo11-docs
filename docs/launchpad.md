@@ -1,53 +1,149 @@
 ---
 title: "Launchpad — Container Foundations with Docker Compose"
-description: "Run Apollo Airlines on one machine, then prove what survives restarts, what each name resolves to, and how a dependency failure spreads."
+description: "Package Apollo Airlines into images and run all ten components on one machine with Docker Compose, and understand what Compose gives you and where it stops."
 sidebar_label: "Launchpad (Docker Compose)"
 ---
 
-# Build Launchpad: Apollo on Docker Compose
+# Launchpad: Apollo on Docker Compose
 
-:::info[Page type · lab]
-- Repo: `Apollo11` at commit `69113dcc80f77e32301d8ee7b9e73a67c923de96` ([setup](./labs/setup#prepare-the-verified-workspace)).
-- Read the [Launchpad chapters](./learn/containers/process-image-container) first.
-- All commands run from `Apollo11/stages/launchpad` unless stated.
+:::info[Page type · stage walkthrough]
+- Repo folder: [`stages/launchpad`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/launchpad) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from `stages/launchpad` unless stated.
+- Builds on: nothing. This is the start. You need Docker with Compose, `curl` and `jq`.
+- Concepts behind this stage: [Process, image, container](./learn/containers/process-image-container) · [Images and configuration](./learn/containers/images-and-configuration) · [Networks and clients](./learn/containers/networks-and-clients) · [State and dependencies](./learn/containers/state-and-dependencies)
 :::
 
-**Skill this lab builds:** given a symptom ("booking fails", "data vanished", "can't reach X"), say whether it is the process, the image, the network name, the storage, or a dependency.
+## Where we left off
 
-## Setup (once)
+Before Launchpad, an app like Apollo Airlines would be run by hand:
+
+- Install Go, Python, Node.js, PostgreSQL and Redis on your own machine, at the right versions.
+- Start six services in six terminals, in the right order.
+- Point them at each other with `localhost:<port>`, and export passwords in your shell.
+- It works on your machine. On the next person's machine, a different version or a missing variable breaks it.
+
+Launchpad packages each service into an **image** (a read-only bundle of the program and everything it needs) and describes the whole system in one file, so it starts the same way everywhere.
+
+## What changes in this stage
+
+| Concern | Before (by hand) | Launchpad | Why it's better |
+|---|---|---|---|
+| Installing runtimes | Go, Python, Node, Postgres, Redis on the host | **Dockerfile** per service; images carry their own runtime | Nothing to install but Docker; same image on every machine |
+| Starting the system | Ten processes, started one by one | **`docker compose up`** reads `docker-compose.yml` | One command, one file you can review |
+| Finding another service | `localhost:<port>` | **Service name** (`flight`, `booking-db`) on the `apollo-airlines` network | Names don't change when containers are recreated |
+| Config and secrets | Shell exports | **`environment:`** blocks, secrets from a git-ignored `.env` | Config sits next to the service it belongs to |
+| Start order | You remember it | **`depends_on: … condition: service_healthy`** | A service starts only after its dependencies report healthy |
+| "Is it working?" | Is the process up? | **`healthcheck`** on `/readyz` | Health means "can do its job", not only "is running" |
+| Crashes | You notice and restart | **`restart: always`** | The Docker daemon restarts a container that exits |
+| Database storage | Wherever local Postgres keeps it | **Named volumes** `*-db-data` | Data outlives the container |
+| Sandbox | Runs as you, can write anywhere | **Non-root `USER`, `read_only`, `cap_drop: ALL`, `no-new-privileges`** | Less for an attacker to use if a service is compromised |
+
+## What's in the folder
+
+| Path | What it is | New or replaces |
+|---|---|---|
+| `code/{identity,flight,booking,search,notification}/` | Five API services (identity is Python, the rest Go), each with a `Dockerfile` | Replaces running source code on the host |
+| `code/frontend/` | React UI, built with Vite and served by nginx | Replaces a local dev server |
+| `code/*/init.sql` | Schema and seed data for identity, flight and booking databases | Mounted into Postgres on first start |
+| `docker-compose.yml` | All ten workloads, their network, volumes and health checks | Replaces the start-up checklist in your head |
+| `.env.example` | Names of the three required secrets | Copied to `.env` (git-ignored) |
+| `scripts/verify.sh` | Automated check of health, hardening and a booking round trip | — |
+
+The ten workloads: six application services (`frontend`, `identity`, `flight`, `booking`, `search`, `notification`), three PostgreSQL databases (`identity-db`, `flight-db`, `booking-db`) and `redis`. Dozzle, a log viewer, sits in an optional `tools` profile and is not started by default.
+
+## Walkthrough
+
+### Step 1: Read one service end to end before starting anything
+
+The application shape:
+
+```text
+Browser :3000
+    │
+    ├── identity :8080 ───────────────► identity-db :5432
+    ├── flight :8081 ─────────────────► flight-db :5432
+    ├── search :8083 ─────────────────► flight :8081
+    └── booking :8082
+          ├── identity :8080
+          ├── flight :8081
+          ├── booking-db :5432
+          └── notification :8084 ─────► redis :6379
+```
+
+Booking has the most dependencies, so follow it. First its image, [`code/booking/Dockerfile`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/launchpad/code/booking/Dockerfile):
+
+```dockerfile
+FROM golang:1.22-alpine AS builder      # stage 1: has the Go compiler
+WORKDIR /app
+COPY go.mod go.sum ./                   # dependency list first...
+RUN go mod download                     # ...so this layer is cached until go.mod changes
+COPY . .                                # then the source code
+RUN CGO_ENABLED=0 GOOS=linux go build -o /booking-service
+
+FROM alpine:3.19                        # stage 2: small runtime, no compiler
+RUN apk --no-cache add ca-certificates \
+    && addgroup -S apollo \
+    && adduser -S -G apollo apollo      # an unprivileged user
+WORKDIR /app
+COPY --from=builder --chown=apollo:apollo /booking-service /app/booking-service
+EXPOSE 8082
+USER apollo                             # the process does not run as root
+CMD ["/app/booking-service"]
+```
+
+Then how it runs, in [`docker-compose.yml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/launchpad/docker-compose.yml):
+
+```yaml
+# docker-compose.yml → booking (trimmed)
+booking:
+  build: {context: ./code/booking}      # build the image above
+  restart: always                       # restart the container if it exits
+  ports: ["8082:8082"]                  # host port : container port
+  environment:
+    DATABASE_URL: postgresql://${POSTGRES_USER:?…}:${POSTGRES_PASSWORD:?…}@booking-db:5432/booking
+    FLIGHT_SERVICE_URL: http://flight:8081          # a service name, not localhost
+    IDENTITY_SERVICE_URL: http://identity:8080
+    NOTIFICATION_SERVICE_URL: http://notification:8084
+    JWT_SECRET: ${JWT_SECRET:?…}        # filled in from .env
+  read_only: true                       # root filesystem cannot be written
+  tmpfs: [/tmp]                         # except a small in-memory /tmp
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]                       # no Linux capabilities
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8082/readyz"]
+  depends_on:
+    booking-db:   {condition: service_healthy}
+    flight:       {condition: service_healthy}
+    identity:     {condition: service_healthy}
+    notification: {condition: service_healthy}
+  networks: [apollo-airlines]
+```
+
+- **What it is:** a recipe for the image (Dockerfile) and a description of one running copy of it (the Compose service).
+- **Image vs container:** the image is the built file system and start command. A container is one running copy of it. Rebuilding the image does not touch a running container; `docker compose up -d booking` recreates it from the new image.
+- **Why two build stages:** the compiler is needed to build, not to run. The final image holds only the binary and a small Alpine base.
+- **Why `go.mod` is copied first:** Docker caches each step. If only source code changes, `go mod download` is reused and the build is fast.
+- **Why service names:** `http://flight:8081` works because Docker runs a DNS server for containers on the same network. Every Kubernetes stage keeps this exact URL, only the thing behind the name changes.
+- **Why `${VAR:?…}`:** Compose refuses to start if the variable is missing (the `…` is the message `Copy .env.example to .env`), instead of starting with an empty password.
+- The [Images and configuration](./learn/containers/images-and-configuration) chapter covers layers, build args and runtime config in depth.
+
+### Step 2: Create the secrets file and start everything
 
 ```bash
 cd stages/launchpad
-cp .env.example .env
-docker compose up --build -d
+cp .env.example .env          # then change the example values
+docker compose up --build --wait -d
 docker compose ps
 ```
 
-- Expect 10 containers `Up (healthy)`: `frontend identity identity-db flight flight-db booking booking-db search notification redis`.
-- Dozzle (log viewer) is in the optional `tools` profile and is not started.
-- Published ports: `3000` frontend, `8080` identity, `8081` flight, `8082` booking, `8083` search, `8084` notification.
-- `variable not set` error → you skipped `cp .env.example .env`.
+- **What happens:** Compose builds six images, creates the `apollo-airlines` network and three named volumes, then starts containers in `depends_on` order. `--wait` returns once all are healthy. The first build can take several minutes.
+- **What you see:** ten containers `Up (healthy)`.
+- **Why `.env`:** `POSTGRES_USER`, `POSTGRES_PASSWORD` and `JWT_SECRET` stay out of Git. Use URL-safe characters in the password, because it is embedded in `DATABASE_URL`.
+- **If you see `variable not set`:** `.env` is missing.
+- **Ports on your host:** `3000` frontend, `8080` identity, `8081` flight, `8082` booking, `8083` search, `8084` notification.
 
-## What to read before Exercise 1
+### Step 3: See the difference between alive and ready
 
-| File | What to look for |
-|---|---|
-| `code/booking/Dockerfile` | Two stages (build, then runtime). `go.mod` copied **before** source so dependency layers cache. `USER apollo`. |
-| `docker-compose.yml` → `booking` | `ports`, `environment` (service URLs by **name**), `read_only` + `tmpfs`, `cap_drop: ALL`, `healthcheck` on `/readyz`, `depends_on … service_healthy` (start order only). |
-| `docker-compose.yml` → `frontend` | `VITE_*_URL` build args are `http://localhost:808x`: baked into JS for the **browser**. |
-| `code/*/main.*` | Every service exposes `/healthz` (process alive) and `/readyz` (can do its job), plus `/metrics`. |
-
----
-
-## Exercise 1: Prove each service is alive *and* ready
-
-**Concepts:** [State and dependencies](./learn/containers/state-and-dependencies) · [Pod lifecycle](./learn/cluster/pod-lifecycle)
-
-**Goal:** replace "docker says healthy" with direct evidence for all six APIs.
-**Time:** ~5 min
-
-1. **Predict:** which of `/healthz` and `/readyz` checks dependencies?
-2. **Do:**
+Every service exposes `/healthz`, `/readyz` and `/metrics`:
 
 ```bash
 for p in 8080 8081 8082 8083 8084; do
@@ -55,42 +151,23 @@ for p in 8080 8081 8082 8083 8084; do
     "$(curl -s -o /dev/null -w '%{http_code}' localhost:$p/healthz)" \
     "$(curl -s -o /dev/null -w '%{http_code}' localhost:$p/readyz)"
 done
-curl -s -o /dev/null -w 'frontend=%{http_code}\n' localhost:3000/
+curl -s localhost:8081/metrics | head
 ```
 
-3. **Check:** every line shows `200` for both. Frontend `200`.
-4. **Why:**
-   - `/healthz` only says the web server answers.
-   - `/readyz` also pings what the service needs. You will see the difference in Exercise 5.
-5. **Your turn:** find which image a running container was built from, and prove that a rebuild does not touch a running container.
+- **`/healthz`:** the web server answers. It says the process is alive.
+- **`/readyz`:** the service can do its job. It also checks what the service needs: flight checks its database; booking checks its database plus identity, flight and notification.
+- **Why two endpoints:** a process can be alive but useless, for example when its database is down. Step 7 shows this.
+- **`/metrics`:** Prometheus text format, deliberately minimal until Stage 6.
+- **Compared with by hand:** Compose's `healthcheck` runs `/readyz` on a timer and shows the result in `docker compose ps`. Kubernetes turns the same two endpoints into probes later.
 
-   - Hints: `docker compose ps -q booking`, `docker inspect -f '{{.Image}}' <id>`, `docker compose build booking`, `docker compose images booking`.
-   - Then add a comment line to `code/booking/main.go`, rebuild, and note which Dockerfile steps print `CACHED`. Revert with `git checkout -- code/booking/main.go`.
-
-<details>
-<summary>Answer</summary>
-
-After the rebuild, `docker compose images booking` shows a new image ID, but `docker inspect -f '{{.Image}}'` on the running container still shows the **old** ID until `docker compose up -d booking` recreates it. The `go mod download` step is `CACHED` because `go.mod` did not change; only the `COPY . .` and later steps rerun.
-</details>
-
----
-
-## Exercise 2: Make one booking and follow it through the logs
-
-**Concepts:** [Networks and clients](./learn/containers/networks-and-clients)
-
-**Goal:** trace a single request across four services by its request ID.
-**Time:** ~10 min
-
-1. **Predict:** which services will log your request ID? Which will not?
-2. **Do:**
+### Step 4: Make one booking and follow it through the logs
 
 ```bash
 TOKEN=$(curl -s -X POST localhost:8080/api/users/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' | jq -r .token)
 
-RID=lab-$RANDOM
+RID=launchpad-$RANDOM
 curl -s -X POST localhost:8082/api/bookings \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -H "X-Request-ID: $RID" \
@@ -99,341 +176,185 @@ sleep 1
 docker compose logs booking identity flight notification | grep "$RID"
 ```
 
-3. **Check:**
-   - Response has `"status": "CONFIRMED"` and a `bookingReference` like `AA-2026-XXXXXX`.
-   - The `grep` prints lines from `booking`, `identity`, `flight` and `notification` carrying the same ID.
-4. **Why:**
-   - Booking forwards `X-Request-ID` to every service it calls. This is a hand-rolled trace; Stage 6 replaces it with real tracing.
-   - Order of calls: identity (who is this?) → flight (exists? seats) → booking-db insert → notification (async).
-5. **Cancel it (clean state):**
+- **What you see:** a booking with `"status": "CONFIRMED"` and a `bookingReference` like `AA-2026-XXXXXX`, and log lines from four services carrying the same request ID.
+- **What happens, in order:** booking checks its own auth, then asks identity who you are, asks flight whether the flight exists, writes the row to `booking-db`, and tells notification (asynchronously, after the row is written).
+- **Why the request ID:** booking forwards `X-Request-ID` to every service it calls. It is a hand-made trace. Stage 6 replaces it with real tracing.
+- **The UI does the same:** open `http://localhost:3000`, log in with the same account. The browser calls the same APIs.
+
+Cancel the booking to keep the data clean:
 
 ```bash
 curl -s -X DELETE localhost:8082/api/bookings/$(jq -r .id /tmp/booking.json) -H "Authorization: Bearer $TOKEN" | jq .
 ```
 
-6. **Your turn:** book the same flight with a **bad** flight ID (`...-bbbb`), and with **no** token. Which service rejects each, and with what status code? Prove it from the logs, not from the response alone.
-
-<details>
-<summary>Answer</summary>
-
-Bad flight: booking asks flight, which answers 404; booking returns 404 `Flight not found`. No token: booking's own auth middleware returns 401 before calling any other service, so identity/flight logs have no entry for that request ID.
-</details>
-
----
-
-## Exercise 3: Resolve the same name from three places
-
-**Concepts:** [Networks and clients](./learn/containers/networks-and-clients)
-
-**Goal:** show that `localhost` and service names mean different things to the host, the browser and a container.
-**Time:** ~8 min
-
-1. **Predict:** fill in the table with `ok` or `fail` before running anything.
-
-| From | `localhost:8081` | `flight:8081` |
-|---|---|---|
-| Your host shell | ? | ? |
-| Inside `booking` | ? | ? |
-
-2. **Do:**
+### Step 5: See what a name means from each place
 
 ```bash
-curl -s -o /dev/null -w 'host  -> localhost:8081 %{http_code}\n' localhost:8081/healthz
-curl -s -o /dev/null -w 'host  -> flight:8081    %{http_code}\n' flight:8081/healthz || echo "host  -> flight:8081    cannot resolve"
-docker compose exec booking wget -qO- http://localhost:8081/healthz || echo "booking -> localhost:8081 refused"
-docker compose exec booking wget -qO- http://flight:8081/healthz
-docker compose exec booking getent hosts flight booking-db
-```
-
-3. **Check:** host→`localhost` ok, host→`flight` fails; booking→`localhost` fails, booking→`flight` ok with `{"status":"ok"}`; `getent` prints private IPs (`172.x`).
-4. **What does the browser use?**
-
-```bash
+curl -s localhost:8081/healthz                                   # host: works
+curl -s flight:8081/healthz || echo "host cannot resolve flight" # host: no Docker DNS
+docker compose exec booking wget -qO- http://flight:8081/healthz # container: works
+docker compose exec booking wget -qO- http://localhost:8081/healthz || echo "refused"
+docker compose exec booking getent hosts flight booking-db       # private 172.x IPs
 docker compose exec frontend sh -c "grep -rhoE 'http://localhost:808[0-9]' /usr/share/nginx/html | sort -u"
 ```
 
-   - The built JS contains `http://localhost:8080`…`8083`. The browser runs on your laptop, so it uses published ports, not Docker DNS.
-5. **Why:**
-   - Inside a container `localhost` is the container itself.
-   - Docker's embedded DNS (`127.0.0.11`) resolves service names, only for containers on `apollo-airlines`.
-   - `VITE_*` values are compiled into public JS: never put secrets there.
-6. **Your turn:** from inside `search`, call booking's `/readyz` by service name. From your host, call it by published port. Write down both URLs and say which port number is the container's own.
-
-<details>
-<summary>Answer</summary>
-
-```bash
-docker compose exec search wget -qO- http://booking:8082/readyz
-curl -s localhost:8082/readyz
-```
-Both end in `8082` here because the mapping is `8082:8082`. The left number is the host port, the right number is the container's. They are independent, and Kubernetes Services add a third number (`port` vs `targetPort`).
-</details>
-
----
-
-## Exercise 4: Which bytes survive which operation?
-
-**Concepts:** [State and dependencies](./learn/containers/state-and-dependencies) · [Process, image, container](./learn/containers/process-image-container)
-
-**Goal:** build the survival table for a container's writable layer, a named volume, and a database row.
-**Time:** ~10 min
-
-1. **Predict:** after (A) `restart` and (B) remove-and-recreate, which of these still exist?
-
-| Data | A: restart | B: recreate |
+| From | `localhost:8081` | `flight:8081` |
 |---|---|---|
-| File in the container's own filesystem | ? | ? |
-| File in the named volume | ? | ? |
-| Row in the database | ? | ? |
+| Your host shell | works (published port) | fails (no Docker DNS on the host) |
+| Inside `booking` | fails (`localhost` is booking itself) | works (Docker DNS at `127.0.0.11`) |
+| The browser | works (it runs on your laptop) | fails |
 
-2. **Write the three markers:**
+- **Why the frontend uses `localhost:808x`:** the `VITE_*_URL` build args are compiled into the JavaScript. That code runs in your browser, on your laptop, so it must use published ports. Never put secrets in `VITE_*` values; they are public.
+- **Two port numbers:** in `8082:8082`, the left number is the host port and the right one is the container's. They are independent. Kubernetes Services add a third (`port` vs `targetPort`).
+- More in [Networks and clients](./learn/containers/networks-and-clients).
+
+### Step 6: See which data survives a restart and a recreate
 
 ```bash
+# Write a file into the container's own filesystem, and one into the named volume
 docker compose exec identity-db sh -c 'echo layer > /opt/layer.txt; echo vol > /var/lib/postgresql/data/vol.txt'
-docker compose exec identity-db psql -U postgres -d identity -c \
-  "INSERT INTO users (email, password_hash, first_name) VALUES ('marker@apollo.local','x','Marker');"
-```
+docker compose exec identity-db sh -c 'psql -U "$POSTGRES_USER" -d identity -tc "SELECT count(*) FROM users;"'
 
-3. **Test A (restart, same container):**
-
-```bash
-docker compose restart identity-db
-until docker compose exec -T identity-db pg_isready -U postgres -d identity >/dev/null; do sleep 1; done
-docker compose exec identity-db sh -c 'ls /opt/layer.txt /var/lib/postgresql/data/vol.txt'
-```
-
-4. **Test B (new container, same volume):**
-
-```bash
+# Remove the container entirely and create a new one
 docker compose rm -sf identity-db
-docker compose up -d identity-db
-until docker compose exec -T identity-db pg_isready -U postgres -d identity >/dev/null; do sleep 1; done
+docker compose up -d --wait identity-db
 docker compose exec identity-db sh -c 'ls /opt/layer.txt; ls /var/lib/postgresql/data/vol.txt'
-docker compose exec identity-db psql -U postgres -d identity -tc "SELECT email FROM users WHERE email='marker@apollo.local';"
+docker compose exec identity-db sh -c 'psql -U "$POSTGRES_USER" -d identity -tc "SELECT count(*) FROM users;"'
+docker compose exec identity-db rm -f /var/lib/postgresql/data/vol.txt   # tidy up
 ```
 
-5. **Check:**
-
-| Data | A: restart | B: recreate |
+| Data | `docker compose restart` (same container) | Remove and recreate (new container) |
 |---|---|---|
-| Container filesystem file | survives | **gone** (`No such file`) |
-| Volume file | survives | survives |
-| Database row | survives | survives |
+| File in the container's filesystem | survives | **gone** |
+| File in the named volume | survives | survives |
+| Database rows (in the volume) | survive | survive |
+| `/tmp` on `booking` (`tmpfs`) | gone | gone |
 
-6. **Clean up:**
-
-```bash
-docker compose exec identity-db psql -U postgres -d identity -c "DELETE FROM users WHERE email='marker@apollo.local';"
-docker compose exec identity-db rm -f /var/lib/postgresql/data/vol.txt
-```
-
-7. **Why:**
-   - A container's writable layer lives and dies with that **container**. A named volume belongs to Docker and outlives it.
-   - This is the exact table Stage 1 (`emptyDir`) and Stage 3 (PVC) reproduce for Pods.
+- **Why:** a container's writable layer belongs to that container. A named volume belongs to Docker and outlives any container that uses it.
+- **Why `init.sql` didn't run again:** Postgres runs init scripts only when its data directory is empty. The volume was not empty.
+- **Where this comes back:** Stage 1 runs databases on `emptyDir` (lives with the Pod, like the writable layer here). Stage 3 brings back volume-like behaviour with PersistentVolumeClaims.
 
 :::danger[Never during the course]
 `docker compose down -v` deletes the named volumes and every database row in them. Plain `docker compose down` keeps them.
 :::
 
-8. **Your turn:** `booking` has `read_only: true` and `tmpfs: [/tmp]`. Predict whether a file in `/tmp` survives (A) and (B), then test it.
-
-<details>
-<summary>Answer</summary>
-
-`tmpfs` is memory-backed and belongs to the container: a restart clears it, a recreate clears it. A read-only root filesystem rejects writes anywhere else (`touch /app/x` → `Read-only file system`).
-</details>
-
----
-
-## Exercise 5: Break a dependency and trace how readiness spreads
-
-**Concepts:** [State and dependencies](./learn/containers/state-and-dependencies)
-
-**Goal:** inject three different faults, predict which `/readyz` endpoints go red, and show that a red `/readyz` does not always mean a failed booking.
-**Time:** ~15 min
-
-1. **Predict** (write a ✓/✗ for each cell): after each fault, which `/readyz` return 503, and does `POST /api/bookings` still succeed?
-
-| Fault | flight | search | notification | booking | Booking request works? |
-|---|---|---|---|---|---|
-| A: stop `flight-db` | ? | ? | ? | ? | ? |
-| B: stop `redis` | ? | ? | ? | ? | ? |
-| C: stop `notification` | ? | ? | n/a | ? | ? |
-
-2. **Use this helper for every fault:**
+### Step 7: See how a dependency failure spreads
 
 ```bash
 ready() { for p in 8081 8083 8084 8082; do printf '%s=%s ' $p "$(curl -s -o /dev/null -w '%{http_code}' localhost:$p/readyz)"; done; echo; }
-book() { curl -s -o /dev/null -w 'POST /api/bookings -> %{http_code}\n' -X POST localhost:8082/api/bookings \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"flightId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}'; }
-ready; book
-```
-
-   - Baseline: all `200`, booking `201`. (Re-export `TOKEN` from Exercise 2 if your shell is new. Cancel any booking you create the same way as in Exercise 2.)
-
-3. **Fault A: database of a dependency**
-
-```bash
 docker compose stop flight-db
-sleep 3; ready; book
-curl -s localhost:8082/readyz        # read the detail
-docker compose ps booking flight     # compose health column
+sleep 3; ready
+curl -s localhost:8081/healthz      # still 200
+curl -s localhost:8082/readyz       # the reason booking is unready
+docker compose ps booking flight
 docker compose start flight-db
 ```
 
-   - Expect: `flight` 503, `search` 503, `booking` 503, `notification` 200. Booking POST → `502`, body `Flight service unavailable`.
-   - `/healthz` on `flight` is still `200`: the process is fine, the dependency is not.
-   - Compose may show `booking` as `unhealthy` but **does nothing about it**; `restart: always` only reacts to exit.
+What you see, and what the same outage does for other dependencies:
 
-4. **Fault B: a dependency of a dependency**
+| Stopped | flight `/readyz` | search | notification | booking | `POST /api/bookings` |
+|---|---|---|---|---|---|
+| `flight-db` | 503 | 503 | 200 | 503 | `502 Flight service unavailable` |
+| `redis` | 200 | 200 | 503 | 503 | still `201` |
+| `notification` | 200 | 200 | — | 503 | still `201` |
 
-```bash
-docker compose stop redis
-sleep 3; ready; book
-curl -s localhost:8084/readyz
-docker compose start redis
-```
+- **What it means:** `/readyz` reports the declared dependency graph, not whether one particular request would work. Booking calls notification after the booking is saved, so a Redis outage marks booking unready even though bookings still succeed.
+- **Why this matters later:** Kubernetes uses `/readyz` to decide which Pods get traffic (Stage 1), and Stage 4 adds liveness and startup probes on top. Which dependencies belong in `/readyz` is a design choice with consequences.
+- **What Compose does about it:** `docker compose ps` shows `unhealthy`, and nothing else happens. `restart: always` only reacts to a container that *exits*.
 
-   - Expect: `notification` 503 (it pings Redis), and `booking` 503 because booking's `/readyz` calls notification's. `flight` and `search` stay 200.
-   - Booking POST still returns `201`: notification is called asynchronously, after the booking row is written.
-
-5. **Fault C: the optional dependency**
+Wait for recovery before moving on:
 
 ```bash
-docker compose stop notification
-sleep 3; ready; book
-docker compose start notification
+until [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:8082/readyz)" = 200 ]; do sleep 2; done; ready
 ```
 
-   - Expect: `booking` 503, but POST `201`.
-
-6. **Recover and prove:**
-
-```bash
-until [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:8082/readyz)" = 200 ]; do sleep 2; done
-ready; book
-```
-
-   - All `200`, booking `201`. (Cancel bookings you made.)
-
-7. **Why:**
-   - `/readyz` reports the **declared dependency graph**, not whether this one request would work. A red `/readyz` and a failing request are different facts.
-   - Kubernetes will use `/readyz` to decide where traffic goes (Stage 1, Stage 4). Choosing which dependencies belong in it is a design decision with consequences: here a Redis outage makes booking "unready" though bookings still succeed.
-
-8. **Your turn:** look at `booking`'s `/readyz` handler (`code/booking/main.go`, ~line 190). Which one-line change would stop a notification outage from marking booking unready? What would you lose?
-
-<details>
-<summary>Answer</summary>
-
-Remove the `notification` entry from the `dependencies` slice. Booking then reports ready during notification outages and passengers can book, but nobody notices confirmation emails are not being processed unless notification has its own alert.
-</details>
-
----
-
-## Exercise 6: Kill a container vs remove it
-
-**Concepts:** [Process, image, container](./learn/containers/process-image-container)
-
-**Goal:** show what Compose's `restart: always` does and does not do, the gap Kubernetes controllers fill.
-**Time:** ~6 min
-
-1. **Predict:** (A) you `kill` the booking container. (B) you `rm -f` it. Which one comes back by itself?
-2. **A: kill the process**
+### Step 8: See what `restart: always` does and does not do
 
 ```bash
 ID=$(docker compose ps -q booking)
-docker kill "$ID"
-sleep 5
-docker compose ps booking
-docker inspect -f 'restarts={{.RestartCount}} started={{.State.StartedAt}}' "$ID"
+docker kill "$ID"; sleep 5
+docker inspect -f 'restarts={{.RestartCount}} running={{.State.Running}}' "$ID"   # same ID, back up
+
+docker rm -f "$ID"; sleep 5
+docker compose ps booking            # empty: it stays gone
+docker compose up -d --wait booking  # a person has to bring it back
 ```
 
-   - Same container ID, `RestartCount` is 1 or more, `Up`. The Docker daemon applied the restart policy.
-3. **B: remove the container**
+- **Killed process:** same container ID, `RestartCount` goes up. The Docker daemon applied the restart policy.
+- **Removed container:** nothing watches for a *missing* container. It stays missing until someone runs `up`.
+- **An intended stop is respected too:** `docker compose stop` is not treated as a crash.
+- **Why this matters:** this is the gap orchestration fills. In Ignition the kubelet plays the daemon's role for one Pod. In Stage 1 a controller plays *your* role and replaces what is missing.
+
+### Step 9: See the sandbox settings hold
 
 ```bash
-docker rm -f "$ID"
-sleep 5
-docker compose ps booking     # empty
-curl -s -o /dev/null -w 'booking readyz=%{http_code}\n' localhost:8082/readyz || echo "booking: connection refused"
-```
-
-   - It stays gone.
-4. **Recover and prove:**
-
-```bash
-docker compose up -d booking
-until [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:8082/readyz)" = 200 ]; do sleep 2; done; echo booking ready
-```
-
-5. **Why:**
-   - Restart policy restarts a **container that exited**. Nothing watches for a **missing** container; a person must run `up` again.
-   - Replace "Docker daemon" with "kubelet" and you have Ignition's bare-Pod result. Replace "you" with "ReplicaSet controller" and you have Stage 1.
-6. **Your turn:** run `docker compose stop identity`, then `docker compose ps`. Does `restart: always` start it again? What does that tell you about an *intended* stop vs a crash?
-
-<details>
-<summary>Answer</summary>
-
-It stays stopped. The daemon distinguishes an explicit stop from an unexpected exit. Start it with `docker compose start identity`.
-</details>
-
----
-
-## Exercise 7: Probe the sandbox
-
-**Concepts:** [Process, image, container](./learn/containers/process-image-container) · [Images and configuration](./learn/containers/images-and-configuration)
-
-**Goal:** verify the hardening settings in the Compose file actually hold.
-**Time:** ~4 min
-
-```bash
-docker compose exec booking id
-docker compose exec booking touch /app/x            ; echo "exit=$?"
+docker compose exec booking id                                    # uid of apollo, not root
+docker compose exec booking touch /app/x                          # Read-only file system
 docker compose exec booking touch /tmp/x && echo "/tmp writable"
-docker inspect -f 'readonly={{.HostConfig.ReadonlyRootfs}} caps_dropped={{.HostConfig.CapDrop}} secopt={{.HostConfig.SecurityOpt}}' $(docker compose ps -q booking)
+docker inspect -f 'readonly={{.HostConfig.ReadonlyRootfs}} caps={{.HostConfig.CapDrop}} secopt={{.HostConfig.SecurityOpt}}' \
+  $(docker compose ps -q booking)
 ```
 
-- Expect: user `apollo` (not root), `Read-only file system` on `/app`, `/tmp` writable, `readonly=true caps_dropped=[ALL] secopt=[no-new-privileges:true]`.
-- Each setting removes something an attacker would use. None of them is a guarantee against container escape.
-- **Your turn:** the same `id` against `identity-db`. Why is that container allowed to run as root?
+- **What you see:** user `apollo`, writes to `/app` rejected, `/tmp` writable, `readonly=true caps=[ALL] secopt=[no-new-privileges:true]`.
+- **Why:** each setting removes something an attacker could use. None is a guarantee against escape.
+- **Why `identity-db` runs as root:** the official `postgres` image starts as root to prepare its data directory, then drops to the `postgres` user. Database containers are not hardened in this stage.
+- **Why Dozzle is optional:** it mounts the Docker socket. Access to that socket is close to root on the host, even when the mount is read-only.
+- **Where this comes back:** Kubernetes expresses the same controls as `securityContext`. Stage 8 makes them explicit and enforced.
 
-<details>
-<summary>Answer</summary>
+## When something looks wrong
 
-The official `postgres` image starts as root to prepare its data directory, then drops to the `postgres` user. This stage does not harden database containers; Stage 8 revisits that in Kubernetes.
-</details>
-
----
-
-## Why Compose is not enough
-
-| Need | Compose | Kubernetes (next stages) |
+| You see | Likely cause | First command |
 |---|---|---|
-| Many machines | One host | Scheduler picks nodes |
-| Missing container | Stays missing (Exercise 6) | Controller recreates it |
-| Rolling update | Stop old, start new | Surge Pods + readiness gate |
-| Storage | Host volumes | PVCs and StatefulSets |
-| Routing | Port publishing | Services, Gateway API |
+| `variable not set` on `up` | No `.env` file | `cp .env.example .env` |
+| Container `unhealthy`, process running | A dependency is down; `/readyz` fails | `curl -s localhost:<port>/readyz` |
+| Container keeps restarting | App exits on start (bad URL, DB unreachable) | `docker compose logs --tail=80 <service>` |
+| Database password rejected after editing `.env` | Postgres kept the old credentials in its volume | `docker compose down --volumes`, then `up` (deletes data) |
+| `Connection refused` from inside a container to `localhost` | `localhost` is that container | Use the service name: `http://flight:8081` |
+| Port already allocated | Something else on the host uses 3000 or 808x | `docker compose ps --all`, then stop the other process |
 
-## You can now
+The [troubleshooting page](./troubleshooting) has more.
 
-- [ ] Say what survives restart vs recreate for filesystem, volume and DB data.
-- [ ] Explain why `localhost` differs for host, browser and container.
-- [ ] Predict how a dependency outage spreads through `/readyz`.
-- [ ] Say who restarts a crashed container and who does **not** replace a missing one.
+## What this stage does not solve yet
 
-## Checkpoint
+| Limitation you can see now | Why it hurts | Fixed in |
+|---|---|---|
+| Everything runs on one Docker host | That host is a single point of failure and a hard size limit | [Ignition](./ignition): a cluster of nodes |
+| A removed container stays removed | Recovery needs a person | [Stage 1](./stage-1): Deployments and ReplicaSets |
+| `unhealthy` changes nothing | Traffic still goes to a container that can't serve | [Stage 1](./stage-1) readiness, [Stage 4](./stage-4) probes |
+| Updates are stop old, start new | A short outage on every release | [Stage 1](./stage-1): rolling updates |
+| One published port per service; browser uses `localhost:808x` | No single front door, no hostnames, no TLS | [Stage 2](./stage-2): Ingress, Gateway API |
+| Volumes live on this host's disk | Data can't follow a workload to another machine | [Stage 3](./stage-3): PVCs and StatefulSets |
+| Secrets in a plain `.env` file | Anyone with the file has the password | [Stage 1](./stage-1) Secrets, Stage 8 (planned): Vault |
+| `/metrics` is collected by nobody | You find problems from logs, by hand | [Stage 6](./stage-6): observability |
 
-1. `flight-db` stops. Which `/healthz` fails? Which `/readyz`? What does a booking request return?
-2. Why can the browser not call `http://booking:8082`?
-3. What does `docker compose down` delete? What does `down -v` add?
-4. Which Compose feature restarted a killed container, and why did it not restart a removed one?
+## The journey so far
 
-Stop Launchpad before creating a cluster:
+| Concern | Before (by hand) | **Launchpad** |
+|---|---|---|
+| Runs on | Your machine, with every runtime installed | **One Docker host** |
+| Unit of deployment | A process | **Compose service** (image + container) |
+| Recovery | You restart it | **`restart:` on one host** |
+| Service discovery | `localhost:<port>` | **Docker DNS** |
+| External access | Whatever port the process opened | **`ports:`** |
+| Config / secrets | Shell exports | **`environment:` + `.env`** |
+| Data | Local database files | **Named volume** |
+
+## Clean up
 
 ```bash
-docker compose down
+./scripts/verify.sh          # optional: the full automated check
+docker compose down          # keeps the named volumes
 ```
 
-Next: [Ignition](./ignition).
+Stop Launchpad before creating the cluster: Ignition's kind nodes also run on Docker. Use `docker compose down --volumes` only when you want a fresh start; it deletes the database data.
+
+## You should now be able to explain
+
+- Why booking calls `http://flight:8081` and the browser calls `http://localhost:8081`.
+- What an image is, what a container is, and why rebuilding an image doesn't change a running container.
+- Why `/healthz` can pass while `/readyz` fails, and why a Redis outage marks booking unready.
+- Which data survives a restart, a recreate, `down`, and `down -v`.
+- What `restart: always` reacts to, and what it ignores.
+- Which Compose features turn into Deployments, Services, ConfigMaps, Secrets, probes and PVCs.
+
+**Next:** [Ignition](./ignition) builds a three-node Kubernetes cluster and runs the first Pod.
