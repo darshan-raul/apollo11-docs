@@ -1,436 +1,267 @@
 ---
 title: "Stage 1 — Liftoff: Workloads on Kubernetes"
-description: "Deploy the ten Apollo workloads and learn to diagnose the failures controllers, Services, config and rollouts produce."
+description: "Move all ten Apollo components onto Kubernetes with Deployments, Services, ConfigMaps, Secrets, ServiceAccounts and Jobs, and understand why each replaces something from Launchpad and Ignition."
 sidebar_label: "Stage 1: Liftoff (Workloads)"
 ---
 
-# Build Stage 1: Liftoff
+# Stage 1: Liftoff
 
-:::info[Page type · lab]
-- Repo: `Apollo11` at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run from the repo root.
-- Needs: the `kind-apollo11` cluster from [Ignition](./ignition). Namespace: `apollo-airlines`.
-- Read the [Liftoff chapters](./learn/workloads/ownership-and-replicas) first.
+:::info[Page type · stage walkthrough]
+- Repo folder: [`stages/stage1`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Builds on: the `kind-apollo11` cluster from [Ignition](./ignition). Namespace: `apollo-airlines`.
+- Concepts behind this stage: [Ownership and replicas](./learn/workloads/ownership-and-replicas) · [Services and readiness](./learn/workloads/services-and-readiness) · [Configuration and identity](./learn/workloads/configuration-and-identity) · [Jobs and initialization](./learn/workloads/jobs-and-initialization) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback) · [Ephemeral state](./learn/workloads/ephemeral-state)
 :::
 
-**Skill this lab builds:** given a broken workload, decide in one command whether the fault is the **controller** (wrong count), the **selector** (no endpoints), the **config** (Pod runs but is not Ready) or the **image** (Pod never starts).
+## Where we left off
 
-## Architecture in one view
+- **Launchpad** ran all ten components with Docker Compose on one machine. Compose gave us names (`booking-db`), environment variables and restart policies, but only on that one host.
+- **Ignition** built a three-node cluster and ran **one bare Pod**. When we deleted it, it stayed deleted: nothing in the cluster wanted it back.
+- So two gaps remain before Apollo can live on Kubernetes:
+  - **Nothing keeps Pods alive.** A bare Pod is a one-off. Lose it and the airline loses that service.
+  - **Nothing gives Pods a stable address.** Every replacement Pod gets a new IP. Booking cannot hard-code where flight lives.
 
-| Object | Apollo example | Job |
+Stage 1 closes both gaps, and moves the rest of what Compose did (config, secrets, start-up order) into Kubernetes objects.
+
+## What changes in this stage
+
+| Concern | Before (Launchpad / Ignition) | Stage 1 | Why it's better |
+|---|---|---|---|
+| Keeping a service running | Compose `restart:` on one host; bare Pod in Ignition | **Deployment → ReplicaSet → Pods** (2 replicas per app) | A controller compares *desired* vs *actual* and replaces lost Pods on any node |
+| Finding another service | Compose service name on a Docker network | **Service** (`booking`, `flight`, …) with a label selector | One stable name and virtual IP in front of changing Pod IPs |
+| Reaching the app from your laptop | Compose `ports:` | **NodePort** Services (30080–30084) | Works through kind's port mappings; good enough until Stage 2 |
+| Configuration | `environment:` in `docker-compose.yml` | **ConfigMap** `apollo-airlines-config` | Config lives outside the image and outside the Pod template; change it once for all apps |
+| Passwords and JWT key | Plain env vars in Compose | **Secret** `apollo-airlines-secrets` | Separated from config so access can be controlled (still not encrypted: Stage 8) |
+| "Who is this Pod?" | Nothing | **13 ServiceAccounts**, token automount off | Each workload has its own identity, ready for RBAC later, with no API token it doesn't need |
+| Loading seed data | `init.sql` mounted into Postgres in Compose | **Jobs** `init-*-db` that run once to completion | A one-shot task with retries and a clear `Complete`/`Failed` result |
+| Database storage | Compose named volume (survived restarts) | **`emptyDir`** | Deliberately a step *backwards*: it shows what Pod-scoped storage means before Stage 3 fixes it |
+| Shipping a new version | Rebuild and `docker compose up` | **Rolling update** with history and `rollout undo` | Old Pods keep serving until new ones are ready; bad versions can be undone |
+
+## What's in the folder
+
+| Path | What it is | New or replaces |
 |---|---|---|
-| Deployment → ReplicaSet → Pods | `booking` ×2 | Keep N Pods; roll versions |
-| Service (NodePort here) | `booking` :8082 → node port 30082 | Stable name + ready endpoints |
-| ConfigMap `apollo-airlines-config` | `FLIGHT_SERVICE_URL=http://flight:8081` | Non-secret settings |
-| Secret `apollo-airlines-secrets` | `JWT_SECRET`, `POSTGRES_PASSWORD` | Credentials |
-| ServiceAccount ×13 | `booking`, `init-booking-db` … | Pod identity (`automountServiceAccountToken: false`) |
-| Job ×3 | `init-booking-db` | Run schema SQL once |
-| Deployment + `emptyDir` | `booking-db` | **Temporary** DB storage (fixed in Stage 3) |
+| `k8s/config/namespace.yaml` | The `apollo-airlines` Namespace | New: a boundary for names, quotas and later policy |
+| `k8s/config/configmap.yaml` | Ports, DB names, service URLs, Redis URL | Replaces Compose `environment:` |
+| `k8s/config/secrets.yaml` | `POSTGRES_PASSWORD`, `JWT_SECRET` | Replaces plain env vars |
+| `k8s/config/serviceaccounts.yaml` | One ServiceAccount per workload and Job | New |
+| `k8s/infra/<db>/` | Postgres ×3 and Redis: Deployment + Service each | Replaces Compose database services |
+| `k8s/jobs/` | SQL in ConfigMaps + one Job per database | Replaces Compose's init-script mount |
+| `k8s/apps/<service>/` | Six app Deployments + Services | Replaces Compose app services; replaces Ignition's `pod.yaml` |
+| `k8s/kustomization.yaml` | Lists every file above | A single list for rendering; Kustomize proper comes in Stage 5 |
+| `scripts/apply.sh` | Builds, loads and applies in dependency order | Replaces `docker compose up` |
+| `scripts/verify.sh`, `teardown.sh` | Full check, and clean removal | — |
 
-Two relationships to keep apart for the whole stage:
+## Walkthrough
 
-| Relationship | Field | Who uses it |
-|---|---|---|
-| **Ownership** | `metadata.ownerReferences` | Garbage collection; "who made this" |
-| **Selection** | `labels` ↔ `selector` | ReplicaSet counting; Service endpoints |
+### Step 1: Read one service end to end before applying anything
 
----
-
-## Exercise 1: Deploy and prove it works
-
-**Goal:** apply Stage 1, then show it works at every evidence rung.
-**Time:** ~10 min
-
-1. **Predict:** after `apply.sh` returns, which objects prove the app runs? (Hint: not `apply`.)
-2. **Do:**
-
-```bash
-kubectl config current-context        # kind-apollo11
-bash stages/stage1/scripts/apply.sh
-kubectl get deploy,job,svc -n apollo-airlines
-```
-
-   - `apply.sh` applies in dependency order: config → databases and Redis → wait → schema Jobs → six app Deployments → wait.
-   - Applying out of order gives `CreateContainerConfigError` (missing ConfigMap or Secret).
-3. **Check:**
-   - 10 Deployments available (`2/2` apps, `1/1` databases and Redis).
-   - 3 Jobs `Complete 1/1`.
-   - Services are `NodePort` on `30080`–`30084`.
-4. **Prove the passenger path (rung 5):**
-
-```bash
-TOKEN=$(curl -s -X POST localhost:30080/api/users/login -H 'Content-Type: application/json' \
-  -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' | jq -r .token)
-curl -s -X POST localhost:30082/api/bookings -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -d '{"flightId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}' | jq '{bookingReference,status}'
-```
-
-   - Expect `"status": "CONFIRMED"`. Keep `$TOKEN` for later exercises.
-5. **Maintainer check:** `bash stages/stage1/scripts/verify.sh` (167 checks, weakest to strongest evidence).
-6. **Your turn:** write `learner-work/stage1/booking-internal.yaml`, a **ClusterIP** Service named `booking-internal` on port 8082 that selects the booking Pods. Apply it, then prove it works from *inside* the cluster:
-
-```bash
-kubectl run curl --rm -it --restart=Never -n apollo-airlines --image=curlimages/curl -- \
-  curl -s http://booking-internal:8082/healthz
-```
-
-<details>
-<summary>Solution</summary>
+Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1/k8s/apps/booking/booking-dep.yaml) and [`booking-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1/k8s/apps/booking/booking-svc.yaml). The parts that matter:
 
 ```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: booking-internal
-  namespace: apollo-airlines
+# booking-dep.yaml (trimmed)
+kind: Deployment
 spec:
+  replicas: 2                 # desired state: always two booking Pods
   selector:
-    app: booking
-  ports:
-    - port: 8082
-      targetPort: 8082
-```
-Expect `{"status":"ok"}`. Delete it afterwards: `kubectl delete svc booking-internal -n apollo-airlines`.
-</details>
-
+    matchLabels: {app: booking}   # "the Pods I own carry this label"
+  template:                   # the Pod shape the ReplicaSet stamps out
+    metadata:
+      labels: {app: booking}  # must match the selector above
+    spec:
+      serviceAccountName: booking
+      containers:
+        - image: apollo11/booking:latest
+          ports: [{containerPort: 8082}]
+          env:
+            - name: FLIGHT_SERVICE_URL
+              valueFrom: {configMapKeyRef: {name: apollo-airlines-config, key: FLIGHT_SERVICE_URL}}
+            - name: JWT_SECRET
+              valueFrom: {secretKeyRef: {name: apollo-airlines-secrets, key: JWT_SECRET}}
+          readinessProbe: {httpGet: {path: /readyz, port: 8082}}
 ---
-
-## Exercise 2: Labels select, owners own: quarantine a Pod
-
-**Goal:** separate selection from ownership by pulling one Pod out of service while keeping it alive.
-**Time:** ~10 min
-
-1. **Predict:** you change the `app` label on one booking Pod. (a) Does the ReplicaSet create a replacement? (b) Does the old Pod die? (c) Does the Service still send it traffic?
-2. **Do:**
-
-```bash
-kubectl get rs -n apollo-airlines -l app=booking
-P=$(kubectl get pod -n apollo-airlines -l app=booking -o jsonpath='{.items[0].metadata.name}')
-kubectl get pod $P -n apollo-airlines -o jsonpath='{.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}{"\n"}'
-kubectl get endpoints booking -n apollo-airlines
-
-kubectl label pod $P -n apollo-airlines app=booking-quarantine --overwrite
-sleep 5
-kubectl get pods -n apollo-airlines -l 'app in (booking,booking-quarantine)' -L app
-kubectl get pod $P -n apollo-airlines -o jsonpath='ownerRefs={.metadata.ownerReferences}{"\n"}'
-kubectl get endpoints booking -n apollo-airlines
+# booking-svc.yaml
+kind: Service
+spec:
+  type: NodePort
+  selector: {app: booking}    # the same label again: this is the only link to the Pods
+  ports: [{port: 8082, targetPort: 8082, nodePort: 30082}]
 ```
 
-3. **Check:**
-   - First line: `ReplicaSet/booking-<hash>`. Endpoints list 2 addresses.
-   - After relabel: **3 Pods** (2 `booking`, 1 `booking-quarantine`). The quarantined Pod is still `Running`.
-   - Its `ownerReferences` is empty (the ReplicaSet released it). Endpoints still list exactly 2 addresses, none of them the quarantined Pod's IP.
-4. **Use it:** the Pod is out of rotation but alive, so you can inspect it without live traffic.
+- **What it is:** the Ignition Pod, wrapped in a template, plus a controller that wants two copies of it, plus a stable name in front.
+- **Why this way:** the label `app: booking` appears three times. The Deployment uses it to find its Pods. The Service uses it to find where to send traffic. Neither one has a list of Pod names, because Pod names change. Labels are how Kubernetes connects things that come and go.
+- **Compared with Ignition:** `pod.yaml` was a single, named Pod. Here nobody writes a Pod by hand. You write the *template*, and the controller produces Pods from it.
+- **Compared with Launchpad:** in Compose, `FLIGHT_SERVICE_URL=http://flight:8081` worked because of Docker's DNS. It still says `http://flight:8081`, but now `flight` is a Kubernetes Service name, resolved by cluster DNS. The app code did not change.
+- **Watch out:** Kubernetes does not check that these three labels agree. A typo is accepted and fails quietly. That is why the checks in "When something looks wrong" start with endpoints.
+
+### Step 2: Apply in dependency order
 
 ```bash
-kubectl exec -n apollo-airlines $P -- wget -qO- http://127.0.0.1:8082/healthz
-kubectl logs -n apollo-airlines $P --tail=3
+kubectl config current-context        # must be kind-apollo11
+bash stages/stage1/scripts/apply.sh   # add --skip-build to reuse loaded images
 ```
 
-5. **Clean up:** `kubectl delete pod $P -n apollo-airlines`.
-6. **Why:**
-   - The ReplicaSet counts Pods **matching its selector**. A relabelled Pod no longer matches, so it is released and a replacement is created.
-   - The Service builds endpoints from the **same labels**, not from ownership.
-   - This is a real operations technique: quarantine a misbehaving Pod for debugging while capacity is restored.
-7. **Your turn:** repeat steps 2–3 but **skip the clean-up**. Instead, relabel the quarantined Pod back to `app=booking`. Predict how many booking Pods exist 10 s later and which one is removed.
+[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1/scripts/apply.sh) runs six phases:
 
-<details>
-<summary>Answer</summary>
+1. Namespace, ConfigMap, Secret, ServiceAccounts.
+2. The three Postgres Deployments and Redis, with their Services.
+3. Wait for those to be ready.
+4. Run the three `init-*-db` Jobs and wait for `Complete`.
+5. The six application Deployments and Services.
+6. Wait for every rollout.
 
-The ReplicaSet re-adopts the matching Pod (`ownerReferences` set again). It now sees 3 matching Pods against `replicas: 2`, so it deletes one, usually the newest. Desired count always wins.
-</details>
+- **What happens:** the script builds six images, loads them straight into the kind nodes (no registry yet), then applies files in that order.
+- **Why the order matters:** Kubernetes itself does not do ordering. If you apply everything at once, booking starts before its database exists, fails readiness, and keeps retrying. It would get there eventually, but the Jobs could fail first. The script waits at each boundary so every step starts on solid ground.
+- **Compared with Launchpad:** Compose's `depends_on` did a weaker version of this. In Kubernetes, the cluster is expected to converge on its own, and scripts (later Helm hooks and Argo sync waves) add ordering only where it really matters.
+- **Why images are loaded, not pulled:** there is no image registry yet. `imagePullPolicy: IfNotPresent` tells the kubelet to use the image already on the node. Stage 5 and the CI chapter introduce a registry.
 
----
-
-## Exercise 3: Replace a Pod under live traffic
-
-**Goal:** show that the Pod's name, IP and UID change while the Service address does not, and measure the gap.
-**Time:** ~8 min
-
-1. **Predict:** you delete one of two booking Pods while requests flow. How many requests fail? What stays identical?
-2. **Record the "before":**
+### Step 3: See the ownership chain that keeps Pods alive
 
 ```bash
-kubectl get svc booking -n apollo-airlines -o jsonpath='clusterIP={.spec.clusterIP}{"\n"}'
-kubectl get pods -n apollo-airlines -l app=booking -o custom-columns=NAME:.metadata.name,UID:.metadata.uid,IP:.status.podIP
+kubectl get deploy,rs,pods -n apollo-airlines -l app=booking
+kubectl get rs -n apollo-airlines -l app=booking \
+  -o custom-columns='RS:.metadata.name,DESIRED:.spec.replicas,OWNER:.metadata.ownerReferences[0].name'
 ```
 
-3. **Run traffic and delete a Pod:**
+- **What you see:** one Deployment, one ReplicaSet with a hash suffix, and two Pods whose names start with that ReplicaSet's name.
+- **What it means:**
+  - The **Deployment** owns the ReplicaSet. It manages *versions*: each new Pod template gets a new ReplicaSet.
+  - The **ReplicaSet** owns the Pods. It manages *count*: it keeps exactly `replicas` Pods matching its selector.
+  - Each Pod carries an `ownerReference` pointing back up. Delete a Pod and its ReplicaSet notices the count is short and makes a new one, with a new name and a new UID.
+- **Compared with Ignition:** the bare Pod had no owner, so nothing noticed when it disappeared. Ownership is the difference.
+
+### Step 4: See how the Service finds Pods
 
 ```bash
-(for i in $(seq 1 60); do curl -s -m 1 -o /dev/null -w '%{http_code} ' localhost:30082/healthz; sleep 0.25; done; echo) &
-sleep 2
-kubectl delete pod -n apollo-airlines "$(kubectl get pod -n apollo-airlines -l app=booking -o jsonpath='{.items[0].metadata.name}')"
-wait
+kubectl get svc booking -n apollo-airlines
+kubectl get endpointslice -n apollo-airlines -l kubernetes.io/service-name=booking -o wide
+kubectl get pods -n apollo-airlines -l app=booking -o wide
 ```
 
-4. **Check:**
-   - The loop prints mostly `200`. A stray `000` right at deletion is possible. It is the routing race Stage 4 (`preStop`) removes.
-   - Re-run the "before" commands: one Pod has a new name, UID and IP. **The ClusterIP is unchanged.**
-   - `kubectl get pods -l app=booking` shows 2 Pods again within seconds (the new one is `0/1` until its readiness probe passes).
-5. **Why:**
-   - The ReplicaSet saw 1 < 2 and created a Pod. The scheduler placed it; the kubelet started it; readiness added it to the Service.
-   - Callers use the Service name, so Pod identity does not matter to them. Compare Ignition Exercise 6: same delete, no controller, no replacement.
-6. **Your turn:** scale to 4 and then back to 2 with `kubectl scale`. For each change, read `kubectl get endpoints booking` and list which Pods the ReplicaSet chooses to remove when scaling down. Why is a not-yet-ready Pod removed first?
+- **What you see:** the Service has one ClusterIP that never changes. The EndpointSlice lists the two Pod IPs, which match the Pod list.
+- **What it means:** the EndpointSlice controller keeps watching for Pods that match the selector **and are Ready**, and updates the list. kube-proxy on every node turns that list into forwarding rules. Callers only ever use the Service name.
+- **Why readiness is involved:** booking's `/readyz` checks its database and dependencies. A booking Pod that is running but can't reach its database is removed from the list, so it gets no traffic. A failing Pod stops receiving requests without anyone touching the Service.
+- **Why NodePort here:** `type: NodePort` also opens port 30082 on every node. kind maps that to `localhost:30082`, so you can reach booking from your laptop. It is a direct, crude door. Stage 2 replaces it with a proper entry point.
+- **Why `notification` has no NodePort:** only booking calls it. A service that nobody outside needs should not have a door to the outside.
 
-<details>
-<summary>Answer</summary>
-
-Scale-down ranks candidates: unscheduled, then not-ready, then newer. Removing a Pod that serves no traffic costs the least.
-</details>
-
----
-
-## Exercise 4: Break it: a Service with no endpoints
-
-**Goal:** diagnose the quietest failure in the stage, a selector that matches nothing.
-**Time:** ~8 min
-
-1. **Predict:** `kubectl apply` of a Service whose selector has a typo: does it error? Do Pods restart? What do callers see?
-2. **Inject:**
+### Step 5: See configuration and identity arrive in the Pod
 
 ```bash
-kubectl patch svc booking -n apollo-airlines -p '{"spec":{"selector":{"app":"boking"}}}'
+kubectl get deploy booking -n apollo-airlines \
+  -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}{" <- "}{.valueFrom.configMapKeyRef.name}{.valueFrom.secretKeyRef.name}{"\n"}{end}'
+kubectl get pod -n apollo-airlines -l app=booking -o jsonpath='{.items[0].spec.serviceAccountName}{"\n"}'
+kubectl auth can-i get pods --as=system:serviceaccount:apollo-airlines:booking -n apollo-airlines   # no
 ```
 
-3. **Symptom:**
+- **ConfigMap vs Secret:** both become environment variables in the container. The split is about *who may read them*: later stages can let people read the ConfigMap but not the Secret. A Secret is only base64-encoded, not encrypted. Stage 8 introduces an external secret store.
+- **Env vars are read at start-up:** if you change the ConfigMap, running Pods keep the old values until they restart. This is why config changes in later stages go with a rollout.
+- **ServiceAccounts:** each workload runs as its own identity (`booking`, `booking-db`, `init-booking-db`, …). None of them need to talk to the Kubernetes API, so `automountServiceAccountToken: false` keeps a usable token out of the container. Stage 8 grants real permissions with RBAC where they are needed.
+- **Compared with Launchpad:** Compose mixed config and secrets into one `environment:` block, and every container ran with the same (no) identity.
+
+### Step 6: See the Jobs that seeded the databases
 
 ```bash
-curl -m 3 -sS localhost:30082/healthz ; echo "exit=$?"
+kubectl get jobs -n apollo-airlines
+kubectl logs job/init-booking-db -n apollo-airlines
 ```
 
-   - The request fails (reset, empty reply or timeout). No `kubectl` command reported an error.
-4. **Diagnose.** Pods look healthy, so look at the Service's link to them (rungs 1 → 3):
+- **What a Job is:** a controller for work that should *finish*. A Deployment restarts a container that exits. A Job counts an exit code 0 as success and stops.
+- **How these Jobs work** ([`init-booking-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1/k8s/jobs/init-booking-db.yaml)):
+  - Wait for `pg_isready` on `booking-db`, up to 30 tries.
+  - Run `psql -v ON_ERROR_STOP=1 -f /init/init.sql`. The SQL is mounted from a ConfigMap.
+  - `backoffLimit: 3` with `restartPolicy: Never`: failed attempts leave Pods you can read logs from.
+- **Why `ON_ERROR_STOP`:** without it, a broken SQL file would still "succeed" and you would find out from empty tables later.
+
+### Step 7: Use the airline
+
+| Component | URL |
+|---|---|
+| Frontend | `http://localhost:30080` (log in as `passenger@apolloairlines.com` / `pass123`) |
+| Flight API | `http://localhost:30081/api/flights` |
+| Booking | `http://localhost:30082/readyz` |
+| Identity | `http://localhost:30083/metrics` |
+| Search | `http://localhost:30084/readyz` |
 
 ```bash
-kubectl get pods -n apollo-airlines -l app=booking          # 2/2 Ready: Pods are fine
-kubectl get endpoints booking -n apollo-airlines            # ENDPOINTS: <none>
-kubectl get svc booking -n apollo-airlines -o jsonpath='{.spec.selector}{"\n"}'
-kubectl get pods -n apollo-airlines -l app=boking           # No resources found
-kubectl get events -n apollo-airlines --sort-by=.lastTimestamp | tail -5   # nothing about it
+curl -s localhost:30081/api/flights | jq '.flights | length'
 ```
 
-   - `ENDPOINTS <none>` + a selector that selects zero Pods ⇒ selector/label mismatch.
-   - **No event is emitted.** The control plane considers this valid.
-5. **Fix and prove:**
+Make a booking in the UI. The request travels frontend → booking → identity and flight → booking-db → notification. Every hop is now a Service name resolved inside the cluster.
+
+### Step 8: See self-healing and a rolling update
+
+These are the two behaviours that Stage 1 exists for. Run them once and watch:
 
 ```bash
-kubectl patch svc booking -n apollo-airlines -p '{"spec":{"selector":{"app":"booking"}}}'
-kubectl get endpoints booking -n apollo-airlines
-curl -s localhost:30082/healthz
+# Self-healing: delete a booking Pod and watch a new one appear
+kubectl delete -n apollo-airlines --wait=false \
+  $(kubectl get pod -n apollo-airlines -l app=booking -o name | head -1)
+kubectl get pods -n apollo-airlines -l app=booking -w     # Ctrl-C after 2/2 Running
+
+# Rolling update and rollback: ship a tag that doesn't exist, then undo it
+kubectl set image deploy/search search=apollo11/search:missing-stage1-demo -n apollo-airlines
+kubectl get rs,pods -n apollo-airlines -l app=search      # new RS stuck in ImagePullBackOff, old Pods still serving
+curl -s localhost:30084/readyz                            # still OK
+kubectl rollout undo deploy/search -n apollo-airlines
+kubectl rollout status deploy/search -n apollo-airlines
 ```
 
-   - Two endpoints again; `{"status":"ok"}`.
-6. **Why:**
-   - Service → Pods is **only** the label selector. An empty endpoint list is the signature.
-   - Reflex for "Service doesn't work": `get endpoints` first, then Pod `READY`, then ports.
-7. **Your turn:** restore the selector, then change `targetPort` to `9999` instead. Endpoints will still show 2 addresses. What is different, and how would you find it?
+- **Self-healing:** the deleted name is gone for good. The ReplicaSet made a *new* Pod to get back to two. That is reconciliation, the idea from Ignition, now doing real work.
+- **The rollout:** changing the image changes the Pod template, so the Deployment creates a second ReplicaSet and scales it up while scaling the old one down. With the default `maxUnavailable` setting, an old Pod is not removed until a new one is Ready. Because the new Pods never become Ready, the old ones keep serving. A bad release stalls instead of causing an outage.
+- **`rollout undo`:** points the Deployment back at the previous ReplicaSet's template. Nothing is rebuilt, the old ReplicaSet was kept for exactly this.
 
-<details>
-<summary>Answer</summary>
+## When something looks wrong
 
-Endpoints exist (they list `podIP:9999`), but nothing listens on 9999, so connections are refused. `kubectl get endpoints` shows the wrong port; `curl` inside a Pod against the Pod IP and port confirms it. Restore with `targetPort: 8082`.
-</details>
-
----
-
-## Exercise 5: Follow configuration into a Pod
-
-**Goal:** trace one setting from its source object to the process, and show Secrets are encoded, not encrypted.
-**Time:** ~8 min
-
-1. **Predict:** where does `booking` get `FLIGHT_SERVICE_URL`? Where does `JWT_SECRET` come from? Is the Secret value hidden from someone who can `get` it?
-2. **Do:**
-
-```bash
-kubectl get deploy booking -n apollo-airlines -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}{" <- "}{.valueFrom}{"\n"}{end}'
-P=$(kubectl get pod -n apollo-airlines -l app=booking -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n apollo-airlines $P -- printenv FLIGHT_SERVICE_URL PORT
-kubectl get secret apollo-airlines-secrets -n apollo-airlines -o jsonpath='{.data.JWT_SECRET}' | base64 -d; echo
-kubectl exec -n apollo-airlines $P -- ls /var/run/secrets/kubernetes.io/serviceaccount 2>&1 | head -1
-```
-
-3. **Check:**
-   - `FLIGHT_SERVICE_URL <- configMapKeyRef …`, `JWT_SECRET <- secretKeyRef …`.
-   - `printenv` shows `http://flight:8081` and `8082`.
-   - `base64 -d` prints the plaintext secret to anyone who may `get secret`.
-   - The ServiceAccount directory does not exist: `automountServiceAccountToken: false` means this Pod carries no API credential.
-4. **Why:**
-   - Env values are copied into the container **at start**. Editing the ConfigMap later changes nothing for a running Pod (proved in Exercise 6B).
-   - Secret = base64, not encryption. Access control (RBAC) and encryption-at-rest are what protect it (Stage 8).
-5. **Your turn:** `identity` also needs `JWT_SECRET`. Without opening the manifest, list every Deployment that references `apollo-airlines-secrets` and which keys each uses.
-
-<details>
-<summary>Answer</summary>
-
-```bash
-kubectl get deploy -n apollo-airlines -o json | jq -r '.items[] | .metadata.name as $n | .spec.template.spec.containers[].env[]? | select(.valueFrom.secretKeyRef) | "\($n) \(.valueFrom.secretKeyRef.key)"'
-```
-</details>
-
----
-
-## Exercise 6: Break it: two bad releases, two different symptoms
-
-**Goal:** tell *"image can't start"* from *"Pod runs but never becomes Ready"*, and learn why `rollout undo` fixes one but not the other.
-**Time:** ~15 min
-
-### 6A: bad image
-
-1. **Predict:** you set a non-existent image tag. Do users see an outage?
-2. **Inject:**
-
-```bash
-kubectl set image deploy/booking booking=apollo11/booking:v999-invalid -n apollo-airlines
-kubectl rollout status deploy/booking -n apollo-airlines --timeout=25s ; true
-kubectl get pods -n apollo-airlines -l app=booking
-```
-
-3. **Symptom:** a new Pod in `ErrImagePull` / `ImagePullBackOff`; 2 old Pods still `1/1`. The rollout is stuck.
-4. **Diagnose:**
-
-```bash
-kubectl get rs -n apollo-airlines -l app=booking
-kubectl describe pod -n apollo-airlines -l app=booking | grep -E 'Failed|BackOff|Image:' | head
-curl -s -o /dev/null -w 'users still get %{http_code}\n' localhost:30082/readyz
-```
-
-   - Two ReplicaSets: old (2 ready) and new (1 desired, 0 ready). Events come from `kubelet`. Users get `200`.
-5. **Fix:** `kubectl rollout undo deploy/booking -n apollo-airlines && kubectl rollout status deploy/booking -n apollo-airlines`
-6. **Prove:** `kubectl get deploy booking -n apollo-airlines -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'` shows `apollo11/booking:latest`; 2/2 ready.
-
-### 6B: bad configuration
-
-1. **Predict:** you point `FLIGHT_SERVICE_URL` at a host that does not exist, then restart. (a) Do running Pods notice the ConfigMap edit? (b) Will the new Pod be `Running`? `Ready`?
-2. **Inject:**
-
-```bash
-kubectl patch configmap apollo-airlines-config -n apollo-airlines --type merge -p '{"data":{"FLIGHT_SERVICE_URL":"http://flight-typo:8081"}}'
-kubectl exec -n apollo-airlines "$(kubectl get pod -n apollo-airlines -l app=booking -o jsonpath='{.items[0].metadata.name}')" -- printenv FLIGHT_SERVICE_URL
-kubectl rollout restart deploy/booking -n apollo-airlines
-sleep 20; kubectl get pods -n apollo-airlines -l app=booking
-```
-
-3. **Symptom:** the old Pod printed the **old** value (a). The new Pod is `Running` but `0/1` (b). Users still get `200`.
-4. **Diagnose:**
-
-```bash
-NEW=$(kubectl get pod -n apollo-airlines -l app=booking --sort-by=.metadata.creationTimestamp -o name | tail -1)
-kubectl describe $NEW -n apollo-airlines | grep -E 'Readiness|Ready:|Restart'
-kubectl exec -n apollo-airlines ${NEW#pod/} -- wget -qO- http://127.0.0.1:8082/readyz
-kubectl logs -n apollo-airlines $NEW --tail=5
-```
-
-   - `Readiness probe failed … 503`. The container is alive (`Restart Count: 0`) but `/readyz` reports that it cannot reach flight.
-5. **Try the obvious fix:** `kubectl rollout undo deploy/booking -n apollo-airlines`. Wait 20 s and look again.
-   - Still `0/1`: the old template is restored, but new Pods read the **same broken ConfigMap**.
-6. **Real fix and proof:**
-
-```bash
-kubectl patch configmap apollo-airlines-config -n apollo-airlines --type merge -p '{"data":{"FLIGHT_SERVICE_URL":"http://flight:8081"}}'
-kubectl rollout restart deploy/booking -n apollo-airlines
-kubectl rollout status deploy/booking -n apollo-airlines
-curl -s -X POST localhost:30082/api/bookings -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"flightId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}' | jq .status
-```
-
-   - `"CONFIRMED"`.
-7. **Why (6A vs 6B):**
-
-| | 6A bad image | 6B bad config |
+| You see | Likely cause | First command |
 |---|---|---|
-| Pod status | `ImagePullBackOff` | `Running`, `0/1` |
-| Reporter | kubelet (pull) | kubelet (readiness probe) |
-| First command | `describe` → Events | `describe` → Conditions, then `/readyz` + logs |
-| `rollout undo` | Fixes it | **Does not**: config lives outside the template |
-| Users | Unaffected (old Pods serve) | Unaffected (readiness gates traffic) |
+| Pods Running, `curl` fails, no errors anywhere | Service selector or `targetPort` doesn't match the Pods | `kubectl get endpointslice -n apollo-airlines -l kubernetes.io/service-name=<svc>` |
+| Pod `0/1 Running` | Readiness failing, usually a dependency | `kubectl describe pod <pod>` → Events, then `/readyz` |
+| `ImagePullBackOff` / `ErrImagePull` | Image tag not loaded into kind | `kubectl describe pod`; rerun `apply.sh` |
+| `CrashLoopBackOff` | App exits on start (bad env, DB unreachable) | `kubectl logs <pod> --previous` |
+| `CreateContainerConfigError` | ConfigMap or Secret key missing | `kubectl describe pod` → Events |
+| Job `Failed`, no flights in the API | Seed SQL failed | `kubectl logs job/init-<name>-db` |
 
-   - A rollout never removes a working Pod until its replacement is Ready. That is what turned both faults into non-outages.
-8. **Your turn:** use `kubectl rollout history deploy/booking` and `kubectl rollout history deploy/booking --revision=<n>` to find which revision introduced the invalid image tag. Which field would you add to the Deployment so ConfigMap changes trigger a rollout automatically?
+The [troubleshooting page](./troubleshooting) has more.
 
-<details>
-<summary>Answer</summary>
+## What this stage does not solve yet
 
-Each revision's template shows its image. To tie rollouts to config, put a hash of the ConfigMap in a Pod-template annotation. Helm and Kustomize generate this for you (Stage 5).
-</details>
+| Limitation you can see now | Why it hurts | Fixed in |
+|---|---|---|
+| Delete `booking-db`'s Pod and every booking is gone | `emptyDir` lives and dies with the Pod | [Stage 3](./stage-3): PVCs and StatefulSets |
+| Five NodePorts, one per service, plain HTTP | No single front door, no hostnames, no TLS | [Stage 2](./stage-2): DNS, Ingress, Gateway API |
+| Everything in one namespace | Apps, UI and databases share one boundary | Stage 2 splits into `apollo-airlines-apps` / `-ui` |
+| Probes are basic; Pods have no resource requests | The scheduler and kubelet are guessing | [Stage 4](./stage-4): probes, requests/limits, PDBs |
+| Thirty YAML files applied by a script | Repeating values; no environments; no release history | [Stage 5](./stage-5): Helm, Kustomize, Argo CD |
+| Secret is base64 in Git; no RBAC in use | Anyone with repo access has the password | Stage 8 (planned): Vault, RBAC |
 
----
+## The journey so far
 
-## Exercise 7: Lose a database with `emptyDir`
+| Concern | Launchpad | Ignition | **Stage 1** |
+|---|---|---|---|
+| Runs on | One Docker host | Three-node kind cluster | Same cluster |
+| Unit of deployment | Compose service | Bare Pod | **Deployment** |
+| Recovery | `restart:` on one host | None | **ReplicaSet replaces Pods** |
+| Service discovery | Docker DNS | Pod IP only | **Service + cluster DNS** |
+| External access | `ports:` | `kubectl port-forward` | **NodePort** |
+| Config / secrets | `environment:` | Inline in `pod.yaml` | **ConfigMap / Secret** |
+| Data | Named volume | — | **`emptyDir` (ephemeral)** |
 
-**Goal:** show what a Deployment replaces and what it cannot restore.
-**Time:** ~10 min
-
-1. **Predict:** you delete `booking-db`'s Pod. Does the Pod come back? Does the `bookings` table? Does the init Job rerun?
-2. **Write a marker and confirm it:**
-
-```bash
-kubectl exec -n apollo-airlines deploy/booking-db -- psql -U postgres -d booking -c "
-  INSERT INTO bookings (id, booking_reference, user_id, flight_id, seat_number, status)
-  VALUES ('99999999-9999-4999-8999-999999999999','TEMP-EMPTYDIR-1',
-          'b2c3d4e5-f6a7-8901-bcde-f12345678901','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','LAB-1A','CONFIRMED');"
-kubectl exec -n apollo-airlines deploy/booking-db -- psql -U postgres -d booking -tc "SELECT booking_reference FROM bookings WHERE booking_reference='TEMP-EMPTYDIR-1';"
-```
-
-3. **Inject:**
-
-```bash
-kubectl delete pod -n apollo-airlines -l app=booking-db
-kubectl wait --for=condition=Ready pod -l app=booking-db -n apollo-airlines --timeout=90s
-kubectl exec -n apollo-airlines deploy/booking-db -- psql -U postgres -d booking -c "SELECT count(*) FROM bookings;"
-```
-
-4. **Symptom:** `ERROR: relation "bookings" does not exist`. The Pod is back and `Ready`: Postgres is running with an **empty** data directory.
-5. **Diagnose:**
+## Clean up
 
 ```bash
-kubectl get job init-booking-db -n apollo-airlines                  # still Complete 1/1, will not rerun
-kubectl get deploy booking-db -n apollo-airlines -o jsonpath='{.spec.template.spec.volumes}{"\n"}'   # emptyDir
-curl -s -o /dev/null -w 'booking readyz=%{http_code}\n' localhost:30082/readyz
+bash stages/stage1/scripts/verify.sh      # optional: the full automated check
+bash stages/stage1/scripts/teardown.sh
+kubectl get ns apollo-airlines            # NotFound
 ```
 
-   - Volume is `emptyDir`: lifetime = that Pod. Job is done: it never reruns.
-   - `booking readyz=200` even though bookings cannot be saved: `/readyz` only pings the database, it does not check the schema. A green probe is not a working feature.
-6. **Recover and prove:**
+The kind cluster stays for Stage 2.
 
-```bash
-kubectl delete job init-booking-db -n apollo-airlines
-kubectl apply -f stages/stage1/k8s/jobs/init-booking-db.yaml
-kubectl wait --for=condition=Complete job/init-booking-db -n apollo-airlines --timeout=90s
-kubectl exec -n apollo-airlines deploy/booking-db -- psql -U postgres -d booking -tc "SELECT count(*) FROM bookings;"
-```
+## You should now be able to explain
 
-   - Table exists, `count` is `0`, and the marker booking is gone for good.
-7. **Why:**
-   - The Deployment faithfully replaced the **Pod**. It never promised the **data**.
-   - A Job is "run to completion once"; it has no idea the database was reset.
-   - This is the one-sentence case for Stage 3: separate the data's lifetime from the Pod's.
-8. **Your turn:** write down (do not run) what a Pod spec must contain so this data survives, using only the words *claim*, *volume* and *mount*. Compare it with `stages/stage3/k8s` once you reach Stage 3.
+- Why a deleted booking Pod comes back with a new name, when Ignition's Pod did not.
+- How a Service finds its Pods, and why a label typo fails without an error.
+- Why a broken image tag stalls the rollout instead of taking search down.
+- What `rollout undo` actually switches back.
+- Why config and secrets are separate objects, and what a Secret does *not* protect.
+- Why booking's data disappears when its database Pod is replaced.
 
----
-
-## Clean-up and baseline
-
-- Keep the stage running for Stage 2. Confirm baseline:
-
-```bash
-kubectl get deploy,job -n apollo-airlines
-kubectl get configmap apollo-airlines-config -n apollo-airlines -o jsonpath='{.data.FLIGHT_SERVICE_URL}{"\n"}'   # http://flight:8081
-```
-
-- Remove everything: `bash stages/stage1/scripts/teardown.sh`.
-
-## You can now
-
-- [ ] Explain Deployment → ReplicaSet → Pod, and why labels and ownership are different.
-- [ ] Diagnose an empty-endpoints Service in one command.
-- [ ] Tell `ImagePullBackOff` from a Running-but-not-Ready Pod, and pick the right fix.
-- [ ] Say precisely what `emptyDir` loses and why a Job will not repair it.
-
-## Checkpoint
-
-1. What does the ReplicaSet count: Pods it owns, or Pods matching its selector?
-2. Service selector typo: what does `apply` print, and where do you see the problem?
-3. Why did a ConfigMap edit not affect running Pods?
-4. Why did the `booking-db` replacement start "healthy" but empty?
-
-Next: [Stage 2: Guidance](./stage-2).
+**Next:** [Stage 2: Guidance](./stage-2) replaces five NodePorts with names, hostnames and a real front door.

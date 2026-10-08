@@ -8,40 +8,33 @@ description: "GatewayClass, Gateway, HTTPRoute and ReferenceGrant: who owns what
 *Stage 2 · Guidance*
 
 :::info[Advanced chapter]
-First pass: finish [Ingress and TLS](./ingress-and-tls) and stop. Return here for the full Stage 2 lab, route status, and cross-namespace permission.
+First pass: finish [Ingress and TLS](./ingress-and-tls) and stop. Return here for the Stage 2 walkthrough, route status, and cross-namespace permission.
 :::
 
-**You will be able to:** name which object owns the listener, the route and each permission, read status as a chain, and diagnose a failing host.
+**You will be able to:** name which object owns the listener, the route and each permission, read Gateway status as a chain, and diagnose a failing hostname.
 
-## Key points
+## The problem
 
-- Gateway API is a set of **API objects**; the controller and its proxy do the work.
-- It is the successor to Ingress. Ingress is frozen, not removed; existing Ingresses do not convert themselves.
-- It still needs Services, EndpointSlices, Pods, DNS, certificate Secrets and a running controller.
+An Ingress puts everything in one object: the entry point (ports, TLS) *and* the application's routing rules. In a real organisation those belong to different people. A platform team owns the front door, certificates and addresses; application teams own "booking.apollo.local goes to the booking Service". With one object they must edit the same file, and anything unusual (redirects, rewrites, timeouts) has to be squeezed into vendor-specific **annotations** that differ per controller.
 
-| Object | Owner | Role |
+Gateway API is the Kubernetes answer: split the one object into several, each with a clear owner and typed fields instead of annotations.
+
+## The idea in plain words
+
+Think of an airport. The **airport authority** decides which runways and terminals exist. The **terminal operator** runs a specific gate area and decides which airlines may use it. Each **airline** says which flights leave from which gate. An airline cannot claim a gate the terminal has not opened to it, and cannot send passengers into another airline's check-in without that airline's consent.
+
+Gateway API has the same layers:
+
+| Object | Owner | Role (airport version) |
 |---|---|---|
-| `GatewayClass` | Infrastructure | Picks the implementation (`controllerName`). Apollo: `eg` (Envoy Gateway) |
-| `Gateway` | Platform team | Addresses + **listeners** (port, protocol, hostname, TLS, `allowedRoutes`). Apollo: `apollo-gateway` |
-| `HTTPRoute` | App team | Host/path matching + `backendRefs`. `parentRefs` names the Gateway |
-| `ReferenceGrant` | Owner of the *referenced* namespace | Allows a cross-namespace backend reference |
+| `GatewayClass` | Infrastructure | Which implementation runs the airport. Apollo: `eg` (Envoy Gateway) |
+| `Gateway` | Platform team | The gate area: addresses and **listeners** (port, protocol, hostname, TLS, which routes may attach). Apollo: `apollo-gateway` |
+| `HTTPRoute` | App team | The airline's flights: host/path matching and `backendRefs` |
+| `ReferenceGrant` | Owner of the *referenced* namespace | Consent for another namespace to point at something it owns |
 
-## Ingress → Gateway API
+Gateway API is a set of **API objects**. A controller and its proxy do the actual work, and you still need Services, EndpointSlices, Pods, DNS and certificate Secrets. It does not remove Ingress; Ingress is frozen, not deleted, and existing Ingresses do not convert themselves.
 
-| Ingress | Gateway API |
-|---|---|
-| `IngressClass` | `GatewayClass` |
-| Controller-provided 80/443 | `Gateway.spec.listeners` |
-| `spec.tls` | HTTPS listener `tls` |
-| `rules[].host` | `HTTPRoute.spec.hostnames` |
-| path + backend | HTTPRoute `matches` + `backendRefs` |
-| Annotations | Typed filters / policy resources |
-| `ingressClassName` | `parentRefs` (optionally a `sectionName`) |
-| Default backend | Explicit catch-all rule |
-
-- Annotations are a **migration question**: translate to a standard field/filter, use the controller's documented policy, or keep that route on the old controller. Never copy an annotation onto an HTTPRoute and assume it works.
-
-## Three paths to keep separate
+## How it works: three paths to keep separate
 
 ```mermaid
 flowchart TB
@@ -55,12 +48,16 @@ flowchart TB
     Browser --> Proxy --> Svc[Service] --> Pod
   end
   subgraph Status[Status]
-    Ctl --> GS[Gateway + listener conditions]
+    Ctl --> GS[Gateway and listener conditions]
     Ctl --> RS[HTTPRoute parent conditions]
   end
 ```
 
-## Reading the Apollo objects
+1. **Reconciliation:** the controller reads the objects and programs the proxy.
+2. **Request:** the browser's traffic flows through that proxy, then the usual Service routing.
+3. **Status:** the controller reports back what it accepted and resolved. Always read this, never infer behaviour from `spec` alone.
+
+## How it works: reading the Apollo objects
 
 *Source: `stages/stage2/k8s/substages/05-envoy-gateway/`*
 
@@ -80,36 +77,43 @@ spec:
   rules: [{backendRefs: [{name: booking, port: 8082}]}]
 ```
 
-- A connection selects **one listener** (address, port, protocol, hostname). Routes are matched only among those attached to it. There is no fallback to another listener.
-- Both sides must agree: the Route says "attach here"; the listener's `allowedRoutes` says who may. `from`: `Same` (default), `All`, or `Selector`.
-- Match in order: listener → attachment → hostname intersection → rule matches (path/method/header/query) → filters → backend.
-- Overlapping routes are resolved by specificity, then age/name. Avoid designs that depend on tie-breaks.
+How a request is matched, in order:
+
+1. The connection selects **one listener** by address, port, protocol and hostname. There is no fallback to another listener.
+2. Only Routes **attached** to that listener are considered.
+3. The request's host must overlap the listener and route hostnames.
+4. A rule's matches (path, method, headers, query) pick a rule; filters may modify the request.
+5. The `backendRef` names a **Service**, and normal Service routing then picks a ready Pod.
+
+If several routes overlap, Gateway API resolves ties by specificity, then age and name. Avoid designs that depend on tie-breaking.
 
 ## Two different permissions
 
-| Question | Mechanism | Lives in | Failure |
+People confuse these constantly, so keep them apart:
+
+| Question | Mechanism | Lives in | Failure status |
 |---|---|---|---|
-| May this Route **attach** to the listener? | `allowedRoutes` | Gateway's namespace | `Accepted=False` (`NotAllowedByListeners`) |
-| May this Route **reference** that Service? | `ReferenceGrant` | Service's namespace | `ResolvedRefs=False` (`RefNotPermitted`) |
+| May this Route **attach** to that listener? | `allowedRoutes` (`Same`, `All` or `Selector`) | The Gateway's namespace | `Accepted=False` (`NotAllowedByListeners`) |
+| May this Route **point at** that Service? | `ReferenceGrant` | The Service's namespace | `ResolvedRefs=False` (`RefNotPermitted`) |
 
-- Apollo's frontend Route lives in `apollo-airlines-ui` and attaches to `apollo-gateway` in `apollo-airlines-apps` because of `allowedRoutes: All`. Its backend is in its **own** namespace, so no grant is needed. `01a-referencegrant.yaml` shows the pattern for a cross-namespace backend.
-- A grant never attaches a Route and never grants general namespace access.
+The first is "will the gate area take your airline?"; the second is "will the other airline accept your passengers?". A Route cannot grant itself attachment by adding a `parentRef`.
 
-## Read status as a chain
+In Apollo, the frontend Route lives in `apollo-airlines-ui` but attaches to `apollo-gateway` in `apollo-airlines-apps`, which is permitted by `allowedRoutes: All`. Its backend is in its **own** namespace, so no grant is needed. `01a-referencegrant.yaml` shows what a grant for a cross-namespace backend looks like. A grant never attaches a Route and never gives general access to a namespace.
 
-| Level | Field | Answers |
+## Reading status as a chain
+
+| Level | Field | Question it answers |
 |---|---|---|
-| GatewayClass | `Accepted` | Did a controller take it? |
-| Gateway | `Accepted`, `Programmed`, `addresses` | Valid? Sent to the data plane? Which IP? |
-| Listener | conditions, `attachedRoutes` | Valid certificate ref? How many routes? |
-| HTTPRoute parent | `Accepted`, `ResolvedRefs` | Attached? Backend exists and permitted? |
+| GatewayClass | `Accepted` | Did a controller take responsibility? |
+| Gateway | `Accepted`, `Programmed`, `addresses` | Is it valid? Was it sent to the data plane? Which IP? |
+| Listener | conditions, `attachedRoutes` | Is its certificate reference valid? How many routes attached? |
+| HTTPRoute parent | `Accepted`, `ResolvedRefs` | Did it attach? Do its backends exist and are they permitted? |
 
-- Check `observedGeneration` matches the spec you are reading.
-- None of these mean a passenger succeeds. DNS, TLS trust, endpoints, policy and the app remain separate.
+Check that `observedGeneration` matches the spec you are reading, or the status may describe an older version. And none of these mean a passenger succeeds: DNS, TLS trust, endpoints, policy and the app remain separate.
 
 ## Diagnose `booking.apollo.local`
 
-1. GatewayClass accepted? 2. Gateway has address, `Programmed`? 3. HTTPS listener valid, route attached? 4. Route `Accepted` and `ResolvedRefs`? 5. Host/method/path as expected? 6. Service port exists, endpoints ready? 7. From the client: DNS, then TLS cert?
+Work in dependency order: GatewayClass accepted? → Gateway has an address and is `Programmed`? → HTTPS listener valid and route attached? → Route `Accepted` and `ResolvedRefs`? → host, method and path as expected? → Service port exists with ready endpoints? → from the client, does DNS resolve and TLS present the right certificate?
 
 ```bash
 kubectl get gatewayclass,gateway -A
@@ -118,20 +122,40 @@ kubectl describe httproute booking -n apollo-airlines-apps | sed -n '/Status:/,$
 kubectl get endpointslice -n apollo-airlines-apps -l kubernetes.io/service-name=booking
 ```
 
-## Migrating without a flag day
+## Migrating from Ingress without a flag day
 
-1. Inventory Ingress hosts, paths, TLS Secrets, annotations, expected responses (including unmatched).
-2. Pick an implementation and confirm it supports the features you need.
-3. Install CRDs + controller **alongside** the Ingress controller.
-4. Create a Gateway on a separate address; convert routes to HTTPRoutes; translate annotations deliberately.
+Ingress and Gateway API can run side by side, so you can prove the new path before moving traffic:
+
+1. Inventory every Ingress host, path, TLS Secret, annotation and expected response (including unmatched requests).
+2. Choose an implementation and confirm it supports the features you need.
+3. Install the CRDs and controller alongside the existing Ingress controller.
+4. Create a Gateway on a separate address, convert routes to HTTPRoutes, and translate annotations deliberately.
 5. Check Gateway and Route status.
-6. Replay the same requests against both; compare codes, redirects, headers, certs, backends.
-7. Move DNS (or hosts mapping); observe; keep the old path for a rollback window.
-8. Remove the Ingress only when nothing depends on it. `ingress2gateway` gives a starting point, never a finished result.
+6. Replay the same requests against both paths and compare codes, redirects, headers, certificates and backends.
+7. Move DNS, watch, and keep the old path for a rollback window.
+8. Remove the Ingress only when nothing depends on it.
+
+Annotations deserve care: translate each to a standard field or filter, a documented controller policy, or keep that route on the old controller. Never copy an annotation onto an HTTPRoute and assume it works. `ingress2gateway` produces a starting point, never a finished result.
+
+| Ingress | Gateway API |
+|---|---|
+| `IngressClass` | `GatewayClass` |
+| `spec.tls` | HTTPS listener `tls` |
+| `rules[].host` | `HTTPRoute.hostnames` |
+| path + backend | HTTPRoute `matches` + `backendRefs` |
+| `ingressClassName` | `parentRefs` |
+| Annotations | Typed filters / policy resources |
+| Default backend | Explicit catch-all rule |
 
 ## What it does not promise
 
-- A controller or proxy, public DNS, a trusted/renewed certificate, ready endpoints, policy enforcement, or a successful booking.
+Gateway API describes desired traffic handling. It does not provide a controller or proxy, public DNS, a trusted or renewed certificate, ready endpoints, policy enforcement, or a successful booking.
+
+## Common misconceptions
+
+- **"Accepted means working."** `Accepted` is about attachment; a wrong backend shows as `ResolvedRefs=False`.
+- **"A ReferenceGrant lets a route attach."** Attachment is `allowedRoutes`.
+- **"Gateway API replaced Ingress."** It replaces the configuration model when you migrate; Ingress still works.
 
 ## Check yourself
 
@@ -144,8 +168,12 @@ A `ReferenceGrant` in `apps` allowing HTTPRoutes from `ui` to reference that Ser
 <details>
 <summary>Route status shows <code>Accepted=True</code> but requests return 5xx. What do you check?</summary>
 
-`ResolvedRefs` and the backend Service port/endpoints. Attachment and backend resolution are separate.
+`ResolvedRefs` and the backend Service port and endpoints. Attachment and backend resolution are separate.
 </details>
+
+## Where this leads
+
+Networking gets requests to a Pod. Stage 3 deals with what those Pods keep: storage that outlives them.
 
 ## References
 

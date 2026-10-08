@@ -1,212 +1,268 @@
 ---
 title: "Ignition — Your First Kubernetes Cluster"
-description: "Create a kind cluster, then learn to tell which component acted on a Pod, and which one failed, from the evidence."
+description: "Create a three-node kind cluster, see what each Kubernetes component does, follow one Pod from apply to running, and see why a deleted bare Pod stays deleted."
 sidebar_label: "Ignition (First Cluster)"
 ---
 
-# Build Ignition: your first cluster
+# Ignition: your first cluster
 
-:::info[Page type · lab]
-- Repo: `Apollo11` at commit `69113dcc80f77e32301d8ee7b9e73a67c923de96` ([setup](./labs/setup#prepare-the-verified-workspace)). Run from the repo root.
-- Read the [Ignition chapters](./learn/cluster/why-orchestration) first.
+:::info[Page type · stage walkthrough]
+- Repo folder: [`stages/ignition`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/ignition) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Builds on: [Launchpad](./launchpad). Stop it first (`docker compose down` in `stages/launchpad`). You need Docker, `kind`, `kubectl` and `curl`.
+- Concepts behind this stage: [Why orchestration](./learn/cluster/why-orchestration) · [Objects and the API](./learn/cluster/objects-and-api) · [Reconciliation and components](./learn/cluster/reconciliation-and-components) · [Pod lifecycle](./learn/cluster/pod-lifecycle)
 :::
 
-**Skill this lab builds:** given a Pod that is not running, name the component responsible in under a minute.
+## Where we left off
 
-## Who does what (reference)
+- **Launchpad** ran all ten components with Docker Compose. Compose gave us images, service names on a Docker network, `environment:` blocks, health checks, start order and `restart: always`.
+- But all of it is bound to **one Docker host**:
+  - **No scheduling across machines.** Compose cannot pick a machine with free capacity. There is only one.
+  - **No desired-state reconciliation.** Compose does what you ask when you run `up`, then stops paying attention. A removed container stays removed; an `unhealthy` one keeps getting traffic.
+  - **Recovery is local.** `restart: always` is the Docker daemon on that host. If the host goes, so does everything.
 
-| Component | Where | Acts when | Leaves evidence as |
+Ignition does not move Apollo yet. It builds a **cluster** (a group of machines, called nodes, run as one system) and runs a single small Pod, so you can see the parts before Stage 1 puts the airline on them.
+
+## What changes in this stage
+
+| Concern | Before (Launchpad) | Ignition | Why it's better |
 |---|---|---|---|
-| `kube-apiserver` | control plane | Every request | Accepts/rejects `apply`; fills defaults |
-| `etcd` | control plane | Every write | (stores objects; only the apiserver talks to it) |
-| `kube-scheduler` | control plane | Pod has no `spec.nodeName` | `Scheduled` / `FailedScheduling` events; sets `nodeName` |
-| `kube-controller-manager` | control plane | Desired ≠ observed (Deployments, Jobs…) | Creates/deletes objects. **Does nothing for a bare Pod** |
-| `kubelet` | every node | Pod bound to its node | `Pulling`, `Pulled`, `Created`, `Started`, `BackOff` events; Pod status |
-| `containerd` | every node | kubelet asks | Real containers (`crictl ps`) |
-| `kube-proxy` / `kindnet` / CoreDNS | nodes / kube-system | Services, Pod networking, DNS | Used from Stage 1–2 |
+| Where things run | One Docker host | **Three nodes**: one control plane, two workers | Work can be placed on any worker |
+| Who decides placement | Nobody; there is one host | **`kube-scheduler`** | Placement is a decision made from node state and Pod constraints |
+| Where state is kept | Compose reads a file when you run it | **`kube-apiserver` + `etcd`** store every object | The cluster remembers what you asked for, not just your terminal |
+| Unit of deployment | Compose service | **Pod** (one or more containers that share network and lifecycle) | The unit every later controller creates |
+| Who starts containers | Docker daemon | **`kubelet`** on the chosen node, via `containerd` | Same job, now driven by the API instead of a local file |
+| Restart of a crashed process | `restart: always` | **`restartPolicy: Always`**, applied by the kubelet | Same behaviour, same limit: a *deleted* Pod is not replaced |
+| Describing what you want | `docker-compose.yml` | **Manifest** (`pod.yaml`) sent with `kubectl apply` | One API and one object format for everything that follows |
+| Reaching the app | `ports:` | **`kubectl port-forward`** | A temporary tunnel for checks; Stage 1 adds Services |
 
-## Diagnosis map (you will earn this table in Exercises 4–5)
+## What's in the folder
 
-| What you see | `NODE` column | Owner | First command |
-|---|---|---|---|
-| `Pending`, event `FailedScheduling` | `<none>` | scheduler | `kubectl describe pod` |
-| `ErrImagePull` / `ImagePullBackOff` | set | kubelet + runtime | `kubectl describe pod` → Events |
-| `CrashLoopBackOff` | set | your app | `kubectl logs --previous` |
-| Gone after `delete`, nothing recreates it | n/a | nobody (no controller) | `ownerReferences` |
+| Path | What it is | New or replaces |
+|---|---|---|
+| `kind-config.yaml` | Cluster `apollo11`: 1 control plane, 2 workers, host port mappings for later stages | New: replaces "one Docker host" |
+| `kind-config-single.yaml` | Cluster `apollo11-dev`: one node, for small machines | Alternative to the above |
+| `pod.yaml` | One bare Pod, `apollo-shell`, running a tiny HTTP server | Replaces a Compose service, for one workload |
+| `scripts/verify.sh` | Crash, delete and re-apply checks | — |
 
----
+## Walkthrough
 
-## Exercise 1: Build the cluster and map nodes to containers
+### Step 1: Create the cluster
 
-**Goal:** prove each Kubernetes node is a Docker container, and identify which control-plane components run where.
-**Time:** ~5 min · **Needs:** Docker running, no existing `apollo11` kind cluster.
+Read [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/ignition/kind-config.yaml) first:
 
-1. **Predict:** with 1 control-plane and 2 workers, how many `docker ps` entries will `kind` create? Which node runs `etcd`?
-2. **Do:**
+```yaml
+# kind-config.yaml (trimmed)
+kind: Cluster
+name: apollo11                          # context becomes kind-apollo11
+networking:
+  podSubnet: "10.244.0.0/16"            # where Pod IPs come from
+  serviceSubnet: "10.96.0.0/16"         # where Service IPs will come from (Stage 1)
+  kubeProxyMode: "iptables"
+nodes:
+  - role: control-plane
+    extraPortMappings:                  # host ports opened now, used later
+      - {containerPort: 30080, hostPort: 30080}   # …30084: Stage 1 NodePorts
+      - {containerPort: 30443, hostPort: 30443}   # Stage 2 entry point
+  - role: worker
+    labels: {node-role: worker, workload: app}
+  - role: worker
+    labels: {node-role: worker, workload: app}
+```
 
 ```bash
 kind create cluster --config stages/ignition/kind-config.yaml
-kubectl config current-context
+kubectl config current-context                 # kind-apollo11
 kubectl get nodes -L node-role,workload
 docker ps --filter label=io.x-k8s.kind.cluster=apollo11 --format '{{.Names}}'
 ```
 
-3. **Check:**
-   - Context is `kind-apollo11`.
-   - Three nodes `Ready`. The workers carry `workload=app` (Stages 4 and 7 use it).
-   - `docker ps` lists `apollo11-control-plane`, `apollo11-worker`, `apollo11-worker2`.
+- **What you see:** three nodes `Ready`, and three Docker containers: `apollo11-control-plane`, `apollo11-worker`, `apollo11-worker2`.
+- **What kind is:** "Kubernetes in Docker". Each node is a Docker container with a kubelet and container runtime inside it.
+- **Why the port mappings now:** kind can only map host ports when the cluster is created. Stage 1 and Stage 2 need them, so they are set up front.
+- **Why the `workload: app` label:** Stages 4 and 7 use it to steer where Pods are placed.
+- **Compared with Launchpad:** still one physical machine. If the Docker host stops, every "node" stops. kind teaches the roles, not real availability.
+- **Small machine?** Use `stages/ignition/kind-config-single.yaml` instead (context `kind-apollo11-dev`). Never run both: their host ports overlap.
 
-4. **Locate the components:**
+### Step 2: See the components
 
 ```bash
+kubectl cluster-info
 kubectl -n kube-system get pods -o wide
 kubectl -n kube-system get daemonsets
 ```
 
-   - Fill in this table from the output:
+| Component | Runs on | What it does | Where you see its work |
+|---|---|---|---|
+| `kube-apiserver` | control plane | The only front door. Validates every request, fills in defaults, stores objects | `kubectl` accepts or rejects your manifest |
+| `etcd` | control plane | Key-value store holding every object. Only the API server talks to it | Nothing directly |
+| `kube-scheduler` | control plane | Picks a node for each Pod without one | `Scheduled` / `FailedScheduling` events; writes `spec.nodeName` |
+| `kube-controller-manager` | control plane | Runs controllers that compare desired vs actual (Deployments, Jobs, …) | Creates and deletes objects. Does nothing for a bare Pod |
+| `kubelet` | every node | Runs the Pods bound to its node, reports their status | `Pulling`, `Pulled`, `Created`, `Started`, `BackOff` events |
+| `containerd` | every node | The container runtime the kubelet calls | Real containers (`crictl ps`) |
+| `kube-proxy`, `kindnet` | every node (DaemonSet) | Service forwarding; Pod networking (the CNI) | Used from Stage 1 |
+| CoreDNS | Deployment in `kube-system` | In-cluster DNS names | Used from Stage 1 |
 
-| Pod prefix | Node | Managed by (static Pod / DaemonSet / Deployment) |
-|---|---|---|
-| `etcd-…`, `kube-apiserver-…`, `kube-scheduler-…`, `kube-controller-manager-…` | ? | ? |
-| `kube-proxy-…`, `kindnet-…` | ? | ? |
-| `coredns-…` | ? | ? |
-
-5. **Why:**
-   - The four control-plane Pods exist only on `apollo11-control-plane` and are static Pods (the node's kubelet runs them from files; their names end in the node name).
-   - `kube-proxy` and `kindnet` are DaemonSets: one per node, so you see three of each.
-   - If the Docker host stops, every "node" stops with it. kind teaches roles, not availability.
-
-6. **Your turn:** run `kubectl -n kube-system get pod kube-scheduler-apollo11-control-plane -o jsonpath='{.metadata.ownerReferences[0].kind}'`. What does the answer tell you about who owns a static Pod?
-
-<details>
-<summary>Answer</summary>
-
-`Node`. The kubelet creates a read-only "mirror" Pod in the API for each static Pod, owned by the Node. Deleting the mirror Pod does not stop it.
-</details>
-
-> Small machine? Use `stages/ignition/kind-config-single.yaml` instead (context `kind-apollo11-dev`). Never run both variants together; their host ports overlap.
-
----
-
-## Exercise 2: Author a Pod and see what the API server adds
-
-**Goal:** write a Pod manifest yourself and identify the fields you did not write.
-**Time:** ~10 min · **Needs:** Exercise 1.
-
-1. **Predict:** you will submit ~15 lines of YAML. Will the stored Pod contain only those fields?
-2. **Do:** generate a skeleton, then complete it.
-
-```bash
-mkdir -p learner-work/ignition
-kubectl run apollo-shell --image=busybox:1.36.1 --restart=Always --port=8080 \
-  --labels=app=shell,stage=ignition --dry-run=client -o yaml > learner-work/ignition/pod.yaml
-cat learner-work/ignition/pod.yaml
+```text
+kubectl
+   |
+   v
+API server <--> etcd
+   |             desired and observed state
+   +--> scheduler / controller manager
+   |
+   +--> kubelet on node --> container runtime --> Pod
 ```
 
-   - The skeleton has no server process, so it would start `sh` and exit. **Edit the file:** add under the container
+- **Control-plane Pods** (`etcd-…`, `kube-apiserver-…`, `kube-scheduler-…`, `kube-controller-manager-…`) exist only on `apollo11-control-plane`. Their names end in the node name because they are **static Pods**: the node's kubelet runs them from files on disk. The API shows a read-only copy owned by the `Node`.
+- **DaemonSets** (`kube-proxy`, `kindnet`) run one Pod per node, so you see three of each.
+- **NetworkPolicy:** kindnet does not enforce it. That is deferred to Stage 8.
+- **Compared with Launchpad:** Compose was one program doing everything. Kubernetes splits the job into components that only talk through the API server. The [Reconciliation and components](./learn/cluster/reconciliation-and-components) chapter explains why.
+
+### Step 3: Create the first Pod with a command
+
+Ask `kubectl` to show the object it would send, without sending it:
+
+```bash
+kubectl run apollo-shell \
+  --image=busybox:1.36.1 \
+  --restart=Always \
+  --labels=app=shell,stage=ignition \
+  --port=8080 \
+  --dry-run=client -o yaml \
+  -- sh -c 'mkdir -p /www; printf "Apollo11 Ignition ready\n" > /www/index.html; echo "ignition HTTP server started"; httpd -f -p 8080 -h /www & server_pid=$!; wait "$server_pid"'
+```
+
+Run it for real (the same command without `--dry-run=client -o yaml`), wait, then remove it:
+
+```bash
+kubectl run apollo-shell --image=busybox:1.36.1 --restart=Always \
+  --labels=app=shell,stage=ignition --port=8080 \
+  -- sh -c 'mkdir -p /www; printf "Apollo11 Ignition ready\n" > /www/index.html; echo "ignition HTTP server started"; httpd -f -p 8080 -h /www & server_pid=$!; wait "$server_pid"'
+kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
+kubectl delete pod apollo-shell
+```
+
+- **What it is:** an *imperative* command: "do this now". It is quick, but leaves nothing to review or apply again.
+- **Why look at the dry run:** every `kubectl` command ends up as an object sent to the API server. The YAML it prints is that object.
+
+### Step 4: Move to a manifest
+
+[`pod.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/ignition/pod.yaml) is the same Pod, written down:
 
 ```yaml
-      command: ["sh", "-c", "mkdir -p /www; echo 'Apollo11 Ignition ready' > /www/index.html; echo 'ignition HTTP server started'; exec httpd -f -p 8080 -h /www"]
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apollo-shell
+  labels: {app: shell, stage: ignition}    # labels matter from Stage 1 on
+spec:
+  restartPolicy: Always                     # kubelet restarts the container if it exits
+  containers:
+    - name: shell
+      image: busybox:1.36.1                 # a pinned tag, not latest
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -c
+        - |
+          mkdir -p /www
+          printf 'Apollo11 Ignition ready\n' > /www/index.html
+          echo 'ignition HTTP server started'
+          httpd -f -p 8080 -h /www &        # the server runs as a child
+          server_pid=$!
+          wait "${server_pid}"              # the shell exits when the server dies
+      ports:
+        - {name: http, containerPort: 8080, protocol: TCP}
 ```
 
-3. **Check what the server would store** (nothing is created yet):
-
 ```bash
-kubectl apply --dry-run=server -f learner-work/ignition/pod.yaml -o yaml \
-  | grep -E 'dnsPolicy|schedulerName|terminationGracePeriodSeconds|priority:|tolerations|serviceAccountName|enableServiceLinks'
-```
-
-   - You wrote none of these fields. Each appears with a default.
-   - `--dry-run=client` only checks the YAML locally. `--dry-run=server` runs the request through the API server, including defaulting and validation.
-
-4. **Apply and compare with the reference:**
-
-```bash
-kubectl apply -f learner-work/ignition/pod.yaml
+kubectl apply --dry-run=client -f stages/ignition/pod.yaml
+kubectl apply --dry-run=server -f stages/ignition/pod.yaml -o yaml \
+  | grep -E 'dnsPolicy|schedulerName|terminationGracePeriodSeconds|priority:|tolerations|serviceAccountName|enableServiceLinks|qosClass'
+kubectl apply -f stages/ignition/pod.yaml
 kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
 ```
 
-   - Compare your file with `stages/ignition/pod.yaml` (the reference). Same labels, same image, same server command.
+- **What it is:** a *declarative* description: "this is what should exist". You can review it, keep it in Git and apply it again.
+- **Client vs server dry run:** `--dry-run=client` checks the YAML locally. `--dry-run=server` runs it through the API server, so you see what would be stored.
+- **What the server adds:** fields you never wrote, each with a default: `schedulerName: default-scheduler`, `dnsPolicy: ClusterFirst`, `serviceAccountName: default`, tolerations for not-ready nodes, `qosClass: BestEffort` (no resource requests; Stage 4 changes this).
+- **Why `wait "${server_pid}"`:** it ties the container's life to the HTTP server. If the server dies, the container exits, and the kubelet sees it. Step 7 uses this.
+- **Compared with Launchpad:** a Compose service and a Pod both say "run this image with this command". The difference is where it goes: Compose acts on it locally and forgets; `kubectl apply` stores it in the cluster, and components act on the stored object.
+- More in [Objects and the API](./learn/cluster/objects-and-api).
 
-5. **Why:**
-   - Defaults (`schedulerName: default-scheduler`, `dnsPolicy: ClusterFirst`, tolerations for not-ready nodes…) are added by the API server, not by `kubectl`.
-   - `kubectl apply` returning only means "accepted". Exercise 3 shows what happened next.
-
-6. **Your turn:** run the server dry-run and read `status.qosClass`. Add `resources: {requests: {cpu: 50m}}` to the container and run it again. What changed, and what is that field used for later (Stage 4)? Then remove the lines.
-
-<details>
-<summary>Answer</summary>
-
-`BestEffort` becomes `Burstable`. The API server computes the QoS class from requests/limits. The kubelet uses it to decide eviction order under node pressure.
-</details>
-
----
-
-## Exercise 3: Trace one Pod through the components
-
-**Goal:** match every event and field to the component that produced it.
-**Time:** ~10 min · **Needs:** `apollo-shell` Running.
-
-1. **Predict:** list the order: *scheduled, image pulled, container created, container started, ready.* Which of those does the scheduler do?
-2. **Do:**
+### Step 5: Follow the Pod through the components
 
 ```bash
 kubectl get pod apollo-shell -o wide
 kubectl describe pod apollo-shell | sed -n '/^Events:/,$p'
+kubectl get pod apollo-shell -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}'
 NODE=$(kubectl get pod apollo-shell -o jsonpath='{.spec.nodeName}')
 docker exec "$NODE" crictl ps --name shell
-kubectl get pod apollo-shell -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}'
+kubectl get node "$NODE" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}'
+kubectl get pod apollo-shell -o jsonpath='{.status.podIP}{"\n"}'
 ```
 
-3. **Check:** copy the `Events` table and fill the last column.
+The `Events` table, read with the component that wrote each line:
 
-| Reason | From (column in `describe`) | Component action |
+| Reason | From | What happened |
 |---|---|---|
-| `Scheduled` | `default-scheduler` | chose the node, wrote `spec.nodeName` |
-| `Pulling` / `Pulled` | `kubelet` | asked containerd to fetch the image |
+| `Scheduled` | `default-scheduler` | Chose a worker and wrote `spec.nodeName` |
+| `Pulling` / `Pulled` | `kubelet` | Asked containerd to fetch the image (skipped if already on the node) |
 | `Created` / `Started` | `kubelet` | containerd created and started the process |
 
-   - `crictl ps` shows the same container from the node's runtime side. It is the container, not the Pod.
-   - Conditions: `PodScheduled` (scheduler), `Initialized`, `ContainersReady`, `Ready` (kubelet).
+- **The sequence:** `kubectl apply` → API server stores the Pod with no node → scheduler picks one → that node's kubelet sees a Pod bound to it and starts the container → kubelet reports status back.
+- **Conditions:** `PodScheduled` comes from the scheduler. `Initialized`, `ContainersReady` and `Ready` come from the kubelet.
+- **Why only workers:** the control-plane node has a `NoSchedule` taint, so the scheduler only considers the two workers for normal Pods.
+- **`crictl ps`:** the same container, seen from the node's runtime. It is the container, not the Pod.
+- **Two IPs:** the node IP is the Docker container's address on the `kind` network. The Pod IP comes from `podSubnet 10.244.0.0/16`, given out by the CNI (`kindnet`).
+- **Why this matters:** only the scheduler writes `spec.nodeName`. Only the kubelet starts containers. When a Pod is stuck, knowing which of the two stopped tells you where to look.
 
-4. **Prove the endpoint (rung 5):**
+### Step 6: Read the evidence in order
+
+When something is wrong, check in this order and stop at the first layer that explains it:
+
+| Evidence | Command | Question it answers |
+|---|---|---|
+| Status | `kubectl get pod apollo-shell -o wide` | Pending, Running or failing? Which node? |
+| Events | `kubectl get events --field-selector involvedObject.name=apollo-shell --sort-by=.metadata.creationTimestamp` | What decisions and failures happened, in order? |
+| Detail | `kubectl describe pod apollo-shell` | Which image, command, conditions? |
+| Logs | `kubectl logs apollo-shell` | What did the process say? (`ignition HTTP server started`) |
+| Behaviour | port-forward plus `curl` | Does a user get the right answer? |
 
 ```bash
 kubectl port-forward pod/apollo-shell 18080:8080 >/dev/null &
 PF=$!; sleep 2
-curl --fail -s http://127.0.0.1:18080/
+curl --fail -s http://127.0.0.1:18080/      # Apollo11 Ignition ready
 kill $PF
 ```
 
-   - Expected: `Apollo11 Ignition ready`.
+- **Why the last rung matters:** `Running` means the process exists. Only the response proves the app works.
+- **Why port-forward:** there is no Service yet, and the Pod IP is only reachable inside the cluster. `port-forward` is a tunnel through the API server, for checks only.
+- **Compared with Launchpad:** `docker compose ps` and `logs` covered the first and fourth rungs. Events are new: they are how components report what they decided.
 
-5. **Why:**
-   - Only the scheduler writes `spec.nodeName`. Only the node's kubelet starts containers. If you can say which of the two is stuck, you know where to look.
-   - Rungs 1–3 explain *where* it stopped. Rung 5 is the only proof it works.
-
-6. **Your turn:** the Pod is on one worker. Without using `-o wide`, print the node's internal IP and the Pod's IP, then explain why they differ.
-
-<details>
-<summary>Answer</summary>
+### Step 7: See the kubelet restart a crashed container
 
 ```bash
-kubectl get node "$NODE" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}'
-kubectl get pod apollo-shell -o jsonpath='{.status.podIP}{"\n"}'
+kubectl get pod apollo-shell \
+  -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
+kubectl exec apollo-shell -- sh -c 'kill "$(pidof httpd)"' || true   # the exec may drop; that's expected
+kubectl get pod apollo-shell --watch                                   # Ctrl-C at 1/1 Running
+kubectl get pod apollo-shell \
+  -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
+kubectl logs apollo-shell --previous
+kubectl exec apollo-shell -- wget -qO- http://127.0.0.1:8080/
 ```
-The node IP is the Docker container's IP on the `kind` network. The Pod IP comes from `podSubnet 10.244.0.0/16`, allocated by the CNI (`kindnet`).
-</details>
 
----
+- **What happens:** the HTTP server dies, the shell's `wait` returns, the container exits. The kubelet applies `restartPolicy: Always` and starts a new container **in the same Pod**.
+- **What you see:** same UID, `RESTARTS` up by one, the old container's logs under `--previous`, and the right HTTP response again.
+- **Compared with Launchpad:** this is `restart: always` again, done by the kubelet instead of the Docker daemon. It restarts a *container*. It does not recreate a *Pod*.
 
-## Exercise 4: Break it: a Pod nothing can schedule
+### Step 8: See what a stuck Pod looks like
 
-**Goal:** recognise a scheduling failure and fix it without recreating the Pod.
-**Time:** ~8 min · **Needs:** Exercise 1.
-
-1. **Predict:** you will request a node label (`disk=ssd`) that no node has. Will the Pod be `Pending`, `ContainerCreating`, or `Error`? Will it have a node?
-2. **Inject:**
+Two small Pods show the two places a Pod can stall. Apply each, look, then delete it.
 
 ```bash
+# A Pod that asks for a node label no node has
 kubectl apply -f - <<'YAML'
 apiVersion: v1
 kind: Pod
@@ -215,69 +271,14 @@ metadata:
   labels: {stage: ignition}
 spec:
   nodeSelector:
-    disk: ssd
+    disk: ssd                          # no node carries this label
   containers:
     - name: sleeper
       image: busybox:1.36.1
       command: ["sleep", "3600"]
 YAML
-```
 
-3. **Symptom:**
-
-```bash
-kubectl get pod needs-ssd -o wide
-```
-
-   - `STATUS=Pending`, `NODE=<none>`.
-4. **Diagnose** (rungs 1 → 3). Before you run anything, decide: scheduler or kubelet?
-
-```bash
-kubectl describe pod needs-ssd | sed -n '/^Events:/,$p'
-kubectl get pod needs-ssd -o jsonpath='{.spec.nodeName}{"\n"}'
-```
-
-   - Event `FailedScheduling` from `default-scheduler`, message similar to `0/3 nodes are available: 1 node(s) had untolerated taint …, 2 node(s) didn't match Pod's node affinity/selector`.
-   - `spec.nodeName` is empty: no node was ever chosen, so **the kubelet never saw this Pod**. There are no `Pulling` events.
-5. **Fix** (change the cluster, not the Pod):
-
-```bash
-kubectl label node apollo11-worker disk=ssd
-kubectl wait --for=condition=Ready pod/needs-ssd --timeout=60s
-kubectl get pod needs-ssd -o wide
-```
-
-6. **Prove recovery:** the Pod is `Running` on `apollo11-worker`, with the same UID as before (no replacement happened). The scheduler retried on the new label.
-7. **Clean up:**
-
-```bash
-kubectl delete pod needs-ssd
-kubectl label node apollo11-worker disk-
-```
-
-8. **Why:**
-   - `Pending` + no node ⇒ scheduler. The fix is node labels, taints or Pod constraints.
-   - The control-plane node has a `NoSchedule` taint, which is why only the two workers are candidates for normal Pods.
-
-9. **Your turn:** change `disk: ssd` to `kubernetes.io/hostname: apollo11-control-plane` and apply. Why is it still `Pending`, and what single field would let it schedule?
-
-<details>
-<summary>Answer</summary>
-
-The control plane has the taint `node-role.kubernetes.io/control-plane:NoSchedule`. A matching `tolerations` entry on the Pod removes the block. A selector only narrows the candidates; it never overrides a taint.
-</details>
-
----
-
-## Exercise 5: Break it: a Pod the kubelet cannot start
-
-**Goal:** tell a kubelet failure from a scheduling failure using one column.
-**Time:** ~8 min · **Needs:** Exercise 1.
-
-1. **Predict:** you will use a non-existent image tag. This time, will the Pod have a node? Which component reports the error?
-2. **Inject:**
-
-```bash
+# A Pod that asks for an image tag that does not exist
 kubectl apply -f - <<'YAML'
 apiVersion: v1
 kind: Pod
@@ -290,116 +291,98 @@ spec:
       image: busybox:1.36.1-does-not-exist
       command: ["sleep", "3600"]
 YAML
-```
 
-3. **Symptom (wait ~30 s):**
-
-```bash
-kubectl get pod bad-image -o wide -w     # Ctrl-C when you see ImagePullBackOff
-```
-
-   - `ErrImagePull`, then `ImagePullBackOff`. **`NODE` is set.**
-4. **Diagnose:**
-
-```bash
+sleep 30
+kubectl get pod needs-ssd bad-image -o wide
+kubectl describe pod needs-ssd | sed -n '/^Events:/,$p'
 kubectl describe pod bad-image | sed -n '/^Events:/,$p'
-kubectl get pod bad-image -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}{"\n"}'
+kubectl delete pod needs-ssd bad-image
 ```
 
-   - `Scheduled` from `default-scheduler` succeeded. `Failed` / `BackOff` events come from `kubelet`.
-   - The node exists, so the scheduler is not the problem.
-5. **Fix without deleting the Pod:** a container's `image` is one of the few mutable Pod fields.
+| Pod | Status | `NODE` | Events from | Meaning |
+|---|---|---|---|---|
+| `needs-ssd` | `Pending` | `<none>` | `default-scheduler`: `FailedScheduling`, e.g. `0/3 nodes are available: 1 node(s) had untolerated taint …, 2 node(s) didn't match Pod's node affinity/selector` | No node fits. The kubelet never saw this Pod |
+| `bad-image` | `ErrImagePull` → `ImagePullBackOff` | set | `Scheduled` from the scheduler, then `Failed` / `BackOff` from `kubelet` | Placed fine; the node can't get the image |
+| (third kind) | `CrashLoopBackOff` | set | `kubelet` `BackOff` | Image fine; your process keeps exiting. Read `kubectl logs --previous` |
 
-```bash
-kubectl set image pod/bad-image sleeper=busybox:1.36.1
-kubectl wait --for=condition=Ready pod/bad-image --timeout=90s
-```
+- **The one-column rule:** no node means the scheduler. A node but no running container means the kubelet, the runtime, the image or the registry. A container that keeps restarting means the app.
+- **Neither is a dead end:** the scheduler retries `needs-ssd` if a node later gets `disk=ssd`. The kubelet retries the image pull forever. Neither moves the Pod or gives up.
+- **Why a selector can't reach the control plane:** a `nodeSelector` only narrows the candidates. It never overrides a taint; that needs a toleration.
+- More in [Pod lifecycle](./learn/cluster/pod-lifecycle) and [Scheduling](./learn/reliability/scheduling).
 
-6. **Prove recovery:**
-
-```bash
-kubectl exec bad-image -- echo alive
-kubectl get pod bad-image -o jsonpath='{.status.containerStatuses[0].restartCount}{" restarts, image="}{.spec.containers[0].image}{"\n"}'
-```
-
-   - Same Pod, same UID, new image.
-7. **Clean up:** `kubectl delete pod bad-image`.
-8. **Why:**
-   - Exercise 4 vs 5: *no node* ⇒ scheduler; *node, container not running* ⇒ kubelet / runtime / image / registry.
-   - `ImagePullBackOff` is the kubelet backing off retries. It will retry forever; it never gives up and never reschedules.
-
-9. **Your turn:** make the container fail differently: `command: ["sh","-c","exit 1"]`. Predict the status, then use `kubectl logs --previous` and `describe` to read the exit code. Which row of the diagnosis map is it?
-
-<details>
-<summary>Answer</summary>
-
-`CrashLoopBackOff` with `Exit Code: 1`. The image pulled fine, so it is an application problem, not a platform one. A restart is the kubelet applying `restartPolicy: Always`, increasing `restartCount` each time.
-</details>
-
----
-
-## Exercise 6: Delete a bare Pod and find out who cares
-
-**Goal:** prove nothing recreates a bare Pod, and say what Stage 1 adds.
-**Time:** ~5 min · **Needs:** `apollo-shell` Running.
-
-1. **Predict:** you delete `apollo-shell`. Does anything recreate it? What field would prove an owner exists?
-2. **Do:**
+### Step 9: Delete the bare Pod
 
 ```bash
 kubectl get pod apollo-shell -o jsonpath='ownerReferences={.metadata.ownerReferences}{"\n"}uid={.metadata.uid}{"\n"}'
-kubectl delete pod apollo-shell
-sleep 5
-kubectl get pods
+kubectl delete pod apollo-shell --wait=true
+sleep 3
+kubectl get pod apollo-shell      # NotFound
 ```
 
-3. **Check:**
-   - `ownerReferences=` is empty: no controller owns the Pod.
-   - After deletion: `No resources found in default namespace.`
-4. **Recover and prove:**
+- **What you see:** `ownerReferences` is empty, and after the delete the Pod stays gone.
+- **Why:** a *bare* Pod has no owner. The kubelet only restarts containers in Pods it is told to run. The controller manager only acts on objects it owns. Nothing in the cluster holds "there should be an `apollo-shell`" as a goal, so nothing brings it back.
+- **The only way back:** a person runs `kubectl apply -f stages/ignition/pod.yaml` again. That creates a *new* object with a new UID, not a restart of the old one.
+- **Compared with Launchpad:** the same result as `docker rm -f` on a Compose container. The cluster stores desired state, but a bare Pod declares only "this one Pod", not "keep one running".
+- **What fixes it:** a controller that owns Pods and keeps their count. That is Stage 1's Deployment and ReplicaSet.
+
+## When something looks wrong
+
+| You see | Likely cause | First command |
+|---|---|---|
+| `kind create cluster` fails on ports | Launchpad still running, or the other kind variant exists | `docker ps`; `kind get clusters` |
+| Context is not `kind-apollo11` | Another cluster is selected | `kubectl config use-context kind-apollo11` |
+| Node `NotReady` | Cluster still starting | `kubectl get nodes -w`; `kubectl -n kube-system get pods` |
+| Pod `Pending`, `NODE` `<none>` | No node fits (selector, taint, capacity) | `kubectl describe pod <pod>` → Events from `default-scheduler` |
+| `ErrImagePull` / `ImagePullBackOff` | Wrong image tag or no registry access | `kubectl describe pod <pod>` → Events from `kubelet` |
+| `CrashLoopBackOff` | The process exits on start | `kubectl logs <pod> --previous` |
+| `Running` but `curl` fails | App not listening, or port-forward stopped | `kubectl logs <pod>`; rerun `port-forward` |
+
+The [troubleshooting page](./troubleshooting) has more.
+
+## What this stage does not solve yet
+
+| Limitation you can see now | Why it hurts | Fixed in |
+|---|---|---|
+| A deleted Pod stays deleted | Recovery needs a person, exactly like Compose | [Stage 1](./stage-1): Deployments and ReplicaSets |
+| Only one copy of the workload | One Pod failing is a full outage | [Stage 1](./stage-1): `replicas` |
+| The Pod has only an IP, and a new Pod gets a new one | Nothing can find it by name | [Stage 1](./stage-1): Services and cluster DNS |
+| Access only via `port-forward` | A debugging tunnel, not a way to serve users | [Stage 1](./stage-1) NodePort, then [Stage 2](./stage-2) |
+| Config written inline in the command | No separation of config, secrets and image | [Stage 1](./stage-1): ConfigMaps and Secrets |
+| No resource requests (`BestEffort`) | The scheduler places Pods blind; first to be evicted | [Stage 4](./stage-4): requests and limits |
+| All nodes are containers on one Docker host | Teaches roles, not availability | Stage 9 (planned): a cloud cluster |
+
+## The journey so far
+
+| Concern | Launchpad | **Ignition** |
+|---|---|---|
+| Runs on | One Docker host | **Three-node kind cluster** |
+| Unit of deployment | Compose service | **Bare Pod** |
+| Recovery | `restart:` on one host | **Container restart by kubelet; deleted Pod not replaced** |
+| Service discovery | Docker DNS | **Pod IP only** |
+| External access | `ports:` | **`kubectl port-forward`** |
+| Config / secrets | `environment:` | **Inline in `pod.yaml`** |
+| Data | Named volume | **—** |
+
+## Clean up
 
 ```bash
-kubectl apply -f stages/ignition/pod.yaml
-kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
-kubectl get pod apollo-shell -o jsonpath='{.metadata.uid}{"\n"}'
+bash stages/ignition/scripts/verify.sh                          # optional: the automated check
+kubectl delete -f stages/ignition/pod.yaml --ignore-not-found   # verify.sh leaves one apollo-shell behind
+kubectl get pods                                                # No resources found
 ```
 
-   - The UID differs from step 2: a different object, not a restart.
-5. **Why:**
-   - The kubelet restarts *containers* inside a Pod it is told to run (`restartCount` rises, UID stays). Nobody restarts a *deleted Pod object*.
-   - Replacing Pods needs a controller that compares desired vs actual count. That is Stage 1's ReplicaSet.
-6. **Your turn:** run `kubectl create deployment probe --image=busybox:1.36.1 -- sleep 3600`, then delete its Pod. How do the `ownerReferences` and the outcome differ? Clean up with `kubectl delete deployment probe`.
+- `verify.sh` repeats the crash, delete and re-apply sequence. It refuses to run unless the context is `kind-apollo11` or `kind-apollo11-dev`.
+- Keep the cluster: Stage 1 deploys onto it.
+- To remove it entirely: `kind delete cluster --name apollo11` (or `apollo11-dev`), then check `kind get clusters`.
 
-<details>
-<summary>Answer</summary>
+## You should now be able to explain
 
-The Pod is owned by a ReplicaSet, which is owned by the Deployment. The ReplicaSet controller creates a replacement within seconds, with a new name and UID.
-</details>
+- Why each kind node is a Docker container, and what that does and doesn't teach.
+- What the API server, etcd, scheduler, controller manager and kubelet each do.
+- What the API server adds to a Pod you submit, and why `kubectl apply` returning only means "accepted".
+- Which component writes `spec.nodeName`, and which one starts containers.
+- How to tell a scheduling problem from an image problem from an app crash with one `kubectl get pod -o wide`.
+- Why killing the process raised the restart count but kept the UID.
+- Why the deleted Pod stayed deleted, and what kind of object would bring it back.
 
----
-
-## Verify and clean up
-
-```bash
-bash stages/ignition/scripts/verify.sh
-kubectl get pods
-```
-
-- `verify.sh` is the maintainer check. It runs its own crash/delete/reapply sequence and passes only on `kind-apollo11`-style contexts.
-- Keep the cluster for Stage 1. To remove everything: `kind delete cluster --name apollo11`.
-
-## You can now
-
-- [ ] Say which component writes `spec.nodeName` and which one starts containers.
-- [ ] Read a `describe` Events table and name the source of each line.
-- [ ] Tell `Pending` (scheduler) from `ImagePullBackOff` (kubelet) from `CrashLoopBackOff` (app) in one command.
-- [ ] Explain why a deleted bare Pod stays deleted.
-
-## Checkpoint
-
-1. Pod is `Pending`, `NODE` is `<none>`. Which component's events do you read?
-2. `kubectl apply` printed `pod/x created`. Which evidence rung proves it runs?
-3. Which Pod field can you change in place, and which components react?
-4. What exactly does Stage 1 add that Exercise 6 lacked?
-
-Next: [Stage 1: Liftoff](./stage-1).
+**Next:** [Stage 1: Liftoff](./stage-1) wraps this Pod in a Deployment, so a deleted Pod comes back, and moves all of Apollo onto the cluster.

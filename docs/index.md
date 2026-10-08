@@ -1,13 +1,13 @@
 ---
 title: "Apollo11 — The Learner's Flight Plan"
-description: "Learn Kubernetes by running, breaking and recovering one application: Apollo Airlines."
+description: "Learn Kubernetes by taking one application, Apollo Airlines, from Docker Compose to a production-shaped platform, one better tool at a time."
 sidebar_label: "Flight Plan & Overview"
 ---
 
 # Apollo11: the learner's flight plan
 
 - One application, **Apollo Airlines** (10 components), taken from Docker Compose to a production-shaped cluster.
-- Each stage: short chapters → a lab where you build, break, diagnose and recover.
+- Each stage fixes a limit of the previous one: short chapters on the concepts, then a walkthrough of the stage that explains what each step does, why, and what it improved.
 - Reading-only works. Hands-on is recommended.
 
 ## Start here

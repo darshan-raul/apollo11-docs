@@ -16,13 +16,13 @@ sidebar_label: "Mission briefing"
 5. [Rollouts and rollback](../learn/workloads/rollouts-and-rollback): change versions safely.
 6. [Ephemeral state](../learn/workloads/ephemeral-state): what a Pod replacement loses.
 
-## Ready for the lab when you can answer
+## Ready for the walkthrough when you can answer
 
 - Labels vs `ownerReferences`: which one makes a Pod "belong" to a ReplicaSet?
 - Replacement Pod: new name? new IP? same Service address?
 - Why is seed work a Job and not a Deployment?
 - Rollback restores what? What can it not undo?
 
-## Lab
+## Walkthrough
 
-- [Build Stage 1](../stage-1)
+- [Stage 1 walkthrough](../stage-1)

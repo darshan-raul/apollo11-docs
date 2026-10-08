@@ -10,19 +10,20 @@ sidebar_label: "Mission briefing"
 ## Chapters
 
 1. [Signals and metrics](../learn/observability/signals-and-metrics)
-2. [Discovery and collection](../learn/observability/discovery-and-collection)
-3. [Queries, alerts and objectives](../learn/observability/queries-alerts-and-objectives)
-4. [Logs](../learn/observability/logs)
-5. [Traces](../learn/observability/traces)
-6. [Correlating a booking](../learn/observability/correlating-a-booking)
+2. [How signals leave a service](../learn/observability/instrumenting-services)
+3. [Discovery and collection](../learn/observability/discovery-and-collection)
+4. [Queries, alerts and objectives](../learn/observability/queries-alerts-and-objectives)
+5. [Logs](../learn/observability/logs)
+6. [Traces](../learn/observability/traces)
+7. [Correlating a booking](../learn/observability/correlating-a-booking)
 
-## Ready for the lab when you can answer
+## Ready for the walkthrough when you can answer
 
 - Rate/latency vs one event vs one request's route: metric, log or trace?
 - ServiceMonitor vs Prometheus: which one scrapes?
 - Does an alert fix anything?
 - What breaks a trace in the middle of a call chain?
 
-## Lab
+## Walkthrough
 
-- [Build Stage 6](../stage-6)
+- [Stage 6 walkthrough](../stage-6)

@@ -7,14 +7,21 @@ description: "How a stable Service name becomes a ready Pod: selector, EndpointS
 
 *Stage 1 · Liftoff*
 
-**You will be able to:** trace Service → selector → EndpointSlice → ready Pod, and diagnose "Service exists but nothing answers".
+**You will be able to:** trace how a Service name becomes a ready Pod, explain what readiness does for traffic, and diagnose a Service that exists but never answers.
 
-## Key points
+## The problem
 
-- Pod IPs change on every replacement, so callers use a **Service**: stable DNS name + virtual IP (ClusterIP).
-- A Service object stores: a label **selector**, **ports** (`port` → `targetPort`), and a ClusterIP.
-- It does **not** route packets. Node agents (`kube-proxy`) program kernel rules.
-- **Control path** (config) and **traffic path** (packets) are maintained by different actors.
+The previous chapter ended with Pods that get replaced and receive new IPs. If `search` called booking at a Pod IP, every replacement would break it. Callers need an address that **stays the same** while the Pods behind it change, and that **only points at Pods that can actually serve**.
+
+## The idea in plain words
+
+A Service is like the **front desk phone number** of a company. Callers dial one number. Which employee answers can change daily, and the receptionist only transfers you to someone who is in and ready.
+
+Precisely: a **Service** gives a set of Pods a stable DNS name and a stable virtual IP (the **ClusterIP**). It stores three things: a label **selector** (which Pods count), **ports** (`port` is what callers use, `targetPort` is the container's port), and the ClusterIP.
+
+The Service itself does not carry packets. It is configuration. Separate actors turn it into behaviour, and keeping the **control path** (setting up the routing information) apart from the **traffic path** (packets actually flowing) clears up most confusion.
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -29,38 +36,52 @@ flowchart LR
   end
 ```
 
-## Readiness vs liveness
+1. The **EndpointSlice controller** finds Pods matching the selector **and** reporting ready, and writes their IPs into an `EndpointSlice` object.
+2. **kube-proxy** on every node reads those slices and installs kernel routing rules.
+3. A caller sends a packet to the ClusterIP; the node's rules rewrite it to one ready Pod's IP.
 
-| | On failure | Effect on Service |
+The ClusterIP is **virtual**: no process listens on it. It exists only as a rule that rewrites packets.
+
+## Readiness: a traffic gate
+
+A **readiness probe** is a check the kubelet runs against a container to decide whether it should receive traffic *now*. It is different from a liveness probe.
+
+| | On failure | Effect on the Service |
 |---|---|---|
-| Liveness | Container **restarted** | (Pod disappears briefly) |
-| Readiness | Container keeps running | Pod IP **removed** from endpoints |
+| Liveness | Container is **restarted** | Pod briefly disappears |
+| Readiness | Container keeps running | Pod IP is **removed** from endpoints |
 
-- Readiness lets slow starters finish booting, isolates degraded Pods, and stops a broken rollout from taking traffic.
+Readiness lets slow starters finish connecting to their database before taking requests, isolates a degraded Pod, and keeps a broken rollout from receiving traffic.
 
-## Two silent failure modes
+## Two silent failures
 
-| Failure | Looks like | Evidence |
+| Failure | What you see | Evidence |
 |---|---|---|
-| Selector typo (`app: boking`) | Name resolves, calls hang or reset | `kubectl get endpoints` → `<none>`; **no event** |
-| Propagation delay | A few errors during fast rollouts | Endpoint removal reaches nodes asynchronously (Stage 4 `preStop`) |
+| **Selector typo** (`app: boking`) | The name resolves, calls hang or reset | `kubectl get endpoints` shows `<none>`. **No event is emitted**: the API considers it valid |
+| **Propagation delay** | A few errors during fast rollouts | "Pod ready" or "Pod gone" reaches every node's rules a moment later (Stage 4's `preStop` addresses this) |
 
 ## Service types
 
-| Type | Reachable | Use |
+| Type | Reachable from | Typical use |
 |---|---|---|
-| `ClusterIP` (default) | Inside the cluster | Service-to-service |
-| `NodePort` | `<node>:30000–32767` | Local/kind access |
-| `LoadBalancer` | External IP from a controller (cloud, MetalLB) | Edge |
+| `ClusterIP` (default) | Inside the cluster | Service-to-service calls |
+| `NodePort` | `<node-ip>:30000–32767` | Local/kind access |
+| `LoadBalancer` | An external IP from a controller (cloud or MetalLB) | Edge entry |
 
 ## Diagnose in four commands
 
 ```bash
-kubectl get endpoints booking -n apollo-airlines                                   # 1. selector matched?
-kubectl get pods -n apollo-airlines -l app=booking                                 # 2. Pods ready?
-kubectl get endpointslices -n apollo-airlines -l kubernetes.io/service-name=booking # 3. slice published?
-kubectl run c --rm -it --restart=Never -n apollo-airlines --image=curlimages/curl:8.7.1 -- curl -s http://booking:8082/readyz  # 4. live path
+kubectl get endpoints booking -n apollo-airlines                                    # 1. did the selector match?
+kubectl get pods -n apollo-airlines -l app=booking                                  # 2. are the Pods ready?
+kubectl get endpointslices -n apollo-airlines -l kubernetes.io/service-name=booking # 3. was a slice published?
+kubectl run c --rm -it --restart=Never -n apollo-airlines --image=curlimages/curl:8.7.1 -- curl -s http://booking:8082/readyz   # 4. does the live path work?
 ```
+
+## Common misconceptions
+
+- **"The Service forwards packets."** It is data that node rules are built from.
+- **"If DNS resolves, the Service works."** DNS returns the ClusterIP even when there are zero endpoints.
+- **"Readiness failure restarts the container."** That is liveness.
 
 ## Check yourself
 
@@ -75,3 +96,7 @@ kubectl run c --rm -it --restart=Never -n apollo-airlines --image=curlimages/cur
 
 Restarting does not fix a missing dependency; withholding traffic does the useful part.
 </details>
+
+## Where this leads
+
+Booking needs more than a name to run: database addresses, secrets and its own identity. Next: how configuration reaches a Pod.

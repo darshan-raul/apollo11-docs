@@ -17,8 +17,8 @@ sidebar_label: Before You Board
 
 | Repo | Contains | Use it to |
 |---|---|---|
-| `apollo11-docs` | This site | Learn the concepts and follow the labs |
-| `Apollo11` | App source, Dockerfiles, manifests, scripts | Run every lab |
+| `apollo11-docs` | This site | Learn the concepts and follow the walkthroughs |
+| `Apollo11` | App source, Dockerfiles, manifests, scripts | The YAML you read and the scripts you run |
 
 ## Setup for the hands-on route
 
@@ -29,17 +29,17 @@ git checkout 69113dcc80f77e32301d8ee7b9e73a67c923de96
 git rev-parse HEAD     # must print the hash above
 ```
 
-- Run every lab from the `Apollo11` repo root.
+- Run every walkthrough from the `Apollo11` repo root.
 - Tool list, versions and preflight: [Prepare your launchpad](../labs/setup).
 
 ## Learning loop used throughout
 
 ```mermaid
 flowchart LR
-  R[Read the chapter] --> P[Predict] --> D[Run the lab] --> C[Compare with evidence]
+  B[Briefing: what hurts now] --> R[Chapters: the concepts] --> W[Walkthrough: run it, see why] --> N[What's still missing] --> B
 ```
 
-- **Predict** before every command that changes something.
-- **Compare** your prediction with the output. A mismatch is the lesson.
+- Every stage starts from a limit of the previous one, and ends by naming the next one.
+- Read each step's **Why this way** and **Compared with** bullets. They matter more than the commands.
 
 Next: [How this course works](./how-to-use-this-course).

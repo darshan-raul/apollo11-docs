@@ -1,64 +1,76 @@
 ---
 title: "How to Use This Course"
 sidebar_label: "How This Course Works"
-description: "Routes, page types, exercise format, and completion criteria."
+description: "How stages, chapters and walkthroughs fit together, and how each stage builds on the last."
 ---
 
 # How to use this course
 
-**You will be able to:** pick a route and know when a stage is done.
+**You will be able to:** follow a stage from its briefing to its walkthrough, and know what "done" means.
+
+## The idea
+
+- Apollo Airlines is deployed again at every stage, each time on a better platform.
+- Each stage exists because the previous one hit a limit you can see: data lost on restart, five NodePorts, no way to tell why booking is slow.
+- So every stage answers the same three questions:
+  1. **What was wrong with the last stage?**
+  2. **What do we change, and with which tool?**
+  3. **Why is that better, and what is still missing?**
+
+## Each stage has three parts
+
+| Part | What it does | Time |
+|---|---|---|
+| **Mission briefing** | The problem this stage solves and the chapters to read | 2 min |
+| **Chapters** | One concept each, taught from the problem upwards: analogy, mechanism, Apollo example, misconceptions | 10–20 min each |
+| **Stage walkthrough** | Deploy the stage from the `Apollo11` repo, step by step, with what each step does, why it's done that way, and how it differs from the previous stage | 30–60 min |
+
+## How a walkthrough reads
+
+- **Where we left off:** the pains carried over from the last stage.
+- **What changes in this stage:** a before/after table, row by row.
+- **What's in the folder:** every file in `stages/<stage>/`, and what it replaces.
+- **Walkthrough:** numbered steps. Each has:
+  - the command,
+  - a trimmed excerpt of the real YAML or code, with comments,
+  - *What happens*, *Why this way*, *Compared with the previous stage*.
+- **When something looks wrong:** symptom → likely cause → first command.
+- **What this stage does not solve yet:** the limits that motivate the next stage.
+- **The journey so far:** one table that grows by a column every stage.
+
+You don't write YAML. The complete manifests, charts and scripts are in the `Apollo11` repo. The walkthrough tells you which file to open and what to notice.
 
 ## Routes
 
-| Route | Do | Skip | Outcome |
-|---|---|---|---|
-| Reading only | Briefings + chapters + "Check yourself" | Setup, lab pages | Concepts and trade-offs |
-| **Hands-on (recommended)** | Chapters, then the stage lab | Nothing | Builds, breaks, diagnoses and recovers a real cluster |
-| Reference | Command reference, troubleshooting, glossary | Order | Look-ups |
+| Route | Do | Outcome |
+|---|---|---|
+| **Hands-on (recommended)** | Briefing → chapters → run the walkthrough | You've seen every layer run, and know why it's there |
+| Reading only | Briefing → chapters → read the walkthrough | You know the concepts and the trade-offs |
+| Reference | Command reference, troubleshooting, glossary | Look-ups |
 
-## Page types
+## A stage is done when you can
 
-- **Mission briefing**: the problem, chapter list, readiness check.
-- **Chapter**: one concept, as bullets, with a short "Try it".
-- **Lab ("Build …")**: exercises run in the `Apollo11` repo.
-- **Reference**: look-up only.
-- **Planned**: design notes. No runnable lab exists yet.
+- Bring it up with the stage's script, and show a real request working, not just `kubectl get`.
+- Say, for each new object, **what it does** and **what it replaced**.
+- Answer the "You should now be able to explain" bullets at the end of the walkthrough without looking.
 
-## How lab exercises work
+## Reading the cluster: the evidence ladder
 
-Each exercise has the same shape:
-
-1. **Predict**: answer in writing before running anything.
-2. **Do**: copy-paste commands.
-3. **Check**: compare with the expected output.
-4. **Break**: inject one specific fault.
-5. **Diagnose**: use the evidence ladder and name the failing component before opening the answer.
-6. **Fix and prove**: recover, then show recovery with a real request.
-7. **Your turn**: one open task, solution hidden.
-
-## Evidence ladder
+When something doesn't look like the walkthrough, go down this ladder in order:
 
 | Rung | Command | Answers |
 |---|---|---|
-| 1 Snapshot | `kubectl get <obj> -o wide` | What exists, which node, which IP? |
+| 1 Snapshot | `kubectl get <obj> -o wide` | What exists, on which node, with which IP? |
 | 2 Events | `kubectl get events --sort-by=.lastTimestamp` | What did the cluster try? |
 | 3 Spec / conditions | `kubectl describe <obj>` | Where did it stop? |
 | 4 Logs | `kubectl logs <pod>` | What did the app see? |
-| 5 Endpoint | `curl` / `port-forward` | Does the passenger path work? |
-
-## Stage is complete when you can
-
-- **Build**: apply the stage's manifests (author at least one yourself in `learner-work/`).
-- **Observe**: show a real response, not just `kubectl get`.
-- **Break**: inject the stage's fault and name the evidence.
-- **Recover**: restore, then prove it with a request.
-- **Explain**: say which component acted and why.
+| 5 Endpoint | `curl` / `port-forward` | Does the passenger's request work? |
 
 ## When a command fails
 
-- `NotFound` → wrong stage, namespace or context. Do not create objects to silence it.
-- `connection refused` → wrong address or listener not ready.
-- `Pending` / timeout → read events, not another `apply`.
-- `verify.sh` passing is maintainer evidence. Your own break/recover is the learning evidence.
+- `NotFound` → wrong stage, namespace or context. Don't create objects to silence it.
+- `connection refused` → wrong address, or the listener isn't ready yet.
+- `Pending` or a timeout → read the events. Don't just `apply` again.
+- Each walkthrough has a "When something looks wrong" table, and the [troubleshooting page](../troubleshooting) has more.
 
 Next: [Terminal, Git and YAML](./terminal-git-and-yaml).

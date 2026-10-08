@@ -15,13 +15,13 @@ sidebar_label: "Mission briefing"
 4. [GitOps and ownership](../learn/delivery/gitops-and-ownership)
 5. [Promotion and rollback](../learn/delivery/promotion-and-rollback)
 
-## Ready for the lab when you can answer
+## Ready for the walkthrough when you can answer
 
 - Render vs apply vs sync vs healthy: what proves each?
 - What does Helm store besides the YAML it applied?
 - Who wins if you `kubectl scale` an Argo-managed Deployment?
 - Rollback restores which things? Which writes stay?
 
-## Lab
+## Walkthrough
 
-- [Build Stage 5](../stage-5)
+- [Stage 5 walkthrough](../stage-5)

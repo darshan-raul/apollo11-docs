@@ -5,8 +5,8 @@ This repository is the Docusaurus learning site for the
 truth for runnable snapshots. This guide follows the same airline from
 Launchpad through Liftoff, Guidance, Mission Data, and the missions beyond.
 Each stage begins with an application problem and explains the Kubernetes
-mechanisms that help solve it, with labs for taking the controls yourself.
-The core path requires no cluster or container tools. Optional labs map to the
+mechanisms that help solve it, then walks through the stage: what each step does, why, and what it improves over the last stage.
+The core path requires no cluster or container tools. Walkthroughs map to the
 supported local path from Launchpad through Stage 7. Security and cloud
 chapters teach concepts without claiming runnable Apollo implementations.
 
@@ -27,7 +27,7 @@ npm run serve
 ```
 
 Documentation lives in `docs/`; navigation is defined in `sidebars.ts`.
-Writing rules and the lab-exercise pattern: `maintenance/style-guide.md`.
+Writing rules, the chapter template and the stage walkthrough template: `maintenance/style-guide.md`.
 Content provenance and the diagram backlog live under `maintenance/`.
 Repository-specific excerpts must be checked against the sibling Apollo11
 repository before they are changed.

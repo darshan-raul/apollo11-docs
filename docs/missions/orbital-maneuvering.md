@@ -14,13 +14,13 @@ sidebar_label: "Mission briefing"
 3. [Horizontal Pod Autoscaling](../learn/scaling/hpa)
 4. [VPA and capacity](../learn/scaling/vpa-and-capacity)
 
-## Ready for the lab when you can answer
+## Ready for the walkthrough when you can answer
 
 - What baseline must you record before changing anything?
 - Cache vs more replicas: which reduces work per request?
 - HPA: which metric, which ratio, which bounds?
 - Why is VPA in recommendation mode next to an HPA?
 
-## Lab
+## Walkthrough
 
-- [Build Stage 7](../stage-7)
+- [Stage 7 walkthrough](../stage-7)

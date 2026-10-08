@@ -261,7 +261,7 @@ docker compose down -v
 
 ---
 
-## 🔬 10. Lab-specific one-liners
+## 🔬 10. Stage-specific one-liners
 
 ```bash
 # Which container runtime view does a node have of a Pod? (kind nodes are containers)

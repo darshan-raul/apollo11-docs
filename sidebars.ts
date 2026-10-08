@@ -20,7 +20,8 @@ const sidebars: SidebarsConfig = {
         'learn/containers/images-and-configuration',
         'learn/containers/networks-and-clients',
         'learn/containers/state-and-dependencies',
-        {type: 'doc', id: 'launchpad', label: 'Build Launchpad · Take the controls'},
+        'learn/containers/least-privilege',
+        {type: 'doc', id: 'launchpad', label: 'Launchpad walkthrough'},
       ],
     },
     {
@@ -31,7 +32,7 @@ const sidebars: SidebarsConfig = {
         'learn/cluster/objects-and-api',
         'learn/cluster/reconciliation-and-components',
         'learn/cluster/pod-lifecycle',
-        {type: 'doc', id: 'ignition', label: 'Build Ignition · Start the engines'},
+        {type: 'doc', id: 'ignition', label: 'Ignition walkthrough'},
       ],
     },
     {
@@ -44,7 +45,7 @@ const sidebars: SidebarsConfig = {
         'learn/workloads/jobs-and-initialization',
         'learn/workloads/rollouts-and-rollback',
         'learn/workloads/ephemeral-state',
-        {type: 'doc', id: 'stage-1', label: 'Build Stage 1 · Workloads'},
+        {type: 'doc', id: 'stage-1', label: 'Stage 1 walkthrough'},
       ],
     },
     {
@@ -57,7 +58,7 @@ const sidebars: SidebarsConfig = {
         'learn/networking/nodeport-and-loadbalancer',
         'learn/networking/ingress-and-tls',
         'learn/networking/gateway-api',
-        {type: 'doc', id: 'stage-2', label: 'Build Stage 2 · Networking'},
+        {type: 'doc', id: 'stage-2', label: 'Stage 2 walkthrough'},
       ],
     },
     {
@@ -70,7 +71,7 @@ const sidebars: SidebarsConfig = {
         'learn/storage/statefulset-storage-and-operations',
         'learn/storage/initialization-and-seeding',
         'learn/storage/recovery-boundaries',
-        {type: 'doc', id: 'stage-3', label: 'Build Stage 3 · Storage'},
+        {type: 'doc', id: 'stage-3', label: 'Stage 3 walkthrough'},
       ],
     },
     {
@@ -81,8 +82,9 @@ const sidebars: SidebarsConfig = {
         'learn/reliability/termination-and-draining',
         'learn/reliability/requests-limits-and-pressure',
         'learn/reliability/scheduling',
+        'learn/reliability/priority-and-spreading',
         'learn/reliability/disruption-budgets',
-        {type: 'doc', id: 'stage-4', label: 'Build Stage 4 · Reliability'},
+        {type: 'doc', id: 'stage-4', label: 'Stage 4 walkthrough'},
       ],
     },
     {
@@ -94,7 +96,7 @@ const sidebars: SidebarsConfig = {
         'learn/delivery/ci-and-image-delivery',
         'learn/delivery/gitops-and-ownership',
         'learn/delivery/promotion-and-rollback',
-        {type: 'doc', id: 'stage-5', label: 'Build Stage 5 · Delivery'},
+        {type: 'doc', id: 'stage-5', label: 'Stage 5 walkthrough'},
       ],
     },
     {
@@ -102,12 +104,13 @@ const sidebars: SidebarsConfig = {
       items: [
         'missions/mission-operations',
         'learn/observability/signals-and-metrics',
+        'learn/observability/instrumenting-services',
         'learn/observability/discovery-and-collection',
         'learn/observability/queries-alerts-and-objectives',
         'learn/observability/logs',
         'learn/observability/traces',
         'learn/observability/correlating-a-booking',
-        {type: 'doc', id: 'stage-6', label: 'Build Stage 6 · Observability'},
+        {type: 'doc', id: 'stage-6', label: 'Stage 6 walkthrough'},
       ],
     },
     {
@@ -118,7 +121,7 @@ const sidebars: SidebarsConfig = {
         'learn/scaling/cache-aside',
         'learn/scaling/hpa',
         'learn/scaling/vpa-and-capacity',
-        {type: 'doc', id: 'stage-7', label: 'Build Stage 7 · Scaling'},
+        {type: 'doc', id: 'stage-7', label: 'Stage 7 walkthrough'},
       ],
     },
     {
