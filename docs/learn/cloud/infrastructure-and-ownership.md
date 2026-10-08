@@ -7,54 +7,74 @@ description: "Who configures, operates, repairs, secures and pays for each layer
 
 *Lunar Orbit · Planned*
 
-**You will be able to:** fill an ownership record for a component and use it to find who acts next in an incident.
+**You will be able to:** fill in an ownership record for a component and use it to decide who acts next during an incident.
 
-## Five questions per component
+## The problem
+
+Booking Pods are Ready, but passengers cannot reach the site. The cause could be public DNS, a load balancer, Gateway configuration, a Service with no endpoints, or the application itself. In an incident, the worst delay is not technical: it is not knowing *who is allowed and expected to look at which layer*.
+
+## The idea in plain words
+
+A building has a landlord (structure and utilities), a facilities team (lifts and cleaning), and tenants (what happens inside their offices). When the lights go out, you need to know whose problem it is before you can fix it.
+
+"Managed" cloud services work this way: it means the provider accepts responsibility for a **defined part**. It does not mean "someone else guarantees Apollo works."
+
+For every component ask five questions:
 
 1. Who chooses its **configuration**?
-2. Who **operates** and monitors it?
-3. Who **repairs** or replaces it?
-4. Who controls **access**?
-5. Who sees and controls **cost**?
+2. Who **operates** and monitors it day to day?
+3. Who **repairs** or replaces it when it fails?
+4. Who controls **access** to it?
+5. Who sees and controls its **cost**?
 
 ```mermaid
 flowchart TB
   Prov[Provider] --> CP[Managed control plane]
-  Prov --> Infra[LBs, disks, VMs]
+  Prov --> Infra[Load balancers, disks, VMs]
   Plat[Platform team] --> Nodes[Node groups, add-ons, access, policy]
   App[App team] --> W[Images, manifests, probes, data behaviour]
 ```
 
-- "Managed" = the provider owns a **defined** part, not "Apollo works".
+## How it works: an ownership record
 
-## Ownership record
+An architecture box labelled "managed database" is too vague at 3 a.m. Give it a record:
 
 | Component | Configured by | Operated by | Evidence |
 |---|---|---|---|
-| Managed control plane | Platform + provider | Provider | API availability + provider status |
+| Managed control plane | Platform and provider | Provider | API availability plus provider status |
 | Worker nodes | Platform | Shared | Ready nodes, capacity, instance health |
-| Booking Deployment | App team | App team | Rollout status + successful booking |
-| Managed database | App + data teams | Provider + data team | Query success + restore test |
+| Booking Deployment | App team | App team | Rollout status and a successful booking |
+| Managed database | App and data teams | Provider and data team | Query success and a restore test |
 
-- Write "shared" as two concrete responsibilities; "shared" alone tells nobody who acts.
-- Add: service/region, change owner, provider health signal, app signal, backup owner, escalation route.
+Write "shared" as **two concrete responsibilities**; "shared" on its own tells nobody who acts next. Also record the service and region, who may change it, the provider's health signal, Apollo's own signal, the backup owner and the escalation route.
 
-## Debug by ownership
+### Ownership shapes debugging
+
+Start from passenger impact, then find the first broken boundary, and let ownership tell you who acts:
 
 | Observation | Next owner |
 |---|---|
-| LB address pending at provider | Platform/provider |
-| Traffic reaches ready booking Pod, DB call fails | App + data |
-| Gateway route unresolved | Platform |
+| Load balancer address still pending at the provider | Platform or provider |
+| Traffic reaches a ready booking Pod but the database call fails | App and data |
+| Gateway route not resolving | Platform |
 
 ## Limits
 
-- Provider status ≠ meeting Apollo's availability objective. A green app dashboard ≠ the provider can restore your data.
+Provider status alone does not show Apollo meeting its availability objective, and a green app dashboard does not show the provider can restore your data.
+
+## Common misconceptions
+
+- **"Managed means the provider fixes my incidents."** Only their layer.
+- **"Shared responsibility is a plan."** It is a gap until it names who does what.
 
 ## Check yourself
 
 <details>
 <summary>Booking Pods are Ready but passengers can't reach the site. Where do you look first?</summary>
 
-Outward from the Pod: Service endpoints, Gateway/route status, load balancer, DNS. Ownership decides who can change each layer.
+Outward from the Pod: Service endpoints, Gateway or route status, load balancer, DNS. Ownership decides who can change each layer.
 </details>
+
+## Where this leads
+
+Ownership also covers failure domains and change. Next: how zones, scaling and upgrades interact.

@@ -4,7 +4,7 @@ Applies to every page under `docs/`. Reviewers: reject a page that breaks these 
 
 ## Prose rules
 
-- **Bullets first.** One idea per bullet. Max two sentences per bullet.
+- **Structure with bullets and tables; explain in short paragraphs.** Labs stay terse; chapters teach.
 - **No story openers.** Do not open with "Imagine…", "Before a passenger can…", or scene-setting. Open with what the page covers and what the learner can do afterwards.
 - **No filler.** Delete sentences that restate the heading, preview later pages, or reassure ("don't worry", "you will already know…").
 - **No "Apollo narrative" paragraphs** unless they name a concrete service, object, command or failure.
@@ -12,31 +12,31 @@ Applies to every page under `docs/`. Reviewers: reject a page that breaks these 
 - **Prefer tables** for comparisons (A vs B, who does what, what survives what).
 - **Prefer a command + expected output** over a paragraph describing it.
 - **Diagrams** only when they show a flow the bullets cannot. Keep one per concept.
-- Page length: chapter ≤ ~400 words of prose excluding code and diagrams.
 
-## Chapter template
+## Chapter template (teach, then summarise)
+
+Chapters must **groom the learner into the concept**: say why it exists, build a mental model from something already known, then walk through the mechanism. Bullets and tables are for structure; short paragraphs carry the explanation.
 
 ```md
 # <Concept>
+*Stage*
+**You will be able to:** <1-2 outcomes>
 
-**You will be able to:** <1–2 verbs-first outcomes>
-
-## Key points
-- bullets
-
-## How it works          (optional: table or diagram)
-
-## Apollo example
-- the exact object/file/command in the Apollo11 repo
-
-## Try it                (3–6 lines; one command, one expected result)
-
-## Gotchas
-- bullets: misconceptions and limits
-
-## Check yourself
-- Q → collapsed answer
+## The problem                (2-4 sentences: what goes wrong without this; link to the previous chapter)
+## The idea in plain words    (mental model or analogy; define each new term the first time)
+## How it works               (numbered walkthrough, diagram, table; one new idea per step)
+## Apollo example             (exact object/file/command in the repo)
+## Try it                     (one command, one expected result, what it proves)
+## Common misconceptions      (each: the wrong belief, why it is tempting, the correction)
+## Check yourself             (question -> collapsed answer)
+## Where this leads           (1-2 sentences bridging to the next chapter)
 ```
+
+Rules:
+- **Define before use.** A term appears in prose with a one-line meaning before it appears in a table or command.
+- **Analogy once, then drop it.** Use it to enter the idea, then switch to the precise mechanism and say where the analogy breaks.
+- **Why before how.** Every mechanism is introduced by the failure it prevents.
+- Target 500-900 words of prose per chapter. Reference tables are in addition.
 
 ## Exercise pattern (labs)
 

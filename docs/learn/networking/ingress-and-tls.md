@@ -7,13 +7,20 @@ description: "Ingress is rules, the controller is the proxy; where TLS terminate
 
 *Stage 2 · Guidance*
 
-**You will be able to:** separate Ingress rules from the proxy, trace TLS termination, and list what a self-signed cert cannot prove.
+**You will be able to:** separate Ingress rules from the proxy that applies them, trace where TLS ends, and list what a self-signed certificate cannot prove.
 
-## Key points
+## The problem
 
-- Requests carry a `Host` header, so one proxy on 80/443 can choose the backend by host/path.
-- **Ingress** = stored routing rules. **Ingress controller** (Traefik, NGINX) = the running proxy that reads them.
-- Without a controller, an Ingress does nothing.
+With NodePort, every service needs its own port number: flight on 30081, booking on 30082. Passengers should not need to know that. Yet every HTTP request already carries a `Host` header with the hostname it was meant for (`flight.apollo.local`). One proxy listening on the standard ports 80 and 443 can read that header and choose the right backend itself.
+
+## The idea in plain words
+
+Picture a hotel receptionist. Guests all arrive at one front desk and say which room they want; the receptionist directs them. Two separate things exist: the **guest list and room map** (the rules) and **the receptionist** (the one who acts on them).
+
+- An **Ingress** is only the rules: "host `flight.apollo.local` goes to Service `flight` on 8081."
+- An **Ingress controller** (Traefik, NGINX, …) is the running proxy that reads Ingress objects and configures itself from them.
+
+An Ingress with no controller does nothing.
 
 ```mermaid
 flowchart LR
@@ -22,17 +29,19 @@ flowchart LR
   T --> S[flight Service] --> P[flight Pod]
 ```
 
-## Reading an Ingress
+## How it works: reading an Ingress
 
 | Field | Meaning |
 |---|---|
-| `ingressClassName: traefik` | Which controller owns it |
-| `rules[].host` | Host header to match |
-| `paths[].pathType: Prefix` | `/` matches everything below |
-| `backend.service` | Target Service + port |
-| `tls[].secretName` | Secret with `tls.crt`/`tls.key` |
+| `ingressClassName: traefik` | Which controller owns this Ingress |
+| `rules[].host` | The `Host` header to match |
+| `paths[].pathType: Prefix` | `/` matches everything below it |
+| `backend.service` | Target Service and port |
+| `tls[].secretName` | Secret holding `tls.crt` and `tls.key` |
 
-## TLS termination
+## How it works: TLS termination
+
+TLS is the encryption behind HTTPS. **Terminating** TLS means the encrypted connection ends at the proxy, which holds the certificate and private key (loaded from a Kubernetes Secret). From there the proxy forwards the request to the Service in plain HTTP.
 
 ```mermaid
 sequenceDiagram
@@ -40,23 +49,30 @@ sequenceDiagram
   participant P as Proxy
   participant S as TLS Secret
   participant F as flight Service
-  S-->>P: cert + key
-  B->>P: HTTPS
+  S-->>P: certificate + key
+  B->>P: HTTPS (encrypted)
   Note over P: TLS ends here
   P->>F: plain HTTP
 ```
 
-- TLS protects **browser → proxy** only. Proxy → Service is plain HTTP in this lab.
-- Missing/invalid Secret ⇒ Traefik serves its fallback cert (`CN=TRAEFIK DEFAULT CERT`), not a dropped connection.
+So TLS protects only the browser → proxy leg in this lab. If the Secret is missing or invalid, Traefik falls back to its own default certificate (`CN=TRAEFIK DEFAULT CERT`) instead of dropping the connection, which means the application is fine but the certificate is wrong.
 
-## What a self-signed cert does not give
+## What a local self-signed certificate does not give you
 
 | Missing | Effect |
 |---|---|
-| Browser trust | Warnings; use `--cacert` |
-| Renewal | Fixed expiry, no ACME |
-| Edge → Pod encryption | Needs mTLS |
-| Proof from `curl -k` | `-k` skips verification entirely |
+| Browser trust | Warnings; you must supply the CA yourself (`curl --cacert`) |
+| Renewal | Fixed expiry, no automatic issuing |
+| Proxy → Pod encryption | Needs mTLS, which is out of scope here |
+| Proof from `curl -k` | `-k` disables verification, so it proves only that a TLS port answered |
+
+## Reading failures at the edge
+
+| Symptom | Layer |
+|---|---|
+| 404 from the proxy | No rule matched the host or path; the backend was never contacted |
+| 502 / 503 | A rule matched but the backend has no ready endpoint |
+| Wrong certificate issuer | The TLS Secret is missing or invalid |
 
 ## Try it
 
@@ -66,13 +82,13 @@ kubectl describe secret apollo-tls-secret -n apollo-airlines-apps
 kubectl get ingress -n apollo-airlines-apps
 ```
 
-## Diagnose
+- The first command shows who issued the certificate the proxy presented.
 
-| Symptom | Layer |
-|---|---|
-| 404 from proxy | No rule matched the Host/path |
-| 502/503 | Rule matched; backend has no ready endpoint |
-| Wrong cert issuer | TLS Secret missing/invalid |
+## Common misconceptions
+
+- **"An Ingress is a proxy."** It is configuration.
+- **"HTTPS means the whole path is encrypted."** Only up to the TLS-terminating proxy.
+- **"`curl -k` working means TLS is correct."** It skips the checks that matter.
 
 ## Check yourself
 
@@ -81,3 +97,7 @@ kubectl get ingress -n apollo-airlines-apps
 
 The proxy answered itself because no route matched; the backend was never contacted.
 </details>
+
+## Where this leads
+
+Ingress combines the entry point and the application's routes in one object. Gateway API separates them so different teams can own each part.

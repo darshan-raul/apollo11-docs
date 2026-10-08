@@ -7,44 +7,54 @@ description: "Which system fulfils each Kubernetes request locally versus in a c
 
 *Lunar Orbit · Planned*
 
-**You will be able to:** for any Kubernetes object, name who fulfils it locally vs in the cloud, and grade portability.
+**You will be able to:** for any Kubernetes object, name who fulfils it locally and in the cloud, and grade how portable it really is.
 
-## Key points
+## The problem
 
-- kind: nodes are Docker containers on one workstation. Cheap and visible, but hides failure domains and provider services.
-- The Kubernetes **API stays the same**; the controller behind it, its failure modes, security boundary and cost change.
+Everything so far ran in kind: Kubernetes nodes that are Docker containers on one laptop. That is ideal for learning because every part is visible and free, but it hides things a real airline must face: separate machines, zones that fail independently, load balancers that cost money, storage that lives outside the node. Moving to the cloud, the YAML may apply unchanged and yet mean something very different.
 
-| Request | Local (kind) | Cloud |
+## The idea in plain words
+
+A Kubernetes object is a **purchase order**: the form is the same everywhere, but *who fulfils it* differs. "Deliver one load balancer" is fulfilled locally by MetalLB handing out an IP from a list, and in the cloud by a provider API creating a billable managed load balancer. The form (the API) stays stable; the fulfiller, its failure modes, security boundary and cost all change.
+
+| Request | Local (kind) | Possible cloud implementation |
 |---|---|---|
-| Node | kind container | VM joined to the cluster |
-| Volume | node-local directory (`local-path`) | Zonal block volume (CSI) |
-| `type: LoadBalancer` | MetalLB address from a pool | Provider load balancer + billable public IP |
-| Operator login | local kubeconfig | Provider IAM + Kubernetes identity |
+| A node | A kind container | A virtual machine joined to the cluster |
+| A volume | A node-local directory (`local-path`) | A zonal block volume through a CSI driver |
+| `type: LoadBalancer` | MetalLB gives an IP from a pool | A provider load balancer and a billable public IP |
+| An operator logging in | A local kubeconfig | Provider IAM combined with Kubernetes identity |
 
 ```mermaid
 flowchart LR
   Obj[Kubernetes object] --> Ctl[controller] --> Res[implemented resource] --> Ev[status + provider state + app check]
 ```
 
-- Ask "which system fulfilled this, and which assumptions changed?", not "did the YAML apply?"
+So the useful question is not "did the YAML apply?" but **"which system fulfilled each request, and which assumptions changed?"**
 
-## One booking, more hops
+## How it works: one booking, more hops
 
-`DNS → provider LB → Gateway proxy → Service → booking Pod → managed DB or zonal volume`. Each hop has a different owner and evidence source. A rollout success says nothing about public DNS or the load balancer.
+A cloud booking request passes `public DNS → provider load balancer → Gateway proxy → Service → booking Pod → managed database or zonal volume`. Each hop has a different owner and a different place to look for evidence. A successful rollout says nothing about public DNS; a healthy load balancer says nothing about the database. Keep the evidence ladder, and extend it to infrastructure outside Kubernetes.
 
-## Portability levels
+## "Portable" has levels
 
 | Level | Meaning |
 |---|---|
-| Artifact | Same image runs |
-| API | Equivalent objects are accepted |
-| Behavioural | Same observable behaviour |
-| Operational | Team can secure, recover, upgrade and pay for it |
+| **Artifact** | The same image runs |
+| **API** | Equivalent Kubernetes objects are accepted |
+| **Behavioural** | The application meets the same observable needs |
+| **Operational** | The team can secure, recover, upgrade and pay for it under the new ownership model |
 
-## Record per integration
+A system can be artifact- and API-portable and still not operationally portable.
 
-- Kubernetes object → controller → provider resource → passenger-facing check.
-- Apollo has **no verified** cloud deployment yet (see [EKS boundary](../../eks)).
+## What to record for each integration
+
+The Kubernetes object, the controller that acts on it, the provider resource it creates, and the passenger-facing check that matters. Apollo has **no verified** cloud deployment (see the [EKS boundary](../../eks)).
+
+## Common misconceptions
+
+- **"If the YAML applies, it works the same."** Controllers and failure domains differ.
+- **"A managed service means no responsibility."** Next chapter.
+- **"The cloud is just bigger kind."** Zones, billing and identity are new.
 
 ## Check yourself
 
@@ -53,3 +63,7 @@ flowchart LR
 
 API-portable at best. Controller, failure domains, identity, backup and cost differ; operational portability must be shown separately.
 </details>
+
+## Where this leads
+
+When something spans a provider and your own team, someone must be responsible for each layer. That is ownership.
