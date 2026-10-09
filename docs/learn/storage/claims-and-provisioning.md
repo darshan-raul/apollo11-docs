@@ -9,13 +9,11 @@ description: "PVC, PV and StorageClass; dynamic provisioning, WaitForFirstConsum
 
 **You will be able to:** trace a PVC to its PV, explain why a claim can sit in `Pending` normally, read access modes correctly, and say what changes when the same manifests run on EKS.
 
-## The problem
-
 A database needs a disk, but the developer writing the manifest should not need to know whether that disk is a directory on a laptop, an Amazon EBS volume or an NFS share. If manifests named real disks, they would only work in one place.
 
 There is also an ownership problem. The person who writes the database manifest is rarely the person who runs the storage system. The manifest author knows *what* is needed ("1 GiB, one writer"); the platform owner knows *how* it is supplied. Kubernetes needs a seam between them.
 
-## The idea in plain words
+## Request storage, do not pick a disk
 
 Compare ordering a **taxi** with owning a particular car. You describe what you need ("a ride for two, now") and the system finds a car. Storage is requested the same way: you ask for "1 GiB, read-write", and something provides a matching disk.
 
@@ -29,7 +27,7 @@ That produces three cooperating objects:
 
 A PV has no namespace, but a PVC does, and a Pod can only mount claims from its own namespace. That is why a claim is the right unit to hand to a workload: it is the namespaced handle to a cluster-wide resource.
 
-## How it works
+## Dynamic provisioning
 
 When a PVC names (or defaults to) a StorageClass, a **provisioner** creates a matching PV and the two are **bound** one-to-one. This is *dynamic provisioning*: no administrator pre-creates disks.
 

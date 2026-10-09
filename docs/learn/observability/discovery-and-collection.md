@@ -9,17 +9,15 @@ description: "The four links from /metrics to a dashboard, ServiceMonitor anatom
 
 **You will be able to:** find which of four links is broken when a metric is missing from a dashboard.
 
-## The problem
-
 A Grafana panel is empty. The cause could be the app, the scrape configuration, Prometheus itself, or the query. Without a model of the chain you will poke at random. The key insight: *creating a configuration object is not the same as data arriving*.
 
-## The idea in plain words
+## Scraping needs an unbroken chain
 
 Think of a **newspaper delivery chain**: the printing press (your app) must produce papers, the delivery route (discovery) must include your street, the courier (Prometheus) must actually go, and finally you must be looking at the right paper (the query). A missing paper could fail at any link.
 
 Prometheus works by **scraping**: every so often it makes an HTTP request to each target's `/metrics` endpoint and stores what it reads. It needs a list of targets, and on Kubernetes that list is built automatically.
 
-## How it works: the four links
+## The four links
 
 ```mermaid
 flowchart LR

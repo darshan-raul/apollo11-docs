@@ -9,8 +9,6 @@ description: "Ingress is rules, the controller is the proxy; how Traefik is wire
 
 **You will be able to:** separate Ingress rules from the proxy that applies them, read every object that makes Apollo's Traefik edge work, trace where TLS ends, explain what a self-signed certificate cannot prove, and diagnose a failure from the symptom alone.
 
-## The problem
-
 With NodePort, every service needs its own port number: flight on 30081, booking on 30082. Passengers should not need to know that. Yet every HTTP request already carries a `Host` header with the hostname it was meant for (`flight.apollo.local`). One proxy listening on the standard ports 80 and 443 can read that header and choose the right backend itself.
 
 Two more problems arrive at the same time:
@@ -20,7 +18,7 @@ Two more problems arrive at the same time:
 
 An Ingress controller solves all three at the one place every request already passes through.
 
-## The idea in plain words
+## Rules versus the proxy that reads them
 
 Picture a hotel receptionist. Guests all arrive at one front desk and say which room they want; the receptionist directs them. Two separate things exist: the **guest list and room map** (the rules) and **the receptionist** (the one who acts on them).
 
@@ -37,7 +35,7 @@ flowchart LR
   T --> S[flight Service] --> P[flight Pod]
 ```
 
-## How it works: the four pieces Apollo installs
+## The four pieces Apollo installs
 
 *Source: `stages/stage2/k8s/substages/03-traefik-ingress-tls/`*
 
@@ -135,7 +133,7 @@ Read each port as a translation: the Service's own `port: 443` is for in-cluster
 Substage 4 adds a `traefik-loadbalancer-svc.yaml` that swaps this for `type: LoadBalancer` so MetalLB gives Traefik a real IP. The Ingress objects do not change at all; only the way *in* to the proxy does. That is the point of separating rules from proxy.
 :::
 
-## How it works: reading an Ingress
+## Reading an Ingress
 
 *Source: `stages/stage2/k8s/substages/03-traefik-ingress-tls/03-ingress-apps.yaml`*
 
@@ -184,7 +182,7 @@ Apollo has five Ingresses (identity, flight, booking and search in `apollo-airli
 
 Notice that step 4 does not use the Service's ClusterIP at all. Traefik talks to Pod IPs directly, which is why its ClusterRole includes `endpointslices`. See [Service control path and packet path](./service-control-and-data-paths) for how those lists are built.
 
-## How it works: TLS termination
+## TLS termination
 
 TLS is the encryption behind HTTPS. **Terminating** TLS means the encrypted connection ends at the proxy, which holds the certificate and private key (loaded from a Kubernetes Secret). From there the proxy forwards the request to the Service in plain HTTP.
 

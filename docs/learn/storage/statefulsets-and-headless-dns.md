@@ -9,13 +9,11 @@ description: "When a workload needs a stable Pod name, how Apollo's four Statefu
 
 **You will be able to:** decide between a Deployment and a StatefulSet, read Apollo's StatefulSet and its two Services, resolve one specific Pod by its stable DNS name, and predict what changes (and what does not) when that Pod is replaced.
 
-## The problem
-
 Booking Pods are interchangeable: any ready copy can serve any request, so their random names do not matter. A database member is different. A replica may need to reconnect to *that particular* member, and the member needs to find its *own* storage again after replacement. That is an **identity** problem, not just a storage one.
 
 A Deployment cannot express this. Its Pods get a random suffix, and when one is replaced the new one has a different name, so nothing outside can say "I mean the same one as before".
 
-## The idea in plain words
+## Stable identity for each member
 
 A Deployment is a pool of taxis: whichever arrives will do. A StatefulSet is a set of **numbered lockers** (`locker-0`, `locker-1`): if locker 0 is rebuilt, it is still locker 0 and gets its own key back.
 
@@ -43,7 +41,7 @@ Apollo's databases have `replicas: 1`. A reasonable question: why not a Deployme
 
 A fourth, more practical reason: the replacement logic is *the same code path* whether you run one member or three. Learning the single-replica shape is learning the shape that scales.
 
-## How it works: headless DNS
+## Headless DNS
 
 A normal Service gives callers one virtual address and load-balances. Sometimes a peer must reach one specific member. A **headless Service** sets `clusterIP: None`; DNS then returns the Pod IP(s) directly. For StatefulSet Pods that gives each one a stable name:
 

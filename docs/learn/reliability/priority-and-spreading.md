@@ -9,14 +9,12 @@ description: "PriorityClasses decide who keeps a place when the cluster is full;
 
 **You will be able to:** explain what a PriorityClass changes when the cluster runs out of room, and read a topology spread constraint and predict where replicas land.
 
-## The problem
-
 [Scheduling](./scheduling) answers "which node *can* take this Pod?". Two questions are left over:
 
 - **When there is no room at all, who goes first?** In a full cluster a new booking Pod sits `Pending` while notification Pods, which matter far less to a passenger, keep their places. Nothing says booking is more important.
 - **Where do replicas end up?** Two booking replicas protect you from one Pod crashing. They don't protect you from one *node* failing if the scheduler put both on the same node. By default it is free to do exactly that.
 
-## The idea in plain words
+## Priority and spread are separate ideas
 
 Think of boarding a full flight. Some passengers have priority: if there aren't enough seats, a low-priority passenger is asked to take the next flight so a priority one can board. That's **priority and preemption**.
 
@@ -24,7 +22,7 @@ Separately, a family travelling together might want to be *spread out* across ex
 
 The analogy breaks in one place. Preemption doesn't politely rebook the evicted Pod. It is deleted, and its controller has to create a new one wherever there's room later.
 
-## How it works
+## Configuring priority and spread
 
 ### PriorityClass
 

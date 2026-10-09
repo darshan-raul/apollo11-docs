@@ -9,8 +9,6 @@ description: "Where data survives which event, why start order is not enough, an
 
 **You will be able to:** say which storage location protects a piece of data against which event, explain why a service must cope with dependencies that come and go, and choose between an "is it alive?" check and an "is it ready?" check.
 
-## The problem
-
 Your `api` container is running and its port answers. A user submits an order and it fails. Two separate things can be going on, and they are easy to blur:
 
 1. **Dependencies.** The API needs its database (and perhaps a cache or another service). If one of those is down, the API cannot finish the job even though its own process is fine.

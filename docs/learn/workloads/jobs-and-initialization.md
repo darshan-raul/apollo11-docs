@@ -9,13 +9,11 @@ description: "Why schema and seed work run as Jobs, and why idempotency is requi
 
 **You will be able to:** choose between a Job and a Deployment, and write initialization that is safe to run twice.
 
-## The problem
-
 A new database is empty. Before booking can store anything, tables must be created. If booking does this itself on startup, picture two booking replicas starting at the same instant, each running `CREATE TABLE`: they race, one fails or leaves a half-finished schema, and the symptom shows up as a mysterious crash loop in the web service.
 
 The work is **finite** (it should end), **one-off** (it should happen once, not once per replica) and **separate** from serving traffic. Deployments are built for the opposite: things that run forever.
 
-## The idea in plain words
+## Work that should finish
 
 A Deployment is a restaurant that stays open; a **Job** is a delivery that has to arrive once. A Job runs a task until it succeeds, then stops. If the task fails, the Job tries again a limited number of times, and if it still fails it is marked failed so a person sees it.
 
@@ -32,7 +30,7 @@ flowchart LR
   Job[Job init-booking-db runs psql init.sql] --> Done[Complete]
 ```
 
-## How it works
+## Apollo's init Job
 
 Apollo's `init-booking-db` Job runs the Postgres client image. It waits in a loop until `pg_isready` says the database is up (so it does not fail just because it started first), then runs `init.sql` and exits `0`. Kubernetes records the Job as `Complete`.
 

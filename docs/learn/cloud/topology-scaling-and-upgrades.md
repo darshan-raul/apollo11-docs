@@ -9,11 +9,9 @@ description: "Zones and volumes, Pod vs node scaling, and upgrades as compatibil
 
 **You will be able to:** explain why a Pod can stay `Pending` while other zones have spare CPU, and trace a scaling request from metric to working capacity.
 
-## The problem
-
 In kind, every worker is on one machine. A cloud region has several **availability zones**, separate data centres that fail independently. That sounds strictly better, but it adds constraints: data and compute must be in the same place, and capacity added in one layer may be useless without the next.
 
-## The idea in plain words
+## Zones constrain where things can run
 
 A restaurant with several branches: if the kitchen's freezer (your data) is in branch A, the chef (your Pod) must work in branch A, even if branch B is empty. Hiring more chefs does not help if there is no kitchen space to put them.
 
@@ -30,7 +28,7 @@ flowchart LR
   Z[Zone A lost] --> L[needs a recovery path]
 ```
 
-## How it works: Pod scaling versus node scaling
+## Pod scaling versus node scaling
 
 Two different shortages need two different tools:
 

@@ -9,13 +9,11 @@ description: "One claim per ordinal, how Apollo's databases and Redis use it, or
 
 **You will be able to:** follow a StatefulSet ordinal to its dedicated claim, say what ordering, partitioning and retention settings do and do not guarantee, and explain why Redis needed extra flags for its volume to be worth having.
 
-## The problem
-
 The stable name `identity-db-0` helps others find one member, but a name does not hold data. For a replacement Pod to be *the same database member*, it must also reconnect to the same storage. If the replacement mounted a fresh empty disk, the name would be stable and the database still lost.
 
 And once storage lives longer than the Pod, a new set of questions appears. What happens to the disk when you scale down? When you delete the whole StatefulSet? When you push a new image, in what order do members change? Each of those is a way to lose data by accident, so each needs a deliberate answer.
 
-## The idea in plain words
+## One claim per member
 
 A StatefulSet's volume section works like a **rubber stamp**. Instead of naming one shared claim (which every replica would fight over), you give a *template*, and the controller stamps out a separate claim for each ordinal, named after it. Locker 0 always gets key 0; locker 1 gets key 1.
 
@@ -37,7 +35,7 @@ flowchart TB
 
 When `identity-db-0` is replaced, the new Pod mounts `pg-data-identity-db-0` again. That gives each member separate storage; it does **not** make the members replicas of each other, and it is not a backup. Whether the bytes survive a node or cluster loss still depends on the StorageClass, the volume backend and your recovery plan.
 
-## How it connects: the template, the mount and the claim
+## The template, the mount and the claim
 
 *Source: `stages/stage3/k8s/apps/booking-db/booking-db-sts.yaml`*
 
@@ -61,7 +59,7 @@ The claim the controller creates, `pg-data-booking-db-0`, is then the actual obj
 
 Notice the template name appears in the claim name. That is why `verify.sh` can check exactly `pg-data-identity-db-0 pg-data-flight-db-0 pg-data-booking-db-0 redis-data-redis-0`, and why changing a template name later orphans the old claims instead of renaming them.
 
-## How it works: ordering, updates and retention
+## Ordering, updates and retention
 
 **Ordering.** By default (`OrderedReady`) the controller creates `-0` first, waits until it is Ready, then creates `-1`, and removes them in reverse order when scaling down. `Parallel` skips the ordering. Ordering helps only if your application needs it. Readiness never proves that a primary has been elected, a replica has caught up, or a schema is compatible; those need their own checks.
 

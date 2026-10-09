@@ -9,11 +9,9 @@ description: "What a valid baseline contains, why one fast curl is not a result,
 
 **You will be able to:** define a baseline, change exactly one variable, and report what the data does and does not support.
 
-## The problem
-
 Search feels slow, so someone adds a cache, and it "feels faster". Was it the cache? A warmer database? Fewer other users on your laptop? Without a controlled comparison, any improvement (or non-improvement) is an anecdote. Performance work is full of changes that help in theory and do nothing in practice, so you need evidence *before* you change anything.
 
-## The idea in plain words
+## A baseline is an experiment
 
 This is the scientific method applied to a system: record how it behaves now (the **baseline**), change **one** thing, repeat the identical test, and compare. If two things change at once you cannot say which mattered; if the test differs you cannot compare at all.
 
@@ -37,7 +35,7 @@ These thresholds are this course's acceptance criteria, not a production SLO.
 | Cold-start effects | The first request fills the cache |
 | Error cascades | A "fast success" that is really a dependency failing instantly |
 
-## How it works: the experiment
+## The experiment
 
 *Source: `stages/stage7/k6/README.md`*
 

@@ -9,11 +9,9 @@ description: "VPA recommendation mode, the HPA/VPA conflict, and why capacity li
 
 **You will be able to:** read a VPA recommendation, choose an update mode, and explain why autoscalers are limited by real node capacity.
 
-## The problem
-
 The HPA is only as good as the Pod's CPU *request*, because utilisation is measured against it. But how do you know the right request? Guessing too high wastes capacity and makes the HPA scale down wrongly; too low and the Pod is starved. We need a measured suggestion.
 
-## The idea in plain words
+## Right-sizing each Pod
 
 The HPA changes **how many** Pods; the **Vertical Pod Autoscaler (VPA)** looks at **how big** each Pod should be. Think of a tailor measuring you over a few weeks and recommending a size: useful advice, but you decide whether to buy it.
 
@@ -31,7 +29,7 @@ flowchart LR
   U[search Pods: actual usage] --> V[VPA recommender] -->|updateMode Off| Rec[status.recommendation] --> Eng[Engineer updates requests] --> HPA[HPA has an accurate denominator]
 ```
 
-## How it works: update modes
+## Update modes
 
 | Mode | Behaviour | Risk |
 |---|---|---|

@@ -13,11 +13,9 @@ Vault, External Secrets Operator, signing and admission enforcement are planned 
 
 **You will be able to:** explain what an external secret store changes, and why a tag is not provenance.
 
-## The problem
-
 Two quiet risks sit at either end of a deployment. **Secrets:** Apollo's passwords live in plain `Secret` YAML in the repository, so anyone with read access to Git holds production credentials, and rotating them means editing files. **Supply chain:** the cluster pulls `booking:v1.2.0` and runs it, but how do you know that image is what your CI built rather than something overwritten in the registry?
 
-## The idea in plain words
+## Two trust problems
 
 **Secrets:** instead of keeping the safe's combination written on a note in the office, keep it in a *bank vault* (HashiCorp Vault) that logs access and can change the combination on schedule, and have a courier (the External Secrets Operator) deliver the current value to the cluster.
 

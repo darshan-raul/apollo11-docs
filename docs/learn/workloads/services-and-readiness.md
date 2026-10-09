@@ -9,11 +9,9 @@ description: "How a stable Service name becomes a ready Pod: selector, EndpointS
 
 **You will be able to:** trace how a Service name becomes a ready Pod, explain what readiness does for traffic, and diagnose a Service that exists but never answers.
 
-## The problem
+Ignition's [ReplicaSets](../cluster/replicasets) chapter ended with Pods that get replaced and receive new IPs. If `search` called booking at a Pod IP, every replacement would break it. Callers need an address that **stays the same** while the Pods behind it change, and that **only points at Pods that can actually serve**.
 
-The previous chapter ended with Pods that get replaced and receive new IPs. If `search` called booking at a Pod IP, every replacement would break it. Callers need an address that **stays the same** while the Pods behind it change, and that **only points at Pods that can actually serve**.
-
-## The idea in plain words
+## A stable name in front of changing Pods
 
 A Service is like the **front desk phone number** of a company. Callers dial one number. Which employee answers can change daily, and the receptionist only transfers you to someone who is in and ready.
 
@@ -21,7 +19,7 @@ Precisely: a **Service** gives a set of Pods a stable DNS name and a stable virt
 
 The Service itself does not carry packets. It is configuration. Separate actors turn it into behaviour, and keeping the **control path** (setting up the routing information) apart from the **traffic path** (packets actually flowing) clears up most confusion.
 
-## How it works
+## How a request reaches a Pod
 
 ```mermaid
 flowchart LR

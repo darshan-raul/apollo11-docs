@@ -9,15 +9,13 @@ description: "What belongs in an image, what arrives at runtime, how layers and 
 
 **You will be able to:** decide whether a value belongs in the image or in runtime configuration, read a Dockerfile and say which steps the build cache will reuse, and predict when a configuration change takes effect.
 
-## The problem
-
 You now know an image is a sealed package. The next question is what to put in it.
 
 Suppose you bake the database address and password into your API's image. That image now works in exactly one place, and anyone who can pull it can read the password. Suppose instead you leave everything out: nobody can start it without reading the source code to find out what it needs.
 
 The skill is sorting facts into two piles: those that belong to the **program** (the same in every environment) and those that belong to the **environment** (different on your laptop, in testing and in production).
 
-## The idea in plain words
+## Build time and run time
 
 Compare a kettle with the water you pour into it. The kettle is the same everywhere; what you put in changes each time.
 
@@ -58,7 +56,7 @@ Keeping the two apart is what lets you **test one image and promote that same im
 
 A useful test: **could you publish this image on the internet without leaking anything or breaking anything?** If not, something in it belongs to the environment.
 
-## How it works: a Dockerfile, step by step
+## A Dockerfile, step by step
 
 A `Dockerfile` is the build recipe. Here is one for a small API written in Go. The language does not matter; the shape is the same for Python, Node or Java.
 

@@ -9,8 +9,6 @@ description: "What a process, an image and a container are, how a container is i
 
 **You will be able to:** tell a process, an image and a container apart, say what is lost when each one goes away, and explain why a container is not a small virtual machine.
 
-## The problem
-
 A program almost never runs on its own. A small web API needs a language runtime of an exact version, a dozen libraries, some operating-system files (certificates, a time zone database, a shell), and a start command with the right flags. On your laptop all of that happens to be installed. On a teammate's laptop one library is a version newer. On a server the runtime is missing.
 
 ```mermaid
@@ -34,7 +32,7 @@ Same code, three different results. "Works on my machine" is a statement about e
 
 Containers fix this by **shipping the whole stack underneath the program along with it**. But the word *container* is used loosely, and three different things hide behind it: a **process**, an **image** and a **container**. Mixing them up causes most early confusion ("I rebuilt it, why is the old code still running?"). This chapter separates them.
 
-## The idea in plain words
+## Three different things
 
 Think of a recipe card, a sealed meal kit, and a meal being cooked.
 
@@ -44,7 +42,7 @@ Think of a recipe card, a sealed meal kit, and a meal being cooked.
 
 The analogy breaks in one useful place: one kit can feed any number of cooking sessions *at the same time*, and each session's worktop is private. What one container writes is invisible to the others.
 
-## How it works: build, ship, run
+## Build, ship, run
 
 There are three verbs, and each produces or consumes one of the three things.
 

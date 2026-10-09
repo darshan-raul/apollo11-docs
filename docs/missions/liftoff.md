@@ -9,12 +9,13 @@ sidebar_label: "Mission briefing"
 
 ## Chapters
 
-1. [Ownership and replicas](../learn/workloads/ownership-and-replicas): Deployment → ReplicaSet → Pod.
-2. [Services and readiness](../learn/workloads/services-and-readiness): stable name, ready endpoints only.
-3. [Configuration and identity](../learn/workloads/configuration-and-identity): ConfigMap, Secret, ServiceAccount.
-4. [Jobs and initialization](../learn/workloads/jobs-and-initialization): finite work.
-5. [Rollouts and rollback](../learn/workloads/rollouts-and-rollback): change versions safely.
-6. [Ephemeral state](../learn/workloads/ephemeral-state): what a Pod replacement loses.
+Builds on Ignition's [ReplicaSets](../learn/cluster/replicasets) and [Deployments](../learn/cluster/deployments).
+
+1. [Services and readiness](../learn/workloads/services-and-readiness): stable name, ready endpoints only.
+2. [Configuration and identity](../learn/workloads/configuration-and-identity): ConfigMap, Secret, ServiceAccount.
+3. [Jobs and initialization](../learn/workloads/jobs-and-initialization): finite work.
+4. [Rollouts and rollback](../learn/workloads/rollouts-and-rollback): change versions safely.
+5. [Ephemeral state](../learn/workloads/ephemeral-state): what a Pod replacement loses.
 
 ## Ready for the walkthrough when you can answer
 

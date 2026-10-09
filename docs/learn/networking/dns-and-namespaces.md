@@ -9,17 +9,15 @@ description: "Search domains make short names work only within a namespace; qual
 
 **You will be able to:** predict whether a name resolves from a given namespace, and choose the right form for a shared ConfigMap.
 
-## The problem
-
 In Stage 1 everything lived in one namespace, and `http://identity:8080` just worked. In Stage 2 the frontend moves to a different namespace and the same short name suddenly fails with `NXDOMAIN`. The change feels arbitrary until you see how Kubernetes turns short names into full ones.
 
-## The idea in plain words
+## Namespaces scope names
 
 A **namespace** is a named folder inside the cluster that groups objects and scopes names. Two folders can each hold a Service called `identity`.
 
 When you write the short name `identity`, you are like someone saying "call Sam from accounts" inside a building: it is understood in the context of **where you are standing**. Kubernetes DNS (**CoreDNS**) fills in the rest using your own namespace. From another building you must say the full name.
 
-## How it works
+## How short names are resolved
 
 The kubelet writes a resolver file into every container, listing **search domains** that get appended to short names:
 

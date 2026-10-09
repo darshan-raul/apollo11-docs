@@ -14,8 +14,6 @@ description: "From commit to running Pod: what Apollo's CI workflow does, how im
 - predict what `imagePullPolicy` will do on a node, including on a kind cluster with no registry;
 - answer "is commit X running in prod?" with evidence instead of a guess.
 
-## The problem
-
 Someone asks: "Is the fix from commit `abc1234` live?" To answer honestly you must follow an unbroken chain:
 
 1. the commit in Git;
@@ -28,7 +26,7 @@ A break anywhere makes "yes" untrustworthy. The tag was overwritten after the ma
 
 The chain also has to be **automatic**. If a person builds images on a laptop, nobody can say which source or which dependencies went into them.
 
-## The idea in plain words
+## A chain of custody for images
 
 Think of a parcel's tracking chain: sender, depot, courier, doorstep. You trust the delivery only if every handoff is recorded *and every step handles the same parcel*. A depot that repacks the parcel breaks the chain even if the label stays the same.
 
@@ -54,7 +52,7 @@ flowchart LR
 | Manifest | Which image someone *asked* for | That nodes actually pulled it |
 | Pod `imageID` | The exact image bytes running | That it behaves correctly for passengers |
 
-## How it works
+## Apollo's pipeline, step by step
 
 ### Step 1: what Apollo's CI does
 

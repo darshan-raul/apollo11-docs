@@ -9,11 +9,9 @@ description: "Which system fulfils each Kubernetes request locally versus in a c
 
 **You will be able to:** for any Kubernetes object, name who fulfils it locally and in the cloud, and grade how portable it really is.
 
-## The problem
-
 Everything so far ran in kind: Kubernetes nodes that are Docker containers on one laptop. That is ideal for learning because every part is visible and free, but it hides things a real airline must face: separate machines, zones that fail independently, load balancers that cost money, storage that lives outside the node. Moving to the cloud, the YAML may apply unchanged and yet mean something very different.
 
-## The idea in plain words
+## Same object, different fulfilment
 
 A Kubernetes object is a **purchase order**: the form is the same everywhere, but *who fulfils it* differs. "Deliver one load balancer" is fulfilled locally by MetalLB handing out an IP from a list, and in the cloud by a provider API creating a billable managed load balancer. The form (the API) stays stable; the fulfiller, its failure modes, security boundary and cost all change.
 
@@ -31,7 +29,7 @@ flowchart LR
 
 So the useful question is not "did the YAML apply?" but **"which system fulfilled each request, and which assumptions changed?"**
 
-## How it works: one booking, more hops
+## One booking, more hops
 
 A cloud booking request passes `public DNS → provider load balancer → Gateway proxy → Service → booking Pod → managed database or zonal volume`. Each hop has a different owner and a different place to look for evidence. A successful rollout says nothing about public DNS; a healthy load balancer says nothing about the database. Keep the evidence ladder, and extend it to infrastructure outside Kubernetes.
 

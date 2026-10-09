@@ -13,11 +13,9 @@ Apollo's kind cluster uses kindnet, which does **not** enforce NetworkPolicy. Co
 
 **You will be able to:** write a default-deny policy with a DNS exception, and check that enforcement is real.
 
-## The problem
-
 Recall the Pod network: every Pod can reach every other Pod. That is convenient and dangerous. If an attacker compromises the public-facing frontend, nothing stops it connecting straight to `booking-db`. Firewalls between workloads need to exist inside the cluster.
 
-## The idea in plain words
+## Locked unless allowed
 
 A building with open corridors versus one with **locked doors where only listed people may pass**. The safest default is "locked unless explicitly allowed" (zero trust), then you open exactly the doors that legitimate traffic needs.
 
@@ -31,7 +29,7 @@ flowchart LR
 - kindnet has no such engine: policies are accepted and ignored, so label them *reference only*.
 - Calico or Cilium would enforce them (Stage 8 plans Calico).
 
-## How it works: the zero-trust pattern
+## The zero-trust pattern
 
 | Step | Policy |
 |---|---|

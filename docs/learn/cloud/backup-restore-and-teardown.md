@@ -9,11 +9,9 @@ description: "RPO/RTO, ordered restore, and complete teardown across Kubernetes 
 
 **You will be able to:** match a protection mechanism to a loss event, write an ordered restore, and inventory what teardown must remove.
 
-## The problem
-
 Two quiet failures end careers. First, a backup that has run happily for a year turns out to be unrestorable on the day it is needed. Second, a test cluster is "deleted" but a load balancer, disk and snapshot keep billing for months. Both come from treating a mechanism's existence as the outcome.
 
-## The idea in plain words
+## Recovery is proven, not owned
 
 A fire drill versus a fire extinguisher on the wall: owning the equipment is not the same as knowing it works under pressure. **Recovery is only proven by doing it.** And leaving a rented flat means checking every room and the meters, not just locking the front door.
 
@@ -38,7 +36,7 @@ Two numbers frame the goal: **RPO** (recovery point objective) is how much recen
 | Database backup | Logical or physical data recovery | Needs a destination and tooling |
 | Cross-region copy | A wider failure domain | Lag, cost and coordination |
 
-## How it works: restore is an ordered workflow
+## Restore is an ordered workflow
 
 Restoring booking needs infrastructure, credentials, database software, a compatible schema and application configuration, in the right order. Write that order down; do not rely on the memory of whoever made the backup.
 

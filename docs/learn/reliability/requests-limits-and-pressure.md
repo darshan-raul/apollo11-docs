@@ -9,11 +9,9 @@ description: "Requests drive scheduling and HPA; limits drive runtime enforcemen
 
 **You will be able to:** say what a request does, what a limit does, and how a Pod is ranked when a node runs short of resources.
 
-## The problem
-
 All Pods on a node share its CPU and memory. Without any rules, one service with a memory leak can starve its neighbours, including the database. Kubernetes needs two separate things: a way to decide *where a Pod fits* before it starts, and a way to *restrain it* once it runs. People often assume one setting does both.
 
-## The idea in plain words
+## Requests reserve, limits cap
 
 Booking a hotel room: the **reservation** says how big a room you need so the hotel can plan (a request). The **fire code** says the most people the room may hold (a limit). The reservation does not stop you bringing extra guests, and the fire code does not guarantee you a room.
 
@@ -25,7 +23,7 @@ Booking a hotel room: the **reservation** says how big a room you need so the ho
 
 CPU can be slowed and shared; memory cannot be taken back once given, so going over a memory limit means the kernel kills the process.
 
-## How it works
+## How the scheduler and the kernel use them
 
 The scheduler adds up the **requests** of Pods already on a node and compares with the node's allocatable capacity. A Pod fits only if its own request still fits. This is why a node can be "full" while its CPUs are idle: it is booked, not busy.
 

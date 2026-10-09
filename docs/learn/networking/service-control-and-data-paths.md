@@ -9,11 +9,9 @@ description: "Service and EndpointSlice objects are configuration; kernel rules 
 
 **You will be able to:** draw the configuration flow and the packet flow of a Service separately, and say what each object does.
 
-## The problem
-
 Diagrams of Services often draw an arrow "client → Service → Pod" as if the Service were a little proxy program. That picture is wrong, and it causes real debugging mistakes: people look for a Service "process" to restart, or assume an EndpointSlice is something packets pass through. To debug routing you need the correct picture, which has two separate stories.
 
-## The idea in plain words
+## Two paths: the directory and the call
 
 Think of a **phone directory** and a **phone call**. Updating the directory (who is on duty today) is one activity; a call being connected is another. The directory entry is not on the line while you talk.
 
@@ -22,7 +20,7 @@ For a Service:
 - The **control path** is the directory update: working out which Pods are currently eligible and recording them.
 - The **traffic path** is the call: a real packet being sent to a Pod.
 
-## How it works
+## Following both paths
 
 **Control path (preparing the information):**
 

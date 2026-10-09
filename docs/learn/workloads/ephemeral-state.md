@@ -9,11 +9,9 @@ description: "What a replacement Pod inherits, what it loses, and how to name th
 
 **You will be able to:** name which failure each kind of storage survives, before you call anything "self-healed".
 
-## The problem
-
 Everything in Liftoff so far restores *processes*: a Pod is replaced, a Service finds it, config is injected. A replacement Pod shows `Running` and `Ready`, and it is tempting to conclude the airline recovered. But a Pod that is running and a Pod that has the **data** the old one had are different claims.
 
-## The idea in plain words
+## What a replacement inherits
 
 When a Pod is replaced, picture moving a worker into a brand-new office from the same job description. They get the same tools (the template), but the sticky notes on the old desk (memory) and the files in the old desk drawer (the container's writable layer) stay behind in the demolished office.
 
@@ -29,7 +27,7 @@ flowchart LR
   RS[ReplicaSet] -->|creates| New[booking-yyyy: empty, IP .9]
 ```
 
-## How it works: name the failure, not the word "persistent"
+## Name the failure, not the word "persistent"
 
 Storage is not simply "temporary" or "permanent". What matters is **which failure** it survives. Read this table by row: pick the storage and see which events it crosses.
 

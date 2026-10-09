@@ -9,8 +9,6 @@ description: "Why containers should run as a non-root user, with a read-only fil
 
 **You will be able to:** explain what a non-root user, a read-only filesystem, `tmpfs`, dropped capabilities and `no-new-privileges` each take away, and why none of them on its own makes a container safe.
 
-## The problem
-
 A container is an isolated process, not a separate machine ([Process, image, container](./process-image-container)). It shares the host's kernel. Suppose an attacker finds a bug in your API, such as a vulnerable library or an injection flaw, and can now run commands *as your API's process*. What happens next depends entirely on what that process is allowed to do.
 
 By default, that is a lot:
@@ -22,7 +20,7 @@ By default, that is a lot:
 
 Defaults are chosen so things work out of the box, not so they are safe.
 
-## The idea in plain words
+## Give a process only what it needs
 
 Think of a hotel key card. A guest's card opens their room and the lift. It does not open the kitchen, the safe or the other rooms. If it is stolen, the thief gets one room, not the building. The hotel did not make theft impossible; it made theft **cheap to survive**.
 
@@ -30,7 +28,7 @@ Least privilege is the same idea for a process: give it exactly what its job nee
 
 The analogy stops here. A key card is one thing. A container's privileges are several independent switches, and each one closes a different door.
 
-## How it works: following an attacker
+## Following an attacker
 
 Picture what an attacker typically tries after getting a foothold, and which control blocks each step.
 

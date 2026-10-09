@@ -9,11 +9,9 @@ description: "PromQL patterns, alert rules that notify rather than repair, and S
 
 **You will be able to:** write the three core queries, say what an alert does and does not do, and compute an error budget.
 
-## The problem
-
 Raw samples sitting in a database do not help at 3 a.m. You need to turn them into answers ("how many bookings are failing?"), into a notification when something is wrong, and into an agreed definition of "good enough" so teams can decide whether to ship risky changes or fix reliability.
 
-## The idea in plain words
+## Queries, alerts and objectives
 
 **Queries** ask questions of stored data. **Alerts** are queries that run continuously and tap a human on the shoulder. **Objectives** are promises about how good service should be, measured by those same queries.
 
@@ -41,7 +39,7 @@ An alert rule evaluates a query on a schedule. When the condition has held for t
 
 An alert moves through `inactive → pending → firing`.
 
-## How it works: SLI, SLO and error budget
+## SLI, SLO and error budget
 
 Three terms turn "reliable" into numbers:
 
@@ -62,7 +60,7 @@ The budget makes a trade-off explicit: while it is healthy, take risks and ship 
 
 *Source: the `PrometheusRule` records `apollo:booking_error_ratio:{5m,1h,28d}` and `apollo:booking_error_budget_remaining:28d`. The alert `ApolloBookingErrorBudgetBurn` fires when both a short and a long window burn the budget faster than 14.4 times the allowed rate for two minutes.*
 
-## How it works: recording rules and burn rate
+## Recording rules and burn rate
 
 Two more ideas turn the SLO from a definition into something Prometheus watches.
 

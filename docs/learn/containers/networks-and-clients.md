@@ -9,13 +9,11 @@ description: "Find the client first: what localhost, ports, names and bind addre
 
 **You will be able to:** choose the correct address for a request by first identifying where the request starts, explain why `localhost` means something different inside a container, and debug "connection refused" from the right place.
 
-## The problem
-
 You run two containers: an `api` and a `db`. In your browser, `http://localhost:8080` reaches the API. So you configure the API to reach the database at `localhost:5432`, and it fails with *connection refused*. Then you try the container's IP address, and it works until the database container is recreated and gets a different IP.
 
 Every one of these is an HTTP or TCP request, yet the right address is different each time. The error messages give no hint why. The fix is a habit: before choosing an address, ask **who is sending this request, and from where?**
 
-## The idea in plain words
+## An address depends on who is asking
 
 An address is like "the kitchen": it only means something once you know whose house you are standing in. Every request has a **client** (the sender) and a **server** (the receiver), and the address is interpreted from the client's position.
 
@@ -43,7 +41,7 @@ flowchart TB
 - When your **browser** or **terminal** says `localhost`, it means your machine.
 - When the **api container** says `localhost`, it means the api container itself. Not your machine, and not the db container.
 
-## How it works
+## How a request finds its way
 
 Three mechanisms decide where a request can go: the network the containers share, the names they use to find each other, and the ports that are published to the host.
 

@@ -9,11 +9,9 @@ description: "Structured logs, the Alloy → Loki pipeline, and what a log line 
 
 **You will be able to:** write a log line that can be searched and correlated, trace how it reaches Loki, and query it.
 
-## The problem
-
 A metric tells you booking errors rose at 14:30. It cannot tell you the error message. For that you need the process's own account of what happened. But with many Pods that come and go, `kubectl logs` on a single Pod is not enough: the Pod may be gone, and you cannot search across services.
 
-## The idea in plain words
+## Logs worth searching
 
 Logs are the **ship's diary**. For the diary to be useful for investigation it needs a consistent structure (so you can search by field, not guess with text patterns) and a way to be collected somewhere central before the ship (Pod) is lost.
 
@@ -24,7 +22,7 @@ Logs are the **ship's diary**. For the diary to be useful for investigation it n
 
 Including a `trace_id` is the key to correlation: it lets you jump from a slow span in a trace straight to the log lines from that very request.
 
-## How it works: the pipeline
+## The pipeline
 
 ```mermaid
 flowchart LR

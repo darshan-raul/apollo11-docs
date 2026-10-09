@@ -9,11 +9,9 @@ description: "The HPA feedback loop, the replica formula, why requests define ut
 
 **You will be able to:** predict the replica count the HPA will choose, and explain why a missing CPU request makes it blind.
 
-## The problem
-
 When ticket sales open, search traffic can jump tenfold. A person changing `replicas` by hand reacts too slowly and forgets to scale back. We want the replica count to follow demand automatically: more Pods when busy, fewer when quiet.
 
-## The idea in plain words
+## Scale out against a measured target
 
 A **supermarket opening more checkouts** when queues build and closing them when quiet, using a clear rule such as "keep the average checkout about 70% busy".
 
@@ -25,7 +23,7 @@ flowchart LR
   H -->|sets spec.replicas| D[Deployment] --> RS[ReplicaSet] --> N[Pods need node capacity]
 ```
 
-## How it works
+## The scaling formula
 
 The decision is a simple proportion:
 

@@ -9,11 +9,9 @@ description: "What each probe asks, what the kubelet does on failure, and how th
 
 **You will be able to:** pick the right probe for a question, size a startup budget, and predict what the kubelet does when each probe fails.
 
-## The problem
-
 A container that has started is not automatically able to serve. Booking might still be connecting to its database. Later it might hang without crashing. And at any moment its database might vanish while the process itself is fine. Kubernetes sees only "process running" unless you tell it how to ask better questions, and a single yes/no cannot answer all three situations because they need **different reactions**: wait, restart, or stop sending traffic.
 
-## The idea in plain words
+## Three questions, three probes
 
 Think of a new employee: **Has the employee finished arriving and setting up?** (startup) **Are they conscious and responsive, or frozen?** (liveness) **Are they at their desk with everything they need, ready for the next customer?** (readiness). You react differently to each answer: wait, send them home to reset, or just stop routing customers to them for a while.
 
@@ -25,7 +23,7 @@ The **kubelet**, the agent on each node, runs these checks. It issues a small re
 | **liveness** | Should this container be restarted? | **Restarts** the container | `/healthz/live` |
 | **readiness** | Should it receive new traffic now? | **Removes** the Pod from Service endpoints; no restart | `/healthz/ready` |
 
-## How it works
+## Probe timing
 
 Each probe is a sampling loop, and a single failure is not a verdict. These fields shape the loop:
 
