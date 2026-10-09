@@ -6,6 +6,8 @@ sidebar_label: "Flight Plan & Overview"
 
 # Apollo11: the learner's flight plan
 
+![Apollo11 banner: a Kubernetes astronaut and a Helm robot floating in a space station cupola above Earth](./images/apollo11-banner.webp)
+
 - One application, **Apollo Airlines** (10 components), taken from Docker Compose to a production-shaped cluster.
 - Each stage fixes a limit of the previous one: short chapters on the concepts, then a walkthrough of the stage that explains what each step does, why, and what it improved.
 - Reading-only works. Hands-on is recommended.

@@ -22,15 +22,22 @@ sidebar_label: Before You Board
 
 ## Setup for the hands-on route
 
+Install Docker, then let the bootstrap script install everything else
+(kind, kubectl, Helm, jq, k6, Argo CD, ...) via [mise](https://mise.jdx.dev):
+
 ```bash
 git clone https://github.com/darshan-raul/Apollo11.git
 cd Apollo11
+./prep.sh              # install mise + the course toolchain
+exec $SHELL            # reload your shell
+./prep.sh --verify     # every line should be ✅
 git checkout 69113dcc80f77e32301d8ee7b9e73a67c923de96
 git rev-parse HEAD     # must print the hash above
 ```
 
 - Run every walkthrough from the `Apollo11` repo root.
-- Tool list, versions and preflight: [Prepare your launchpad](../labs/setup).
+- Run `prep.sh` before the `git checkout`: the pinned commit predates the script.
+- Tool list, manual install option and preflight: [Prepare your launchpad](../labs/setup#install-the-tools-with-the-bootstrap-script).
 
 ## Learning loop used throughout
 

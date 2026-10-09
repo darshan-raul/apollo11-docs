@@ -17,11 +17,38 @@ on a local Docker or Kubernetes environment.
 |---|---|
 | Git, Docker (+ Compose v2), curl | Launchpad onward |
 | kind, kubectl, Helm, jq | Ignition onward |
+| Argo CD CLI | Stages 5–7 GitOps demos |
 | k6 | Stage 7 |
 | Node 20+ / npm | Running this docs site only |
 
 - Keep ~20 GB free disk and ~8 GB free RAM for Stages 6–7.
 - Windows: use WSL2 consistently.
+
+## Install the tools with the bootstrap script
+
+The Apollo11 repo ships a [mise](https://mise.jdx.dev) bootstrap:
+[`prep.sh`](https://github.com/darshan-raul/Apollo11/blob/main/prep.sh) and
+[`mise.toml`](https://github.com/darshan-raul/Apollo11/blob/main/mise.toml).
+
+1. Install Docker yourself first: [Docker Engine](https://docs.docker.com/engine/install/)
+   (Linux) or [Docker Desktop](https://docs.docker.com/desktop/) (macOS, Windows + WSL2).
+   mise does not manage Docker, because it needs a daemon.
+2. Run the script from the latest `main`, before you check out the pinned commit:
+
+```bash
+git clone https://github.com/darshan-raul/Apollo11.git
+cd Apollo11
+./prep.sh            # installs mise, activates it in your shell, installs kind, kubectl, helm, jq, k6, argocd, ...
+exec $SHELL          # reload your shell so the tools are on PATH
+./prep.sh --verify   # every line should be ✅
+```
+
+- Tools go into your global mise config, so they stay on `PATH` after the checkout below.
+- Safe to re-run; it skips what is already installed or configured.
+- Prefer your own package manager? Fine. Install the tools in the table and run the check below.
+- EKS track only: `mise use -g awscli terraform`.
+
+Check the tools by hand:
 
 ```bash
 git --version && docker --version && docker compose version && docker ps
@@ -33,8 +60,7 @@ kind version && kubectl version --client && helm version && jq --version && k6 v
 ## Prepare the verified workspace
 
 ```bash
-git clone https://github.com/darshan-raul/Apollo11.git
-cd Apollo11
+cd Apollo11              # the clone from the bootstrap step
 git checkout 69113dcc80f77e32301d8ee7b9e73a67c923de96
 git status --short       # expect empty
 git rev-parse HEAD       # expect 69113dcc80f77e32301d8ee7b9e73a67c923de96
