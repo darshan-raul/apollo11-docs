@@ -1,95 +1,228 @@
 ---
 title: "Networks and clients"
-description: "Find the client first: what localhost, ports and names mean from the browser versus from a container."
+description: "Find the client first: what localhost, ports, names and bind addresses mean from your browser versus from inside a container."
 ---
 
 # Networks and clients
 
 *Launchpad*
 
-**You will be able to:** choose the correct address for a request by first identifying where the request starts, and explain why `localhost` means different things to a browser and to a container.
+**You will be able to:** choose the correct address for a request by first identifying where the request starts, explain why `localhost` means something different inside a container, and debug "connection refused" from the right place.
 
 ## The problem
 
-You open the Apollo frontend in your browser and it calls the booking API. Later, booking calls the flight service. Both are "HTTP requests", yet the first uses `http://localhost:8082` and the second uses `http://flight:8081`. Using the wrong style in the wrong place is one of the most common early failures, and the error messages ("connection refused") give no hint why.
+You run two containers: an `api` and a `db`. In your browser, `http://localhost:8080` reaches the API. So you configure the API to reach the database at `localhost:5432`, and it fails with *connection refused*. Then you try the container's IP address, and it works until the database container is recreated and gets a different IP.
 
-The fix is a habit: before choosing an address, ask **who is sending this request, and from where?**
+Every one of these is an HTTP or TCP request, yet the right address is different each time. The error messages give no hint why. The fix is a habit: before choosing an address, ask **who is sending this request, and from where?**
 
 ## The idea in plain words
 
-An address is like a street name: "Main Street" only means something once you know which town you are in. Every request has a **client** (the sender) and a **server** (the receiver), and the client is in a particular network environment. An address is interpreted from the client's position.
+An address is like "the kitchen": it only means something once you know whose house you are standing in. Every request has a **client** (the sender) and a **server** (the receiver), and the address is interpreted from the client's position.
 
-`localhost` is the clearest example. It means "this machine's own network environment", whichever machine is asking:
-
-- When your **browser** says `localhost`, it means your laptop.
-- When the **booking container** says `localhost`, it means the booking container itself, which is a separate little network with its own loopback. It does not mean your laptop, and it does not mean the flight container.
-
-Ports work the same way. `flight` listens on 8081 *inside its container*. That says nothing about port 8081 on your laptop until you **publish** it (`8081:8081`), which creates an extra path from the host into that container.
-
-## How it works
-
-Docker Compose creates a private **bridge network** and attaches the containers to it. Docker also runs a small DNS server (at `127.0.0.11`) on that network. When booking asks for the name `flight`, that DNS answers with flight's current internal IP. So containers find each other by **service name**, not by IP, because IPs change when a container is replaced.
+From the [first chapter](./process-image-container) you know each container gets its own **network namespace**: its own interfaces, its own IP address, its own port numbers, and its own **loopback** (`localhost`, `127.0.0.1`). So each container is a separate house with its own kitchen.
 
 ```mermaid
 flowchart TB
-  Browser -->|published port 3000| Frontend
-  Browser -->|"localhost:8082 (published)"| Booking
-  Booking -->|"flight:8081 via Docker DNS"| Flight
-  Booking -->|localhost| Self[booking itself]
+  host["Your machine (the host)<br/>browser, terminal, curl<br/>here localhost = the host"]
+  subgraph Net["Docker network inside the host: a private virtual switch"]
+    direction LR
+    subgraph D["db container · 172.18.0.3"]
+      dl["localhost = db only"]
+    end
+    sw(("switch"))
+    subgraph A["api container · 172.18.0.2"]
+      al["localhost = api only"]
+    end
+    al --- sw --- dl
+  end
+  host ~~~ Net
 ```
 
-| Client | `localhost:8081` reaches | `flight:8081` reaches |
+`localhost` means "my own network namespace", whichever process is asking:
+
+- When your **browser** or **terminal** says `localhost`, it means your machine.
+- When the **api container** says `localhost`, it means the api container itself. Not your machine, and not the db container.
+
+## How it works
+
+Three mechanisms decide where a request can go: the network the containers share, the names they use to find each other, and the ports that are published to the host.
+
+### 1. Containers on the same network reach each other directly
+
+Docker (and Compose, automatically) creates a private **bridge network**: think of it as a virtual network switch inside the host. Every container attached to it gets an IP on that network and can connect to every other container on it, on any port the other container listens on. Nothing needs to be published for container-to-container traffic.
+
+### 2. Names, not IPs
+
+IP addresses on that network are handed out when a container starts, and a recreated container usually gets a new one. So containers should find each other by **name**. On a user-defined network (which Compose always creates), Docker runs a small DNS server at `127.0.0.11` inside each container that answers with the current IP for a container or service name.
+
+```mermaid
+sequenceDiagram
+  participant api as api container
+  participant dns as Docker DNS (127.0.0.11)
+  participant db as db container (172.18.0.3)
+  api->>dns: what is the IP of "db"?
+  dns-->>api: 172.18.0.3
+  api->>db: TCP connect 172.18.0.3:5432
+  db-->>api: connected
+  Note over db: db is recreated, new IP 172.18.0.7
+  api->>dns: what is the IP of "db"?
+  dns-->>api: 172.18.0.7
+```
+
+The name is the stable contract; the IP is a detail that changes. These names exist **only on that Docker network**. Your host's browser has never heard of `db`.
+
+### 3. Publishing a port opens a door from the host
+
+A container's ports are reachable from its network, not from your machine's network. To let your browser in, you **publish** a port: `-p 8080:80` (or `ports: ["8080:80"]` in Compose) means "connections to port 8080 on the host are forwarded to port 80 in this container". It is always `host:container`.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser on host
+  participant H as Host port 8080
+  participant C as web container, port 80
+  B->>H: GET http://localhost:8080/
+  H->>C: forwarded to 172.18.0.4:80
+  C-->>B: 200 OK
+  Note over B,C: without -p 8080:80 the host has nothing on 8080: connection refused
+```
+
+### Putting it together
+
+```mermaid
+flowchart TB
+  subgraph Host["Host"]
+    br["browser"]
+    p8080(["host port 8080"])
+  end
+  subgraph Net["Docker network"]
+    api["api, listening on 8080"]
+    db["db, listening on 5432"]
+  end
+  br -->|"✓ localhost:8080"| p8080
+  p8080 -->|"published -p 8080:8080"| api
+  api -->|"✓ db:5432 via Docker DNS"| db
+  api -.->|"✗ localhost:5432 is api's own loopback"| api
+  br -.->|"✗ db:5432, name unknown on the host"| db
+```
+
+| Client | `localhost:5432` reaches | `db:5432` reaches |
 |---|---|---|
-| Your host shell or browser | Your laptop; works only if the port is published | Nothing (the name is unknown outside Docker) |
-| The `booking` container | `booking` itself, **not** flight | The flight container |
+| Your terminal or browser | Your machine; works only if 5432 is published | Nothing: the name is unknown outside Docker |
+| The `api` container | `api` itself, **not** the database | The db container |
 
-## Apollo example
+## Two traps that look like network problems
 
-- The frontend's JavaScript runs **in the browser**, so its API URLs are `http://localhost:8080` … `8083`: the published ports on your laptop.
-- The backend services run **in containers**, so they use `http://flight:8081`, `http://identity:8080` and so on.
-- The frontend's URLs are compiled into the public JavaScript at build time (`VITE_*` values). Anyone can read them in the browser, so never put secrets there.
+### The server listens on the wrong address
 
-## Debugging rule
+A program does not just "listen on port 8080". It listens on a specific **address** *and* port. Many frameworks default to `127.0.0.1`, which accepts connections only from the same network namespace. Inside a container that means only from inside that same container.
 
-If booking cannot reach flight, test **from booking's point of view**: the configured name, whether the name resolves, whether the port is reachable, whether flight is actually listening. Testing from your laptop only tells you about your laptop's route.
+```mermaid
+flowchart LR
+  out["request from the host<br/>or another container"]
+  subgraph C["container"]
+    l1["listening on 127.0.0.1:8080<br/>only reachable from inside"]
+    l2["listening on 0.0.0.0:8080<br/>reachable on every interface"]
+  end
+  out -.->|connection refused| l1
+  out -->|connects| l2
+```
+
+A server inside a container should listen on `0.0.0.0` (all interfaces). If a port is published, the container is running, and you still get *connection refused* or an empty reply, check the bind address in the program's logs or settings.
+
+### Code that runs in the browser is not in a container
+
+A web front end is served *from* a container, but its JavaScript **runs in the user's browser**. When that code calls an API, the client is the browser on the user's machine, not the container that served the file.
+
+```mermaid
+flowchart LR
+  subgraph Host["User's machine"]
+    js["JavaScript running<br/>in the browser"]
+  end
+  subgraph Net["Docker network"]
+    web["web container<br/>serves the .js files"]
+    api["api container"]
+  end
+  web -->|"step 1: sends the code"| js
+  js -->|"step 2: calls localhost:8080 (published port)"| api
+  js -.->|"✗ http://api:8080 (unknown name on the host)"| api
+```
+
+So browser code must use addresses the **browser** can reach (published ports, or a public domain), while server code in containers uses service names. Values compiled into front-end code are readable by anyone who opens the page, so never put secrets there.
+
+## Debugging rule: test from the client's position
+
+If one container cannot reach another, a test from your terminal tells you only about your terminal's route. Test from **inside the client container**, one layer at a time:
+
+```mermaid
+flowchart TB
+  s["api cannot reach db"] --> q1{"From inside api:<br/>does the name resolve?<br/>getent hosts db"}
+  q1 -->|no| f1["Wrong name, or not on the same network"]
+  q1 -->|yes| q2{"Is the port reachable?<br/>nc -z db 5432"}
+  q2 -->|no| f2["db not listening, wrong port,<br/>or bound to 127.0.0.1"]
+  q2 -->|yes| q3{"Does the protocol work?<br/>a real request or client"}
+  q3 -->|no| f3["Credentials, TLS, wrong path:<br/>an application problem"]
+  q3 -->|yes| ok["The network is fine:<br/>look at the program's config"]
+```
 
 ## Try it
 
 ```bash
-cd stages/launchpad
-curl -s localhost:8081/healthz                                        # host → published port: works
-docker compose exec booking wget -qO- http://localhost:8081/healthz   # booking's own localhost: fails
-docker compose exec booking wget -qO- http://flight:8081/healthz      # service name: works
+docker network create demo-net
+docker run -d --name web --network demo-net -p 8080:80 nginx:1.27-alpine
+
+# From the host: the published port works, the container name does not.
+curl -s -o /dev/null -w 'host → localhost:8080: %{http_code}\n' localhost:8080
+curl -s http://web || echo "host cannot resolve 'web'"
+
+# From another container on the same network: the name works...
+docker run --rm --network demo-net alpine:3.20 wget -qO- http://web | head -n 4
+docker run --rm --network demo-net alpine:3.20 getent hosts web
+
+# ...but localhost is that container itself, where nothing listens on 80.
+docker run --rm --network demo-net alpine:3.20 wget -qO- http://localhost || echo "localhost is me"
+
+# A container NOT on demo-net cannot resolve the name at all.
+docker run --rm alpine:3.20 wget -qO- http://web || echo "different network, no name"
+
+docker rm -f web && docker network rm demo-net
 ```
 
-- The middle command fails because nothing in the booking container listens on 8081. It is the proof that `localhost` depends on the client.
+- The same URL succeeds or fails depending only on where the request starts.
+- The last command uses Docker's *default* network, which has no name resolution. Compose never uses it, which is why names "just work" there.
 
 ## Common misconceptions
 
-- **"If I can reach it from my browser, the other services can too."** They start from different places and follow different paths.
-- **"A service name works everywhere."** It resolves only on that Docker network.
-- **"EXPOSE publishes the port."** It does not. Only `ports:` does.
+- **"If I can reach it from my browser, other containers can too."** They start from different places and follow different paths.
+- **"A container name works everywhere."** It resolves only on the Docker network both containers share.
+- **"`EXPOSE` publishes the port."** It does not. Only `-p` / `ports:` does, and only container-to-host traffic needs it.
+- **"Connection refused means a firewall."** More often it means nothing is listening at that address from the client's point of view: wrong `localhost`, an unpublished port, or a server bound to `127.0.0.1`.
 
 ## Check yourself
 
 <details>
-<summary>The browser reaches <code>localhost:8082</code>. Does that prove booking can reach <code>flight:8081</code>?</summary>
+<summary>Your browser reaches <code>localhost:8080</code>. Does that prove the <code>api</code> container can reach <code>db:5432</code>?</summary>
 
-No. Different clients, different paths. Test from booking's container.
+No. Different clients, different paths. Test from inside the api container.
 </details>
 
 <details>
 <summary>Why use a service name instead of a container IP?</summary>
 
-The IP changes when a container is replaced; the name is the stable contract.
+The IP changes when a container is replaced; Docker DNS keeps the name pointing at the current one.
 </details>
 
 <details>
-<summary>Why does the frontend use <code>localhost</code> URLs while backends use service names?</summary>
+<summary>A port is published with <code>-p 8080:8080</code>, the container is running, and the host still gets "connection refused". What is the first thing to check?</summary>
 
-The frontend code executes in the browser on your laptop, which cannot resolve Docker-network names.
+The address the program listens on. If it is bound to `127.0.0.1` inside the container, only the container itself can connect. It should bind to `0.0.0.0`.
+</details>
+
+<details>
+<summary>Why does browser-side code use <code>localhost</code> URLs while server-side code uses service names?</summary>
+
+Browser code executes on the user's machine, which cannot resolve Docker-network names. Server code executes inside containers on that network.
 </details>
 
 ## Where this leads
 
-Finding a service is not the same as that service being able to help. The last Launchpad chapter covers when a reachable service is still not ready, and where data survives.
+Being able to reach a service is not the same as that service being able to help. The next chapter, [State and dependencies](./state-and-dependencies), covers when a reachable service is still not ready, and where data survives.
