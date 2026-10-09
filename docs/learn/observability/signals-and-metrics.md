@@ -9,11 +9,9 @@ description: "Metrics, logs and traces answer different questions; counters, his
 
 **You will be able to:** pick the right signal for a question, read a counter and a histogram query, and avoid the label mistake that crashes Prometheus.
 
-## The problem
-
 A passenger says "booking was slow". Kubernetes tells you Pods are Ready and the Deployment is available, which is true and useless: it says nothing about how long requests took, which service was slow, or what error occurred. Systems must produce **evidence about their behaviour**, and different questions need different kinds of evidence.
 
-## The idea in plain words
+## Three signals, three questions
 
 A doctor uses different instruments for different questions: a **thermometer reading over days** (is this widespread, and getting worse?), a **scan of one patient** (where exactly is the problem?), and the **patient's notes** (what happened, in words?).
 
@@ -34,7 +32,7 @@ flowchart LR
 
 An **average** hides the tail. If 99% of requests take 50 ms and 1% take 5 s, the average is about 100 ms, which looks fine while one passenger in a hundred waits five seconds. That is why we use percentiles.
 
-## How it works: counters and histograms
+## Counters and histograms
 
 Prometheus collects numeric series over time. Two shapes matter most:
 

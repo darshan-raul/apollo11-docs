@@ -9,13 +9,11 @@ description: "What a surviving PVC proves, reclaim policy, retention, replicatio
 
 **You will be able to:** state exactly which failure a surviving PVC rules out, predict what deleting each kind of object destroys, take and restore a logical backup of an Apollo database, and say what you still need before you can claim recovery.
 
-## The problem
-
 You deleted a database Pod, it came back, and the data was there. It is natural to say "the data is safe". That test proved **one** thing: a Pod can be replaced without losing its volume. It said nothing about the node dying, someone deleting the claim, a bad `DROP TABLE`, or the whole cluster disappearing.
 
 The danger is not that the test was wrong. It is that a passing test gets remembered as a broader statement than it made. "We tested persistence" slowly becomes "we have backups", and nobody notices until the day they need one.
 
-## The idea in plain words
+## Each recovery claim needs its own test
 
 A smoke alarm test proves the alarm works; it does not prove the building is fireproof. Each recovery claim needs its own test against its own failure.
 
@@ -47,7 +45,7 @@ stateDiagram-v2
 
 A backup is not a recovery plan until you have performed a restore and checked the application against it.
 
-## How it works: what deleting each object destroys
+## What deleting each object destroys
 
 Storage is a stack of objects, and each delete reaches a different depth. For Apollo's identity database, from the outside in:
 
@@ -72,7 +70,7 @@ flowchart TB
 
 Read the pattern: the data dies when the **claim** dies (with `Delete`) or when the **node's disk** dies. Everything above the claim is replaceable. This is why Apollo's `teardown.sh` removes Stage 3 simply by deleting the namespaces: that deletes the claims and therefore the data, which is exactly what you want when tearing down a lab.
 
-## How it works: StatefulSet retention
+## StatefulSet retention
 
 The StatefulSet can also decide the fate of its claims:
 

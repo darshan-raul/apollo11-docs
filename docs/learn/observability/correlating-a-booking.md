@@ -9,11 +9,9 @@ description: "Triage from a metric symptom to a trace to a log line to a root ca
 
 **You will be able to:** follow a four-step triage from fleet-wide symptom to the cause behind one request.
 
-## The problem
-
 You have metrics, traces and logs. The skill is *order*: opening Grafana and clicking around is not an investigation. Each signal answers a different question, and each narrows what to ask the next.
 
-## The idea in plain words
+## Narrow down, then join
 
 Finding a leak in a building: first notice that water use is up (where is the problem, roughly?); then check each floor's meter to find the floor (which part?); then enter the room and look (what exactly?); finally find out why the pipe failed (cause). Moving from the broad to the specific saves time.
 
@@ -31,7 +29,7 @@ flowchart TD
   L --> R["4 Infra: flight-db saturated → root cause"]
 ```
 
-## How it works: the joins
+## The joins
 
 The signals are connected by shared identifiers:
 

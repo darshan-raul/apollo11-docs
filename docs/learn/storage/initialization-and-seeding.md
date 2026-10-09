@@ -9,13 +9,11 @@ description: "Bootstrap, seed and migration are different database tasks with di
 
 **You will be able to:** classify a database task as bootstrap, seed or migration, explain why Postgres' init directory runs only on a first start, read Apollo's init ConfigMaps and seed Jobs, and recognise when a seed is hiding data loss.
 
-## The problem
-
 A brand-new database volume is empty: no tables, no airports, no users. Something must prepare it. Teams often lump this under "startup scripts", but three quite different jobs hide there, with different risks. Treating them alike causes duplicate rows, broken schemas, or a seed that quietly hides data loss.
 
 Stage 3 makes the problem sharper than Stage 1 did. Once the volume outlives the Pod, "start the database" no longer means "start from empty". The same Pod start is sometimes a first run and sometimes a restart of a database full of real bookings, and the preparation code must behave correctly in both.
 
-## The idea in plain words
+## Bootstrap, seed, migrate
 
 Opening a new restaurant branch: first you **build the kitchen** (bootstrap: tables and constraints), then you **stock the pantry with standard ingredients** (seed: baseline reference data), and years later you **remodel** while it is open (migration: change a live schema without breaking it). Each needs different care, and remodelling an open kitchen is by far the riskiest.
 
@@ -33,7 +31,7 @@ flowchart TD
 
 **Idempotent** means running it twice leaves the same result as running it once. It is the property that lets you retry safely after a failure, and the reason both bootstrap and seed in Apollo are written with `IF NOT EXISTS` and `ON CONFLICT`.
 
-## How it works: `docker-entrypoint-initdb.d`
+## `docker-entrypoint-initdb.d`
 
 The official Postgres image has a built-in rule: when it starts and its data directory is **empty**, it runs every script in `/docker-entrypoint-initdb.d/`. When the data directory already has data, it skips them entirely.
 

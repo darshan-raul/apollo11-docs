@@ -9,11 +9,9 @@ description: "Instrumentation in Apollo's code, and the three ways a signal leav
 
 **You will be able to:** say which code produces each of Apollo's three signals, how each one leaves the Pod, and which component you'd check when one of them goes quiet.
 
-## The problem
-
 Stage 5 delivered Apollo reliably, yet booking's `/metrics` returned a small JSON object nothing could read, logs existed only inside each container, and nothing recorded how a request moved between services. No dashboard or tool installed *around* the app can fix that. **Observability starts in the code.** The app has to produce the data, and then the data has to get out of the Pod, and each signal gets out a different way.
 
-## The idea in plain words
+## Three signals, three delivery styles
 
 Think of a hospital patient with three kinds of record:
 
@@ -23,7 +21,7 @@ Think of a hospital patient with three kinds of record:
 
 The analogy ends there. In software these three paths are separate pipelines with separate failure modes, and each one is fixed in a different place.
 
-## How it works
+## The paths out of a Pod
 
 ```mermaid
 flowchart LR

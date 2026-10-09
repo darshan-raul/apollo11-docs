@@ -13,11 +13,9 @@ Apollo has no runnable security stage yet. Commands show the evidence Stage 8 sh
 
 **You will be able to:** name the three gates an API request passes, write a least-privilege Role, and test it with `kubectl auth can-i`.
 
-## The problem
-
 The Kubernetes API can create, change and delete everything, including Secrets. Someone (or some Pod) must be allowed to do only what it needs, nothing more. If one compromised Pod can read every Secret or delete every Deployment, a small breach becomes total.
 
-## The idea in plain words
+## Who are you, and what may you do?
 
 Entering a secure building involves separate checks: the **front desk checks your ID** (who are you?), then **a pass list says which floors you may visit** (what may you do?), and finally **a bag inspection** (is what you are carrying acceptable?). Passing one does not imply the others.
 
@@ -36,7 +34,7 @@ flowchart LR
 
 A request can pass one gate and fail the next. A `Forbidden` response to an authenticated user is an authorization failure.
 
-## How it works: RBAC building blocks
+## RBAC building blocks
 
 **RBAC** (role-based access control) grants permission in two parts: a *role* listing allowed verbs on resources, and a *binding* attaching that role to an identity.
 

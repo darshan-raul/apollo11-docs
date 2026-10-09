@@ -9,11 +9,9 @@ description: "One IP per Pod, what a CNI plugin does, and why Pod routing is not
 
 **You will be able to:** explain how Pods reach each other across nodes, what a CNI plugin does, and what it deliberately does not provide.
 
-## The problem
-
 Booking in one Pod must call flight in another, possibly on a different machine. For that to work, every Pod needs its own address and the machines must know how to carry packets between those addresses. Containers on a plain Docker host never needed this: Docker's bridge handled one machine. A cluster spans several.
 
-## The idea in plain words
+## One flat network, built by a plugin
 
 Imagine every Pod is a flat in a city with its own street address. The city (the cluster network) guarantees that any address can send a letter to any other address, no matter which district it is in. The **rule** is simple: *every Pod can reach every other Pod directly by IP, without translation.*
 
@@ -21,7 +19,7 @@ Kubernetes states that rule but does not build the roads. A **CNI plugin** (Cont
 
 Inside a Pod there is one more rule: containers in the **same Pod** share a single network environment: one IP, one set of interfaces, one `localhost`. They can talk to each other over `localhost`. Containers in **different** Pods have different IPs, even on the same node.
 
-## How it works
+## What the CNI plugin does for each Pod
 
 When a Pod is created, the runtime asks the CNI plugin to do three things:
 

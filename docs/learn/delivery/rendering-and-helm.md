@@ -14,8 +14,6 @@ description: "Why one parameterised description beats three copies, how Helm tur
 - say which value wins when `values.yaml`, an environment file and `--set` disagree;
 - review a change by rendering and diffing it before anything is applied, and recover a bad release from its history.
 
-## The problem
-
 By the end of Stage 4, Apollo is about sixty Kubernetes objects spread over dozens of YAML files. Now it needs three environments:
 
 | | dev | staging | prod |
@@ -28,7 +26,7 @@ The obvious answer is three copies of every file. It fails within a week. Someon
 
 What we want is one description of the *shape* of Apollo and a short, readable list of what differs per environment. Producing the final YAML from those two inputs is called **rendering**.
 
-## The idea in plain words
+## Templates plus values
 
 Think of a mail-merge letter: one template with blanks (`Dear {{name}}`) and a list of values that fills the blanks differently for each recipient.
 
@@ -63,7 +61,7 @@ flowchart LR
 
 The mail-merge analogy stops being useful at the release step. A letter is sent and forgotten; Helm keeps a record of what it sent so it can compare, upgrade and roll back.
 
-## How it works
+## How Helm renders a release
 
 ### Step 1: values are layered, later wins
 
@@ -298,7 +296,7 @@ helm template apollo11 $C -f $C/values-prod.yaml --set image.tag=v1.0.1 \
 
 ## Common misconceptions
 
-- **"Helm deploys the app."** It is tempting because `helm install` is the command you type. Helm renders YAML and submits it; the controllers, scheduler and kubelets described in [Reconciliation and components](../cluster/reconciliation-and-components) do the deploying.
+- **"Helm deploys the app."** It is tempting because `helm install` is the command you type. Helm renders YAML and submits it; the controllers, scheduler and kubelets described in [Architecture and the basic flow](../cluster/architecture) do the deploying.
 - **"`helm template` checks my cluster."** It looks like a dry run. It never contacts the API server, so it cannot tell you a CRD is missing or a namespace does not exist. `helm install --dry-run=server` (Helm 3.13+) or `kubectl apply --dry-run=server` can.
 - **"A chart is a folder of YAML."** The files end in `.yaml`, but templates are not valid YAML until rendered. `kubectl apply -f templates/` fails.
 - **"Changing `appVersion` upgrades the app."** It only changes a label. The image that runs comes from `image.tag`.

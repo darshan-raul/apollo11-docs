@@ -9,17 +9,15 @@ description: "The shutdown sequence, the routing race, and what preStop and SIGT
 
 **You will be able to:** order the events when a Pod terminates, explain the routing race, and say what `preStop`, SIGTERM handling and the grace period each contribute.
 
-## The problem
-
 During a rollout, a node drain or a scale-down, Pods are removed. A passenger's request may be halfway through when its Pod is told to stop, or may arrive a moment *after* the Pod started shutting down. Shutdown is not an instant; it is a coordinated sequence between several components, and if any step is wrong a booking fails.
 
-## The idea in plain words
+## Stop taking work, finish, then exit
 
 Closing a shop: you put up a "closed" sign, wait for people already inside to finish, then lock up. Crucially, the "closed" sign takes time to reach everyone: some customers are already on their way.
 
 For a Pod: the **sign** is removing the Pod from the Service's endpoints; the **finishing** is the app draining its in-flight requests; the **lock-up** is the process exiting. The danger is that the sign propagates slowly while the shop starts locking up immediately.
 
-## How it works
+## The termination sequence
 
 ```mermaid
 sequenceDiagram

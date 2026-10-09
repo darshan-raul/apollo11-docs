@@ -9,11 +9,9 @@ description: "ConfigMaps, Secrets and ServiceAccounts: how each reaches a Pod, a
 
 **You will be able to:** choose between a ConfigMap and a Secret, predict when a configuration change takes effect, and explain what a ServiceAccount is for.
 
-## The problem
-
 Launchpad taught that an image should not hard-code environment facts. In Kubernetes the same booking image runs in development, staging and production, needing different database addresses and passwords each time. Pasting those values into every Deployment makes them hard to audit and easy to leak. We need a place to keep configuration separate from the workload, and a way to say **who a Pod is** when it talks to the Kubernetes API.
 
-## The idea in plain words
+## What a Pod needs from outside its image
 
 Imagine an office employee. Their **job description** is the same everywhere, but the **address book** (non-sensitive settings), the **safe combination** (sensitive values) and their **ID badge** (who they are to building security) are issued separately.
 
@@ -30,7 +28,7 @@ flowchart LR
   SA[ServiceAccount booking] -->|serviceAccountName| POD[Pod]
 ```
 
-## How it works: delivery and timing
+## Delivery and timing
 
 A Pod receives a ConfigMap or Secret in one of two ways, and the way decides when a change is noticed:
 

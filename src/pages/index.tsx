@@ -10,7 +10,7 @@ import styles from './index.module.css';
 const stages = [
   {number: 'PREP', title: 'Launchpad', description: 'Meet Apollo Airlines. Learn what it takes to get its containers talking on one machine.', href: '/docs/learn/containers/process-image-container'},
   {number: 'GO', title: 'Ignition', description: 'Bring Kubernetes into the story. Who turns your declaration into a running application?', href: '/docs/learn/cluster/why-orchestration'},
-  {number: '01', title: 'Liftoff', description: 'A booking Pod disappears. Discover who replaces it and how the application finds its feet again.', href: '/docs/learn/workloads/ownership-and-replicas'},
+  {number: '01', title: 'Liftoff', description: 'A booking Pod disappears. Discover who replaces it and how the application finds its feet again.', href: '/docs/learn/workloads/services-and-readiness'},
   {number: '02', title: 'Guidance', description: 'Follow a passenger’s request through names, addresses, and routes to the right service.', href: '/docs/learn/networking/pod-network-and-cni'},
   {number: '03', title: 'Mission Data', description: 'The database Pod is gone. Find out what must survive for the passenger’s reservation to remain.', href: '/docs/learn/storage/volume-lifetimes'},
   {number: '04', title: 'Flight Control', description: 'Decide when a service is ready, when it needs help, and how it should leave gracefully.', href: '/docs/learn/reliability/probes'},

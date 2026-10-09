@@ -14,8 +14,6 @@ description: "Base plus overlay: how Kustomize patches complete YAML per environ
 - explain why Apollo's labels use `includeSelectors: false`;
 - choose between Kustomize and Helm for a job, and say why one object must never be managed by both.
 
-## The problem
-
 [Rendering and Helm](./rendering-and-helm) solved environment drift with templates. That solution has costs:
 
 - Templates are not valid YAML until rendered, so editors, linters and `kubectl apply` cannot read them directly.
@@ -24,7 +22,7 @@ description: "Base plus overlay: how Kustomize patches complete YAML per environ
 
 Often the actual need is smaller: "the same manifests, but 3 replicas and a different image in prod". For that, plain YAML with a short list of edits is easier to read and review.
 
-## The idea in plain words
+## Bases and overlays
 
 Helm is a mail-merge. **Kustomize is tracked changes on a finished document.** You keep one complete, working set of manifests, the **base**. For each environment you keep a small **overlay** that lists the edits: set these replica counts, swap these images, add this label, apply this patch. Running Kustomize applies the edits and prints the result.
 
@@ -46,7 +44,7 @@ flowchart LR
 
 The tracked-changes analogy breaks in one place: Kustomize does not edit text. It parses every file into Kubernetes objects, changes fields on those objects, then prints them again. That is why it can find "the Deployment named booking" no matter where it sits in a file, and why comments in the base disappear from the output.
 
-## How it works
+## How Kustomize builds the output
 
 ### Step 1: collect resources
 

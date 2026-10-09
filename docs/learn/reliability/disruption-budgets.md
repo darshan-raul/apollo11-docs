@@ -9,11 +9,9 @@ description: "What a PodDisruptionBudget limits, what it cannot stop, and the st
 
 **You will be able to:** compute `disruptionsAllowed`, and name disruptions a PDB does and does not block.
 
-## The problem
-
 An administrator drains a node for a kernel upgrade, which evicts every Pod on it. If both booking replicas happen to be on that node, booking disappears completely, and nothing was "broken": it was planned maintenance. We need a way for an application to say "during planned maintenance, always leave at least this many of me running."
 
-## The idea in plain words
+## A budget for voluntary disruption
 
 A hospital ward during a shift change: staff are allowed to leave, but the rule is that **at least one nurse must remain on the ward** at any moment. The next nurse may leave only once a replacement has arrived.
 
@@ -29,7 +27,7 @@ The PDB governs **voluntary** disruptions: ones a person or an automation choose
 | Cluster autoscaler scale-down | Kernel panic, OOMKilled |
 | Direct Eviction API call | `kubectl delete pod`, scaling a Deployment down, `--force --grace-period=0` |
 
-## How it works
+## How an eviction checks the budget
 
 The API server checks the PDB on every eviction request. If granting it would drop healthy Pods below the budget, the request is refused with HTTP 429, and the drain retries until the replacement is Ready.
 

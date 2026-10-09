@@ -9,11 +9,9 @@ description: "Who configures, operates, repairs, secures and pays for each layer
 
 **You will be able to:** fill in an ownership record for a component and use it to decide who acts next during an incident.
 
-## The problem
-
 Booking Pods are Ready, but passengers cannot reach the site. The cause could be public DNS, a load balancer, Gateway configuration, a Service with no endpoints, or the application itself. In an incident, the worst delay is not technical: it is not knowing *who is allowed and expected to look at which layer*.
 
-## The idea in plain words
+## What "managed" really means
 
 A building has a landlord (structure and utilities), a facilities team (lifts and cleaning), and tenants (what happens inside their offices). When the lights go out, you need to know whose problem it is before you can fix it.
 
@@ -35,7 +33,7 @@ flowchart TB
   App[App team] --> W[Images, manifests, probes, data behaviour]
 ```
 
-## How it works: an ownership record
+## An ownership record
 
 An architecture box labelled "managed database" is too vague at 3 a.m. Give it a record:
 

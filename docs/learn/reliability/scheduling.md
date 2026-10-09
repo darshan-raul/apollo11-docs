@@ -9,11 +9,9 @@ description: "Filter, score, bind; what Pending means; taints, tolerations, affi
 
 **You will be able to:** read a `FailedScheduling` message, and choose between a taint, node affinity and topology spread for a placement goal.
 
-## The problem
-
 A new Pod has no node. Something must pick one, and not randomly: the node needs room, must not be off-limits, and ideally spreads the replicas so one machine failure does not take out the whole service. When it fails, the Pod sits in `Pending`, and you need to know why.
 
-## The idea in plain words
+## Filter, score, bind
 
 The scheduler is an event planner seating guests. First it **eliminates tables** that cannot work (too small, reserved for someone else, wrong section). Then it **ranks the remaining tables** by preference (spread guests out, prefer the quiet side). Finally it **writes the guest's name on the chosen table card**.
 

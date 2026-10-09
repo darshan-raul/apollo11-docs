@@ -13,11 +13,9 @@ No runnable Stage 8 environment exists yet. Manifests below illustrate a future 
 
 **You will be able to:** separate admission (before an object is stored) from runtime sandboxing (after a container starts), and list the baseline Pod security settings.
 
-## The problem
-
 A manifest can be perfectly valid and still dangerous: a container running as root, with a writable filesystem and extra Linux privileges. If an attacker breaks into that process, those privileges are theirs. Two separate controls help: stop dangerous Pods from being *created*, and limit what a running process *can do* even if compromised.
 
-## The idea in plain words
+## A gate at the entrance, limits inside
 
 Airport security again: a **check at the entrance** turns away people carrying prohibited items (admission), and **restricted zones inside** limit where anyone can go even after entering (runtime sandbox). You want both, because neither is complete alone.
 
@@ -34,7 +32,7 @@ flowchart LR
 
 A compliant manifest does not guarantee safe behaviour; it just ensures the safe settings are present.
 
-## How it works: the baseline `securityContext`
+## The baseline `securityContext`
 
 | Setting | Effect |
 |---|---|

@@ -9,7 +9,7 @@ sidebar_label: "Ignition (First Cluster)"
 :::info[Page type · stage walkthrough]
 - Repo folder: [`stages/ignition`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/ignition) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: [Launchpad](./launchpad). Stop it first (`docker compose down` in `stages/launchpad`). You need Docker, `kind`, `kubectl` and `curl`.
-- Concepts behind this stage: [Why orchestration](./learn/cluster/why-orchestration) · [Objects and the API](./learn/cluster/objects-and-api) · [Reconciliation and components](./learn/cluster/reconciliation-and-components) · [Pod lifecycle](./learn/cluster/pod-lifecycle)
+- Concepts behind this stage: [Why Kubernetes?](./learn/cluster/why-orchestration) · [Architecture and the basic flow](./learn/cluster/architecture) · [Pods](./learn/cluster/pods) · [The controller loop](./learn/cluster/controller-loop) · [ReplicaSets](./learn/cluster/replicasets) · [Deployments](./learn/cluster/deployments) · [Objects and the API server](./learn/cluster/objects-and-api)
 :::
 
 ## Where we left off
@@ -116,7 +116,7 @@ API server <--> etcd
 - **Control-plane Pods** (`etcd-…`, `kube-apiserver-…`, `kube-scheduler-…`, `kube-controller-manager-…`) exist only on `apollo11-control-plane`. Their names end in the node name because they are **static Pods**: the node's kubelet runs them from files on disk. The API shows a read-only copy owned by the `Node`.
 - **DaemonSets** (`kube-proxy`, `kindnet`) run one Pod per node, so you see three of each.
 - **NetworkPolicy:** kindnet does not enforce it. That is deferred to Stage 8.
-- **Compared with Launchpad:** Compose was one program doing everything. Kubernetes splits the job into components that only talk through the API server. The [Reconciliation and components](./learn/cluster/reconciliation-and-components) chapter explains why.
+- **Compared with Launchpad:** Compose was one program doing everything. Kubernetes splits the job into components that only talk through the API server. The [Architecture and the basic flow](./learn/cluster/architecture) chapter explains why.
 
 ### Step 3: Create the first Pod with a command
 
@@ -188,7 +188,7 @@ kubectl wait --for=condition=Ready pod/apollo-shell --timeout=90s
 - **What the server adds:** fields you never wrote, each with a default: `schedulerName: default-scheduler`, `dnsPolicy: ClusterFirst`, `serviceAccountName: default`, tolerations for not-ready nodes, `qosClass: BestEffort` (no resource requests; Stage 4 changes this).
 - **Why `wait "${server_pid}"`:** it ties the container's life to the HTTP server. If the server dies, the container exits, and the kubelet sees it. Step 7 uses this.
 - **Compared with Launchpad:** a Compose service and a Pod both say "run this image with this command". The difference is where it goes: Compose acts on it locally and forgets; `kubectl apply` stores it in the cluster, and components act on the stored object.
-- More in [Objects and the API](./learn/cluster/objects-and-api).
+- More in [Objects and the API server](./learn/cluster/objects-and-api).
 
 ### Step 5: Follow the Pod through the components
 
@@ -308,7 +308,7 @@ kubectl delete pod needs-ssd bad-image
 - **The one-column rule:** no node means the scheduler. A node but no running container means the kubelet, the runtime, the image or the registry. A container that keeps restarting means the app.
 - **Neither is a dead end:** the scheduler retries `needs-ssd` if a node later gets `disk=ssd`. The kubelet retries the image pull forever. Neither moves the Pod or gives up.
 - **Why a selector can't reach the control plane:** a `nodeSelector` only narrows the candidates. It never overrides a taint; that needs a toleration.
-- More in [Pod lifecycle](./learn/cluster/pod-lifecycle) and [Scheduling](./learn/reliability/scheduling).
+- More in [Pods](./learn/cluster/pods) and [Scheduling](./learn/reliability/scheduling).
 
 ### Step 9: Delete the bare Pod
 

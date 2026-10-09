@@ -9,11 +9,9 @@ description: "Traces and spans, W3C traceparent propagation, and the Collector â
 
 **You will be able to:** read a trace, explain what breaks one, and say what a trace does not prove.
 
-## The problem
-
 A single booking passes through the frontend, booking, identity, flight, the database and notification. If it takes eight seconds, which hop was slow? Looking at each service's own logs and metrics separately, you cannot easily line up which entries belong to the same request.
 
-## The idea in plain words
+## Traces and spans
 
 A **parcel tracking number**: every depot scans it, so you can see the parcel's whole route and how long each leg took. A **trace** is that, for a request. It has one **Trace ID**, shared by every service the request touches. Each unit of work along the way is a **span**: a timed operation in one service, with its own **Span ID** and a pointer to its **parent** span.
 
@@ -36,7 +34,7 @@ sequenceDiagram
 
 From this you can see that of 680 ms, 340 ms was spent waiting for flight: the starting point for investigation.
 
-## How it works: context propagation
+## Context propagation
 
 For spans in different services to join one trace, each service must pass the identifying information along when it calls the next. The standard way is the W3C `traceparent` HTTP header:
 

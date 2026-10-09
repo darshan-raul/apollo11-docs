@@ -9,11 +9,9 @@ description: "The four branches of cache-aside, TTL by data volatility, and fail
 
 **You will be able to:** trace a request through hit, miss, database failure and cache outage, and choose a sensible TTL.
 
-## The problem
-
 Passengers repeatedly search the same routes on the same dates, and flight schedules change rarely. Each search still goes through `search` to `flight` and runs a database query. That is wasted work: the same answer is recomputed again and again, loading the database and adding latency.
 
-## The idea in plain words
+## Check the cache first
 
 A **notepad by the phone**: before looking something up in the big filing cabinet, check the notepad. If the answer is there, use it. If not, fetch it from the cabinet and jot it down for next time. The notepad is quick but may be out of date, and it is never the official record.
 
@@ -21,7 +19,7 @@ A **notepad by the phone**: before looking something up in the big filing cabine
 
 Apollo's key is `search:<origin>:<destination>:<date>`.
 
-## How it works: the four branches
+## The four branches
 
 ```mermaid
 flowchart TD

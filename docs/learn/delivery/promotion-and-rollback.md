@@ -14,15 +14,13 @@ description: "Move one tested artifact from dev to prod by changing Git, choose 
 - list what a rollback restores and what it cannot undo;
 - plan a database change so that rolling back stays safe.
 
-## The problem
-
 You have tested a booking release in dev. Two questions follow.
 
 **How does it get to prod without picking up anything untested on the way?** If prod gets a fresh build, or a tag that moved since you tested it, "it worked in dev" proves nothing about prod.
 
 **What do you do when prod misbehaves?** "Just roll back" sounds simple. But the bad version already ran for fifteen minutes. It wrote rows to `booking-db`, and it called the notification service, which sent emails. And in a GitOps environment, the obvious command, `kubectl rollout undo`, may be reverted by Argo CD a few seconds after you run it.
 
-## The idea in plain words
+## Promote the same artifact
 
 **Promotion** is moving the *same* tested thing to the next stage, like a part passing quality gates on a production line. Nobody rebuilds the part at each gate. Each gate only changes its surroundings: how many copies, how much memory, which hostname.
 
@@ -34,7 +32,7 @@ You have tested a booking release in dev. Two questions follow.
 
 The production-line analogy stops where data begins. A recalled part leaves no trace on the line; a recalled release leaves rows, messages and charges behind.
 
-## How it works
+## Promotion in practice
 
 ### Promotion in Apollo
 

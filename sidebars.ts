@@ -29,9 +29,12 @@ const sidebars: SidebarsConfig = {
       items: [
         'missions/ignition',
         'learn/cluster/why-orchestration',
+        'learn/cluster/architecture',
+        'learn/cluster/pods',
+        'learn/cluster/controller-loop',
+        'learn/cluster/replicasets',
+        'learn/cluster/deployments',
         'learn/cluster/objects-and-api',
-        'learn/cluster/reconciliation-and-components',
-        'learn/cluster/pod-lifecycle',
         {type: 'doc', id: 'ignition', label: 'Ignition walkthrough'},
       ],
     },
@@ -39,7 +42,6 @@ const sidebars: SidebarsConfig = {
       type: 'category', label: 'Stage 1 · Liftoff', collapsed: true,
       items: [
         'missions/liftoff',
-        'learn/workloads/ownership-and-replicas',
         'learn/workloads/services-and-readiness',
         'learn/workloads/configuration-and-identity',
         'learn/workloads/jobs-and-initialization',

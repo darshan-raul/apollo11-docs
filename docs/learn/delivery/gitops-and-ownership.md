@@ -15,8 +15,6 @@ description: "How Argo CD turns Git into the desired state: its components, the 
 - explain why Apollo's prod environment is synced by hand, and why it ignores `/spec/replicas`;
 - spot two writers fighting over a field and decide which one should own it.
 
-## The problem
-
 With Helm or Kustomize, someone runs a command. After it exits, nothing watches the cluster. Three things go wrong:
 
 - **Drift goes unnoticed.** An engineer runs `kubectl scale deploy/booking --replicas=5` during an incident and forgets. The cluster now differs from every file in Git, and nobody knows until the next deploy silently undoes it, or doesn't.
@@ -25,9 +23,9 @@ With Helm or Kustomize, someone runs a command. After it exits, nothing watches 
 
 We want Git to be the one place where changes are proposed, reviewed and recorded, and the cluster to follow Git automatically.
 
-## The idea in plain words
+## The controller loop, with Git as desired state
 
-You have already met the idea. [Reconciliation and components](../cluster/reconciliation-and-components) showed that every Kubernetes controller runs the same loop: observe desired state, observe actual state, act to close the gap. A ReplicaSet controller does it for a Pod count.
+You have already met the idea. [The controller loop](../cluster/controller-loop) showed that every Kubernetes controller runs the same loop: observe desired state, observe actual state, act to close the gap. A ReplicaSet controller does it for a Pod count.
 
 **GitOps applies that same loop to your whole application, with a Git repository as the desired state.** A controller running inside the cluster repeatedly:
 
@@ -58,7 +56,7 @@ They do different jobs, and Argo uses Helm or Kustomize rather than replacing th
 
 That last row is the *pull* model. CI pushes images to a registry and changes to Git; it never touches the cluster. Argo, already inside, pulls from both.
 
-## How it works
+## How Argo CD works
 
 ### The parts of Argo CD
 

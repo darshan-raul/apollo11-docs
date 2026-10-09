@@ -9,15 +9,13 @@ description: "How a laptop reaches a Pod in kind: port mapping, NodePort, and Me
 
 **You will be able to:** trace `localhost:30082` down to a Pod, and explain what actually fulfils `type: LoadBalancer`.
 
-## The problem
-
 A ClusterIP is private to the cluster network. Your laptop is outside it, so `curl` to a ClusterIP gets nowhere. To demonstrate Apollo in a browser we need a way in. The solutions form a ladder, each fixing the previous step's limitation.
 
-## The idea in plain words
+## Getting traffic in from outside
 
 Imagine an office building (the cluster) with internal extension numbers (ClusterIPs). A visitor cannot dial an extension from the street. First you could give each department a **side door on a high floor** (NodePort). Better, a single **street-level entrance with a proper address** that someone staffs (LoadBalancer).
 
-## How it works: NodePort
+## NodePort
 
 A `NodePort` Service does everything a ClusterIP does and additionally opens one port (30000–32767) **on every node**. Traffic arriving at any node on that port is routed to a ready Pod.
 
@@ -37,7 +35,7 @@ A NodePort Service involves three port numbers: `port` (the Service's own), `tar
 
 NodePort is fine for a local cluster but poor for production: awkward port range (users expect 80/443), opened on every node, and it works only at layer 4 with no host or path routing.
 
-## How it works: LoadBalancer and MetalLB
+## LoadBalancer and MetalLB
 
 `type: LoadBalancer` is a **request** stored on the Service: "give me an external address." Something in your environment must fulfil it. In a cloud, a cloud controller creates a managed load balancer. In kind there is no such controller, so the Service sits at `EXTERNAL-IP <pending>` forever.
 

@@ -9,21 +9,19 @@ description: "Which failure each kind of storage survives, what 'persistent' mea
 
 **You will be able to:** name the failure boundary a volume crosses instead of calling it "persistent", explain what kind's `local-path` storage does and does not protect, find the real directory behind a claim, and design a test that proves a specific survival claim.
 
-## The problem
-
 In Stage 1 you watched a database Pod be replaced and come back empty. The Deployment did its job, replacing the Pod, but the data lived inside the Pod's own storage and left with it. We need storage whose lifetime is *not* the Pod's.
 
 "Persistent" is the word everyone reaches for, but it hides the real question: persistent **through what**? A Pod restart? A deleted Pod? A dead node? A lost cluster? Each is a different boundary, and different storage crosses different boundaries.
 
 There is a second, quieter problem. Stages 1 and 2 *looked* fine. The application worked, the login worked, bookings worked. The data loss only appeared when a Pod was replaced. Storage failures are invisible until the specific event they cannot survive, so the only honest way to claim durability is to cause that event and look.
 
-## The idea in plain words
+## Ask which event the data survives
 
 Picture places to keep a document: your desk (gone when you leave), a locker (stays while you work here), the office filing cabinet (stays if you change desks), a bank vault in another city (survives the building burning down). Nothing is "safe"; each survives certain events.
 
 Kubernetes storage works the same way, so for any data ask: **which event can happen without these bytes disappearing?**
 
-## How it works: where bytes can live
+## Where bytes can live
 
 Before the table, five places a running container can put data, from shortest-lived to longest:
 
@@ -33,7 +31,7 @@ Before the table, five places a running container can put data, from shortest-li
 4. **`hostPath`.** A directory on the node itself, named in the Pod spec. It outlives the Pod but ties data to a particular node.
 5. **A PersistentVolumeClaim.** A request for storage owned by something other than the Pod. What it survives is decided by the volume behind it.
 
-## How it works: the survival table
+## The survival table
 
 Read it row by row: choose the storage and see which events it crosses.
 

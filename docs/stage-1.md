@@ -9,7 +9,7 @@ sidebar_label: "Stage 1: Liftoff (Workloads)"
 :::info[Page type · stage walkthrough]
 - Repo folder: [`stages/stage1`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the `kind-apollo11` cluster from [Ignition](./ignition). Namespace: `apollo-airlines`.
-- Concepts behind this stage: [Ownership and replicas](./learn/workloads/ownership-and-replicas) · [Services and readiness](./learn/workloads/services-and-readiness) · [Configuration and identity](./learn/workloads/configuration-and-identity) · [Jobs and initialization](./learn/workloads/jobs-and-initialization) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback) · [Ephemeral state](./learn/workloads/ephemeral-state)
+- Concepts behind this stage: [ReplicaSets](./learn/cluster/replicasets) · [Deployments](./learn/cluster/deployments) · [Services and readiness](./learn/workloads/services-and-readiness) · [Configuration and identity](./learn/workloads/configuration-and-identity) · [Jobs and initialization](./learn/workloads/jobs-and-initialization) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback) · [Ephemeral state](./learn/workloads/ephemeral-state)
 :::
 
 ## Where we left off

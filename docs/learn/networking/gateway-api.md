@@ -13,15 +13,13 @@ First pass: finish [Ingress and TLS](./ingress-and-tls) and stop. Return here fo
 
 **You will be able to:** name which object owns the listener, the route and each permission, read every Apollo Gateway API manifest, read Gateway status as a chain, break and repair a route, and diagnose a failing hostname.
 
-## The problem
-
 An Ingress puts everything in one object: the entry point (ports, TLS) *and* the application's routing rules. In a real organisation those belong to different people. A platform team owns the front door, certificates and addresses; application teams own "booking.apollo.local goes to the booking Service". With one object they must edit the same file, and anything unusual (redirects, rewrites, timeouts) has to be squeezed into vendor-specific **annotations** that differ per controller.
 
 Annotations are also untyped strings. A typo in one is accepted by the API server and silently ignored by the proxy, and moving to another controller means rewriting all of them.
 
 Gateway API is the Kubernetes answer: split the one object into several, each with a clear owner and typed fields instead of annotations.
 
-## The idea in plain words
+## Three roles, three objects
 
 Think of an airport. The **airport authority** decides which runways and terminals exist. The **terminal operator** runs a specific gate area and decides which airlines may use it. Each **airline** says which flights leave from which gate. An airline cannot claim a gate the terminal has not opened to it, and cannot send passengers into another airline's check-in without that airline's consent.
 
@@ -36,7 +34,7 @@ Gateway API has the same layers:
 
 Gateway API is a set of **API objects**. A controller and its proxy do the actual work, and you still need Services, EndpointSlices, Pods, DNS and certificate Secrets. It does not remove Ingress; Ingress is frozen, not deleted, and existing Ingresses do not convert themselves.
 
-## How it works: three paths to keep separate
+## Three paths to keep separate
 
 ```mermaid
 flowchart TB
@@ -61,7 +59,7 @@ flowchart TB
 
 Most Gateway API confusion comes from mixing these up. Reconciliation problems show as missing or `False` conditions; request problems show as wrong responses even when every condition is `True`.
 
-## How it works: what has to be installed
+## What has to be installed
 
 *Source: `stages/stage2/k8s/substages/05-envoy-gateway/`*
 
@@ -78,7 +76,7 @@ A **CRD** (CustomResourceDefinition) teaches the API server a new object type. B
 
 Before this substage, Apollo removes the Traefik DaemonSet, its Service and the Ingresses. Two controllers can coexist, but not two proxies claiming the same address and hostnames.
 
-## How it works: reading the Apollo objects
+## Reading the Apollo objects
 
 ### GatewayClass: which implementation
 
