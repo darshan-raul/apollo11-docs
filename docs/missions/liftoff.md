@@ -27,3 +27,12 @@ Builds on Ignition's [ReplicaSets](../learn/cluster/replicasets) and [Deployment
 ## Walkthrough
 
 - [Stage 1 walkthrough](../stage-1)
+
+## Flight deck: the tools you'll use from here on
+
+After the walkthrough, and before you tear Stage 1 down, learn the instruments. Same running airline, same checks, four ways:
+
+1. [kubectl: zero to hero](../flight-deck/kubectl-zero-to-hero): how kubectl talks to the API, discovering types and fields, selectors, JSONPath, watching, logs, previewing changes.
+2. [Contexts and a second cluster](../flight-deck/contexts-and-clusters): a small side kind cluster, kubeconfig contexts, and habits that stop a command landing on the wrong cluster.
+3. [k9s](../flight-deck/k9s): every Ignition and Stage 1 check in a terminal UI.
+4. [Headlamp](../flight-deck/headlamp): the same checks in a graphical UI, with a map of how the objects connect.

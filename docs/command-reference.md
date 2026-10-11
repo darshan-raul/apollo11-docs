@@ -27,6 +27,31 @@ kind load docker-image apollo11/booking:latest --name apollo11
 kind delete cluster --name apollo11
 ```
 
+### Contexts & Multiple Clusters
+See [Contexts and a second cluster](./flight-deck/contexts-and-clusters).
+```bash
+# Which cluster will the next command hit?
+kubectl config current-context
+# List every context (cluster + user + namespace) in your kubeconfig
+kubectl config get-contexts
+# Switch the current context (affects every terminal and tool)
+kubectl config use-context kind-apollo11
+# Run one command against another cluster without switching
+kubectl --context kind-apollo11-sandbox get nodes
+# Remember a default namespace on the current context
+kubectl config set-context --current --namespace=apollo-airlines
+# Show only the current context's cluster, user and namespace
+kubectl config view --minify
+```
+
+### Terminal & Graphical UIs
+See the [k9s](./flight-deck/k9s) and [Headlamp](./flight-deck/headlamp) tutorials.
+```bash
+# k9s, read-only, on a given context and namespace
+k9s --context kind-apollo11 -n apollo-airlines --readonly
+# Inside k9s:  :pods  :deploy  :svc  :ctx   / filter   d describe   y YAML   l logs   Shift-J owner   ? help
+```
+
 ### Node Inspection & Taints
 ```bash
 # View all nodes with roles, status, and IP addresses
