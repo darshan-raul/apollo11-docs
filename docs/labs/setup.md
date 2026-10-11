@@ -17,6 +17,8 @@ on a local Docker or Kubernetes environment.
 |---|---|
 | Git, Docker (+ Compose v2), curl | Launchpad onward |
 | kind, kubectl, Helm, jq | Ignition onward |
+| k9s | [Flight deck](../flight-deck/k9s) after Stage 1, then any stage (optional) |
+| Headlamp desktop app | [Flight deck](../flight-deck/headlamp) after Stage 1, then any stage (optional; not installed by `prep.sh`) |
 | Argo CD CLI | Stages 5–7 GitOps demos |
 | k6 | Stage 7 |
 | Node 20+ / npm | Running this docs site only |

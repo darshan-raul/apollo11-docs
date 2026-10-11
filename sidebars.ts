@@ -48,6 +48,15 @@ const sidebars: SidebarsConfig = {
         'learn/workloads/rollouts-and-rollback',
         'learn/workloads/ephemeral-state',
         {type: 'doc', id: 'stage-1', label: 'Stage 1 walkthrough'},
+        {
+          type: 'category', label: 'Flight deck: kubectl, k9s, Headlamp', collapsed: true,
+          items: [
+            'flight-deck/kubectl-zero-to-hero',
+            'flight-deck/contexts-and-clusters',
+            'flight-deck/k9s',
+            'flight-deck/headlamp',
+          ],
+        },
       ],
     },
     {

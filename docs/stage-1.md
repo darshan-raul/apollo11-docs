@@ -245,6 +245,19 @@ The [troubleshooting page](./troubleshooting) has more.
 | Config / secrets | `environment:` | Inline in `pod.yaml` | **ConfigMap / Secret** |
 | Data | Named volume | — | **`emptyDir` (ephemeral)** |
 
+## Before you clean up: the flight deck
+
+Keep Stage 1 running for one more detour. Every check on this page was a kubectl command handed to you. The flight deck tutorials teach the tools behind them, on this running airline:
+
+| Tutorial | What you get out of it |
+|---|---|
+| [kubectl: zero to hero](./flight-deck/kubectl-zero-to-hero) | Write your own commands: discover types and fields, select, shape output, watch, preview changes |
+| [Contexts and a second cluster](./flight-deck/contexts-and-clusters) | Run a side `apollo11-sandbox` cluster and always know which cluster a command hits |
+| [k9s](./flight-deck/k9s) | Steps 3–8's checks (and Ignition's) in a keyboard-driven terminal UI |
+| [Headlamp](./flight-deck/headlamp) | The same checks in a graphical UI, with a map of Deployments, ReplicaSets, Pods and Services |
+
+They only look; nothing in them changes Apollo. Come back here when you are done.
+
 ## Clean up
 
 ```bash
@@ -264,4 +277,4 @@ The kind cluster stays for Stage 2.
 - Why config and secrets are separate objects, and what a Secret does *not* protect.
 - Why booking's data disappears when its database Pod is replaced.
 
-**Next:** [Stage 2: Guidance](./stage-2) replaces five NodePorts with names, hostnames and a real front door.
+**Next:** if you skipped it, take the [flight deck](./flight-deck/kubectl-zero-to-hero) first. Then [Stage 2: Guidance](./stage-2) replaces five NodePorts with names, hostnames and a real front door.
