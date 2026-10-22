@@ -21,48 +21,26 @@ on a local Docker or Kubernetes environment.
 | Headlamp desktop app | [Flight deck](../flight-deck/headlamp) after Stage 1, then any stage (optional; not installed by `prep.sh`) |
 | Argo CD CLI | Stages 5–7 GitOps demos |
 | k6 | Stage 7 |
+| Bash 4+, Python 3, OpenSSL | Stage 6–7 trace verification and the capstone; install separately if absent |
 | Node 20+ / npm | Running this docs site only |
 
 - Keep ~20 GB free disk and ~8 GB free RAM for Stages 6–7.
 - Windows: use WSL2 consistently.
+- macOS includes Bash 3.2, which cannot run the trace verifier's `mapfile`.
+  Install Bash 4+ with your package manager and check `bash --version` before
+  Stage 6. `prep.sh` does not install Bash, Python or OpenSSL.
 
-## Install the tools with the bootstrap script
+## Prepare the verified workspace
 
-The Apollo11 repo ships a [mise](https://mise.jdx.dev) bootstrap:
-[`prep.sh`](https://github.com/darshan-raul/Apollo11/blob/main/prep.sh) and
-[`mise.toml`](https://github.com/darshan-raul/Apollo11/blob/main/mise.toml).
-
-1. Install Docker yourself first: [Docker Engine](https://docs.docker.com/engine/install/)
-   (Linux) or [Docker Desktop](https://docs.docker.com/desktop/) (macOS, Windows + WSL2).
-   mise does not manage Docker, because it needs a daemon.
-2. Run the script from the latest `main`, before you check out the pinned commit:
+Install Git and Docker with Compose v2 first:
+[Docker Engine](https://docs.docker.com/engine/install/) on Linux, or
+[Docker Desktop](https://docs.docker.com/desktop/) on macOS/Windows with WSL2.
+Start the Docker daemon and require `docker ps` to succeed.
+From the directory where you keep projects, run:
 
 ```bash
 git clone https://github.com/darshan-raul/Apollo11.git
 cd Apollo11
-./prep.sh            # installs mise, activates it in your shell, installs kind, kubectl, helm, jq, k6, argocd, ...
-exec $SHELL          # reload your shell so the tools are on PATH
-./prep.sh --verify   # every line should be ✅
-```
-
-- Tools go into your global mise config, so they stay on `PATH` after the checkout below.
-- Safe to re-run; it skips what is already installed or configured.
-- Prefer your own package manager? Fine. Install the tools in the table and run the check below.
-- EKS track only: `mise use -g awscli terraform`.
-
-Check the tools by hand:
-
-```bash
-git --version && docker --version && docker compose version && docker ps
-kind version && kubectl version --client && helm version && jq --version && k6 version
-```
-
-- Each should print a version; `docker ps` must not show a daemon error.
-
-## Prepare the verified workspace
-
-```bash
-cd Apollo11              # the clone from the bootstrap step
 git checkout f6211e679f8ed66a5a19033ac49a3bfc3a506eab
 git status --short       # expect empty
 git rev-parse HEAD       # expect f6211e679f8ed66a5a19033ac49a3bfc3a506eab
@@ -72,13 +50,15 @@ git rev-parse HEAD       # expect f6211e679f8ed66a5a19033ac49a3bfc3a506eab
 - Different revision? Paths, namespaces and output will differ. Record the hash with your results.
 - Run every lab from the repo root.
 
-## Install the repository toolchain with mise
+## Install the tools with the bootstrap script
 
-From the pinned repository root:
+Continue from the pinned repository root; it contains
+[`prep.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/prep.sh)
+and [`mise.toml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/mise.toml):
 
 ```bash
 ./prep.sh
-# Restart your shell so mise activation takes effect, then:
+exec "$SHELL"        # reload your shell; continue in the Apollo11 root
 ./prep.sh --verify
 k9s version
 ```
@@ -90,6 +70,18 @@ Desktop, Compose v2 and a running daemon must be installed separately. Devbox
 is no longer the toolchain entry point. Tools currently use `latest`; record
 actual versions with results rather than assuming the course pin pins tools.
 AWS CLI and Terraform are optional, installed on demand for the cloud track.
+
+The script can be rerun to install missing tools. Prefer your own package
+manager? Install the tools in the table, then check them directly:
+
+```bash
+git --version && docker --version && docker compose version && docker ps
+kind version && kubectl version --client && helm version && jq --version && k6 version
+```
+
+Each should print a version; `docker ps` must succeed. Before Stage 2, read
+[Local Gateway and browser access](./local-access) for native Linux versus
+Docker Desktop routing and certificate trust.
 
 For Stages 6–7 use a quiet host and avoid concurrent image builds during load
 measurements. The recorded host had six cores and 16 GB RAM; host load above

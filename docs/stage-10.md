@@ -28,7 +28,7 @@ Its standalone success does not complete Stage 8.
 
 ## Where we left off
 
-- After Stages 1–9 the platform is built, observable, scaled, secured and in the cloud.
+- The runnable local path ends at Stage 7: built, observable and scaled. Security and cloud operations remain planned in Stages 8–9.
 - What remains are **specialist operations skills**: canary releases, a service mesh, chaos testing, live debugging.
 - Each of those is optional, and none depends on another. So Stage 10 is a catalog of missions, not one more required deployment.
 

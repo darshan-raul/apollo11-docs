@@ -167,7 +167,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category', label: 'Flight Kit & Reference', collapsed: true,
-      items: ['labs/setup', 'troubleshooting', 'command-reference', 'glossary'],
+      items: ['labs/setup', 'labs/local-access', 'troubleshooting', 'command-reference', 'glossary'],
     },
   ],
 };

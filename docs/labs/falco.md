@@ -17,7 +17,12 @@ Containerized kind nodes still share the host kernel.
 
 ## Build and inspect
 
+Open a dedicated Bash shell first. Its directory and `KUBECONFIG` changes
+stay inside that shell; keep it open through cleanup. If you stop early, run
+`bash teardown.sh` from the mission directory before leaving it.
+
 ```bash
+bash
 cd stages/stage10/missions/falco
 bash apply.sh
 export KUBECONFIG="$PWD/.kubeconfig"
@@ -73,9 +78,12 @@ interpreted alongside driver health, rule conditions and dropped-event metrics?
 ```bash
 bash teardown.sh
 kind get clusters
+exit                 # return to the parent shell and its original directory/kubeconfig
+kubectl config current-context
 ```
 
-Require `apollo11-falco` to be absent. Retain your verification log.
+Before `exit`, require `apollo11-falco` to be absent. After `exit`, the context
+should match the one used before the mission (or be unset if none existed). Retain your verification log.
 [Official deployment guidance](https://falco.org/docs/setup/kubernetes/) documents
 the supported Helm path; the Falco Operator is another deployment option but
 is not needed for this single-rule exercise.

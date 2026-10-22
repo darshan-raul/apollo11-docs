@@ -34,17 +34,50 @@ bash stages/stage7/scripts/verify.sh --mode helm --env dev
 
 ## Follow one booking
 
+The [trace verifier](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/scripts/trace-test.sh)
+creates the booking we follow here. It needs Bash 4+ (`mapfile`), Python 3 and
+OpenSSL in addition to the course toolchain. On macOS, use an installed Bash
+4+ on your PATH; the system Bash 3.2 cannot run this verifier.
+
 ```bash
-GW=$(kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.addresses[0].value}')
-TOKEN=$(curl -s -H "Host: identity.apollo.local" -H 'Content-Type: application/json' \
-  -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' http://$GW/api/users/login | jq -r .token)
-curl -s -w '\n%{http_code}\n' -X POST -H "Host: booking.apollo.local" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"flightId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}' http://$GW/api/bookings
-bash stages/stage7/scripts/trace-test.sh      # prints trace_id=… services=…
+mkdir -p learner-work
+set -o pipefail
+bash stages/stage7/scripts/trace-test.sh | tee learner-work/capstone-trace.log
+TRACE_ID=$(sed -n 's/^trace_id=\([0-9a-f]*\) services=.*/\1/p' learner-work/capstone-trace.log)
+test -n "$TRACE_ID" && printf 'Booking trace: %s\n' "$TRACE_ID"
 ```
 
-Expect `201`. Cancel afterwards with `DELETE /api/bookings/<id>` to give the seat back.
+Require the final booking/cancellation and log/trace-correlation success lines.
+The script selects a seeded flight, creates a booking with that trace ID,
+checks the seat decrement and the four-service trace, then cancels the booking
+and verifies the restored seat. Its exit trap also attempts cancellation on
+failure. Do not create a second manual booking to explain this trace.
+
+In two additional terminals, leave these forwards running (one per terminal):
+
+```bash
+kubectl -n apollo-observability port-forward svc/tempo 13200:3100
+```
+
+```bash
+kubectl -n apollo-observability port-forward svc/loki 13100:3100
+```
+
+Back in the terminal holding `TRACE_ID`, inspect that same booking:
+
+```bash
+curl -fsS "http://localhost:13200/api/traces/$TRACE_ID" | \
+  jq '[.batches[].resource.attributes[] | select(.key == "service.name").value.stringValue] | unique'
+curl -fsSG http://localhost:13100/loki/api/v1/query_range \
+  --data-urlencode "query={service=~\".+\"} | json | trace_id=\"$TRACE_ID\"" | \
+  jq -e '.data.result | length > 0'
+```
+
+Expect booking, identity, flight and notification in Tempo, and `true` for Loki.
+The client runs inside the cluster: this proves the application/telemetry path,
+while edge access is checked separately through
+[Local Gateway and browser access](./labs/local-access). Search caching and its
+HPA are related passenger workflows, outside this booking trace.
 
 | # | Hop | Handled by | Added in | Replaced | See it |
 |---|---|---|---|---|---|
@@ -52,11 +85,11 @@ Expect `201`. Cancel afterwards with `DELETE /api/bookings/<id>` to give the sea
 | 2 | Host header → service | **HTTPRoute** `booking` | Stage 2 | Ingress rules (earlier in Stage 2) | `kubectl get httproute -n apollo-airlines-apps` |
 | 3 | Route → a healthy Pod | **Service** + EndpointSlice, *Ready* Pods only | Stage 1; readiness sharpened in Stage 4 | Docker DNS (Launchpad) | `kubectl get endpointslice -n apollo-airlines-apps -l kubernetes.io/service-name=booking` |
 | 4 | Booking checks the token and reads the flight | Cluster DNS names `identity`, `flight` | Stage 1; cross-namespace in Stage 2 | Compose service names | trace: `booking → identity`, `booking → flight` |
-| 5 | (Before booking) the flight search was served fast | **Redis cache-aside** in `search` | Stage 7 | `search` → `flight` → Postgres on every search | `X-Cache: HIT` on the search response; `cache_hits_total` |
+| 5 | Related search workflow (outside this trace) | **Redis cache-aside** in `search` | Stage 7 | `search` → `flight` → Postgres on every search | `X-Cache: HIT` on the search response; `cache_hits_total` |
 | 6 | Booking row written and kept | **StatefulSet** `booking-db` + **PVC** | Stage 3 | `emptyDir` (Stage 1), lost on Pod replacement | `kubectl get sts,pvc -n apollo-airlines-apps` |
 | 7 | Confirmation sent | `notification`, called after the write | Stage 1 | — | trace: the notification span comes after the DB write |
-| 8 | Enough booking Pods for the load | **HPA** on CPU, using Stage 4's requests | Stage 7 | Fixed `replicas:` | `kubectl get hpa -n apollo-airlines-apps` |
-| 9 | Proof it all happened | Prometheus metric, Loki log, Tempo trace sharing one ID | Stage 6 | `kubectl logs` on one Pod at a time | Grafana → Explore, search the `trace_id` |
+| 8 | Search capacity (outside this trace) | **HPA** on search CPU, using Stage 4's requests | Stage 7 | Fixed `replicas:` | `kubectl get hpa -n apollo-airlines-apps` |
+| 9 | Proof it all happened | Aggregate Prometheus metrics; Loki logs and Tempo spans sharing this trace ID | Stage 6 | `kubectl logs` on one Pod at a time | Grafana → Explore, search the `trace_id` |
 
 - **Each layer leans on the one below:**
   - The Gateway (hop 1) can only route to Pods that the Service (hop 3) lists.
@@ -75,7 +108,7 @@ Expect `201`. Cancel afterwards with `DELETE /api/bookings/<id>` to give the sea
 | Booking hangs | Liveness fails, and the kubelet restarts the container | Stage 4 | A brief error, then recovery |
 | A bad image is released | The rollout stalls and old Pods keep serving; then `helm rollback` to the last good revision | Stages 1 and 5 | Nothing |
 | A node is drained | The PDB limits how many Pods leave at once (prod values; off in dev) | Stage 4 | Nothing, with 2+ replicas |
-| Traffic doubles | The HPA adds Pods, and the search cache absorbs repeated searches | Stage 7 | Steady latency |
+| Search load grows | The search HPA can add replicas within its configured limits; booking replicas remain fixed | Stage 7 | Latency depends on cache hits, downstream capacity and available nodes |
 | The error rate climbs | The SLO error budget burns on the dashboard | Stage 6 | Someone notices before passengers complain |
 
 ## Where the data lives, and what would still lose it
@@ -129,6 +162,8 @@ kubectl get deploy booking -n apollo-airlines-apps -o yaml | grep -E 'runAsNonRo
 | Capacity | fixed | fixed | fixed replicas | fixed | fixed | **requests / limits** | per-env values | measured | **HPA, VPA advice** |
 
 ## Clean up
+
+Stop both port-forwards with `Ctrl+C` in their terminals, then tear down Stage 7:
 
 ```bash
 bash stages/stage7/scripts/teardown.sh --mode helm --env dev --purge

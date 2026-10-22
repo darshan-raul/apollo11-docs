@@ -1,3 +1,5 @@
+# Historical MkDocs migration artifact. The active site uses Docusaurus.
+# These paths are obsolete; see README.md and CONTRIBUTING.md.
 site_name: Apollo 11
 site_url: https://apollo11.darshanraul.cloud
 theme:

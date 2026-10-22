@@ -48,22 +48,79 @@ Apollo's environments differ in their values file and Argo CD Application:
 
 Argo dev and staging request the moving `latest` tag in their stage-specific GHCR repository. A new image behind the same tag does not itself change the Deployment or trigger a rollout. The local Helm/dev and staging paths use locally built `apollo11/*:latest` with `IfNotPresent`. Prod requests `v1.0.0`; confirm publication before deploying it. Tags remain mutable, and hosted publication has not yet been observed.
 
-Promoting a release to prod is therefore a **change in Git**:
+Use the following procedure on your **own fork and registry**, after checking
+that CI can publish all six Stage 5 service images. Hosted upstream publication
+remains unverified. The local-image self-heal route in
+[Stage 5 Step 6](../../stage-5#step-6-argo-cd-git-applies-the-change) does not
+exercise registry promotion. `sha-abc1234` below is an example: substitute the
+actual tag emitted by the successful publication job.
 
-1. Merge the change to `main`. CI pushes `sha-abc1234` and `latest`; dev and staging sync to it automatically.
-2. Test in staging.
-3. Create the release tag. Pushing git tag `v1.1.0` makes CI push an image tagged `v1.1.0`, built from the same commit as `sha-abc1234`.
-4. Open a pull request that changes the `image.tag` parameter in [`argocd/applications/prod.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/applications/prod.yaml) from `v1.0.0` to `v1.1.0`. That parameter overrides `values-prod.yaml`, so it is the line that decides prod's tag. Reviewers see a one-line diff.
-5. Merge, then re-apply the Application (`bash stages/stage5/argocd/scripts/bootstrap.sh`). Apollo's Application objects are applied with `kubectl`, not managed by Argo itself, so a change to them only takes effect when re-applied. `apollo11-prod` becomes `OutOfSync`.
-6. Run `argocd app diff apollo11-prod`, check that only the six images changed, and sync.
+In the fork, enable GitHub Actions and change workflow `env.IMAGE_PREFIX` in
+`.github/workflows/main.yml` from `darshan-raul/apollo11` to your lowercase
+`<owner>/apollo11`. Use the fork's `main` branch for this procedure: the pinned
+workflow publishes on `main` pushes and `v*` tag pushes. Make the six Stage 5
+GHCR packages publicly readable for this local lab; the default Applications
+do not configure private-registry pull credentials. The corresponding Helm
+repository parameter is `ghcr.io/<owner>/apollo11/stage5`.
 
-Step 5 is a gap worth noticing. Many teams close it with the **app of apps** pattern: one parent Application whose source is the `applications/` folder, so merging a change to an Application in Git is enough.
-
-Why go through Git instead of `argocd app set --helm-set image.tag=v1.1.0` or `helm upgrade --set`? Because those change the cluster's desired state *without changing Git*. The pull request is your audit record of who promoted what, when, and who approved it. A command typed into a terminal leaves no such record.
-
-:::note[Stricter promotion]
-Step 3 builds the `v1.1.0` image again from the same commit; it does not copy the exact bytes that staging ran. Stricter pipelines avoid even that: they promote by re-tagging the tested digest, or by deploying `image@sha256:…` directly, so prod runs byte-for-byte what staging tested. [CI and image delivery](./ci-and-image-delivery) explains why digests are the stronger reference.
+:::caution[Unverified]
+This procedure is source-checked against the pinned workflow and Application
+files. A hosted publish → dev → staging → prod lifecycle has not been run for
+this documentation change. Require the checks below before claiming promotion.
 :::
+
+1. Merge the application change to your fork's delivery branch. Wait for the
+   lint, build/scan and publication jobs to pass; do not infer publication from
+   a merge alone. Record the published `sha-…` tag and each service's digest.
+2. In `stages/stage5/argocd/applications/dev.yaml`, change the existing Helm
+   parameter `image.tag` from `latest` to that actual `sha-…` tag. Set
+   `image.repository` to your published stage-specific registry prefix. Review
+   and commit this Application change in your fork. A distinct tag changes the
+   Deployment's Pod template; merely republishing `latest` does not.
+3. From a local branch containing that reviewed Application change, re-apply
+   the Applications with `bash stages/stage5/argocd/scripts/bootstrap.sh --repo-url https://github.com/<you>/Apollo11.git`.
+   Dev auto-syncs the changed template. Wait for its Deployments to finish
+   rolling out and test a real booking/cancellation.
+4. Repeat the reviewed tag change and bootstrap for `staging.yaml`, using the
+   **same published tag and repository**, then test staging. Keep each
+   Application's `targetRevision` on the intended remote chart branch or pin.
+5. Change the existing `image.tag` and `image.repository` Helm parameters in
+   `prod.yaml` to those tested references, review/merge, and bootstrap again.
+   Prod has manual sync: it should become `OutOfSync` until explicitly synced.
+6. With the Argo CLI authenticated to your local server, run
+   `argocd app diff apollo11-prod`, review the intended image changes, then
+   `argocd app sync apollo11-prod`. Verify the rollout and passenger workflow.
+   Compare the running image digests with those recorded in staging.
+
+For example, after staging and prod are running:
+
+```bash
+for ns in apollo-airlines-staging-apps apollo-airlines-prod-apps; do
+  kubectl -n "$ns" get pods -l app=booking \
+    -o custom-columns='POD:.metadata.name,REQUESTED:.spec.containers[0].image,RUNNING:.status.containerStatuses[0].imageID'
+done
+```
+
+Repeat the digest comparison for identity, flight, search, notification and the
+frontend in each environment's `-ui` namespace. Require ready workloads,
+matching per-service digests and a successful booking/cancellation. A matching
+tag string alone is weaker evidence because tags can be moved.
+
+**Why bootstrap appears at every gate:** the Application objects are applied
+with kubectl; Argo does not manage their files itself. A merge that changes
+`applications/dev.yaml` does not update the live Application until bootstrap
+re-applies it. Keep any chosen `--repo-url` override consistent on every run.
+Chart changes on a tracked remote branch are different: Argo can discover
+those directly. An app-of-apps pattern could automate Application updates, but
+it is not part of this snapshot.
+
+**Release labels are optional.** Pushing a `v1.1.0` Git tag triggers a separate
+image build. It does not prove those bytes match the earlier staging build.
+To preserve the tested artifact, keep the already tested `sha-…` reference,
+compare digests, or use a registry process that re-tags the existing digest.
+The course chart currently constructs `repository/SERVICE:TAG` references;
+deploying per-service digests would require a chart change. See
+[CI and image delivery](./ci-and-image-delivery).
 
 ### Four ways to roll back, and when each one is right
 
@@ -78,10 +135,10 @@ The correct tool depends on **who owns the environment's desired state**. Roll b
 
 Apply that to Apollo:
 
-- **dev and staging** (automated, self-heal): `git revert` the commit. If you want the old image back immediately, that is what the revert does once Argo syncs, usually within minutes, or at once if you click Sync after merging.
+- **dev and staging** (automated, self-heal): revert the image-parameter change in Git, then rerun bootstrap with the same repository override to update the live Application. Argo can then sync the old template. For a chart-only change on the tracked remote branch, Argo discovers the Git revert directly.
 - **prod** (manual sync): two routes.
-  - Normal: revert the tag change in Git, review, sync.
-  - Emergency: `argocd app rollback apollo11-prod <history-id>` to return to the last good sync right away. The Application then shows `OutOfSync`, because Git still says the bad version. Follow up with the Git revert so Git and the cluster agree again. This is why prod keeps 50 sync history entries rather than 10.
+  - Normal: revert the tag change in Git, review, rerun bootstrap, then sync.
+  - Emergency: `argocd app rollback apollo11-prod <history-id>` to return to the last good sync right away. The Application then shows `OutOfSync`, because Git still says the bad version. Follow up with the Git revert and bootstrap so the Application and its source file agree again. This is why prod keeps 50 sync history entries rather than 10.
 
 ### Roll back or roll forward?
 
@@ -180,7 +237,7 @@ It restores the declared objects only. Rows, emails, payments and other effects 
 <details>
 <summary>dev has automated sync with self-heal. You run <code>kubectl rollout undo deploy/booking</code>. What happens, and what should you have done?</summary>
 
-Argo sees the live Deployment differ from Git and re-applies the bad template within seconds. Revert the commit in Git instead; Argo then syncs the old version.
+Argo sees the live Deployment differ from Git and re-applies the bad template within seconds. Revert the change in Git instead. If the revert changes an Application parameter, rerun bootstrap; Argo can then sync the old version.
 </details>
 
 <details>
@@ -192,7 +249,7 @@ Argo refuses a history rollback while automated sync is on, because the next aut
 <details>
 <summary>After an emergency <code>argocd app rollback</code> in prod, the Application shows <code>OutOfSync</code>. Is that a problem?</summary>
 
-It is expected, and it is a reminder. The cluster runs the old version while Git still asks for the bad one. Revert the change in Git so the two agree, otherwise the next manual sync redeploys the bad version.
+It is expected, and it is a reminder. The cluster runs the old version while Git still asks for the bad one. Revert the change in Git and re-apply the Application with bootstrap so the two agree; otherwise the next manual sync redeploys the bad version.
 </details>
 
 <details>

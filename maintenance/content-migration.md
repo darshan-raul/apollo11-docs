@@ -20,8 +20,9 @@ Operations, and Orbital Maneuvering. Chapters sit inside those missions, with
 the corresponding lab alongside them. Security and cloud retain the Command
 Module and Lunar Orbit names and their planned-lab boundaries.
 
-The original six-mission capstone is preserved at `docs/capstone.md`. The reading
-walkthrough lives at `docs/learn/capstone/a-booking-through-kubernetes.md` and
-links to that lab. Preserve the application story and existing investigations
-when expanding the chapters; a shorter summary does not complete their migration.
+The current guided capstone lives at `docs/capstone.md`; the original
+six-mission exercise format has been retired (see `style-guide.md`). The reading
+chapter at `docs/learn/capstone/a-booking-through-kubernetes.md` links to that
+walkthrough. Preserve the application story and the link between one booking
+and its evidence when expanding either page.
 

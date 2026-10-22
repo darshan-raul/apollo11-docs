@@ -108,6 +108,7 @@ const config: Config = {
           position: 'left',
           items: [
             {to: '/docs/labs/setup', label: 'Prepare Your Launchpad'},
+            {to: '/docs/labs/local-access', label: 'Local Gateway Access'},
             {to: '/docs/learn/capstone/a-booking-through-kubernetes', label: 'Capstone: Follow a Booking'},
             {to: '/docs/capstone', label: 'Capstone Challenge'},
             {to: '/docs/troubleshooting', label: 'Troubleshooting Bible'},

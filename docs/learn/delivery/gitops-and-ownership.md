@@ -207,11 +207,25 @@ Why prod is different:
 
 - **Manual sync is a review gate.** A merge to `main` makes prod `OutOfSync`, nothing more. Someone runs `argocd app diff apollo11-prod`, reads what will change, and then syncs. Slower, but nothing reaches prod unseen.
 - **No self-heal is an incident-response choice.** On-call engineers can still `kubectl` their way out of an emergency without Argo undoing it a few seconds later. The Application then shows `OutOfSync`, which is a visible reminder to put the fix into Git.
-- **Ignoring `replicas` hands that field to another owner.** In prod, the number of booking Pods may be changed by a human during an incident, or by a HorizontalPodAutoscaler from Stage 7. If Argo also enforced `replicas: 3` from Git, the two would fight. `ignoreDifferences` tells Argo to leave that one field out of its comparison.
+- **Ignoring `replicas` affects comparison.** Booking can be scaled by a human; Stage 7's HPA targets search. `ignoreDifferences` leaves the field out of Argo's comparison, but does not by itself guarantee that a later sync preserves it. A complete ownership handoff also needs sync behavior that respects the ignored field, or omission of that field from the rendered Deployment.
 
-**On kind, images come from GHCR.** The Applications set `image.repository` to `ghcr.io/darshan-raul/apollo11/stage5`, so the kind nodes need internet access to pull. If they cannot, `bootstrap.sh --image-repository apollo11` points the Applications at the locally built images instead.
+**On kind, default images come from GHCR.** The Applications set `image.repository`
+to `ghcr.io/darshan-raul/apollo11/stage5`, so the nodes need published images and
+registry access. For preloaded images, follow [Stage 5 Step 6](../../stage-5#step-6-argo-cd-git-applies-the-change):
+explicitly set the dev/staging Application Helm parameters to repository
+`apollo11`, tag `latest` and pull policy `IfNotPresent`. At the course pin,
+`bootstrap.sh --image-repository apollo11` replaces only the registry prefix and
+retains `/stage5`, yielding `apollo11/stage5/SERVICE`, which does not match the
+build script's `apollo11/SERVICE` images. Use the explicit settings instead.
 
 **To see push-to-deploy, use a fork.** You cannot push to the upstream repo, so with the defaults you can only watch self-heal. Fork Apollo11, run `bootstrap.sh --repo-url https://github.com/<you>/Apollo11.git`, and commits to your fork drive the cluster.
+
+Argo fetches the remote `targetRevision`; the laptop checkout does not constrain
+it. Pin that field to the course hash for the self-heal route, or select your
+fork's delivery branch deliberately. Applications are applied by bootstrap,
+so edits to their image parameters or revision need bootstrap again. A new
+`latest` image alone leaves the rendered Deployment unchanged; use a new tag
+for a rollout and verify the running digest.
 
 ## Who owns a field?
 
@@ -287,9 +301,9 @@ Dev picks it up on the next poll and syncs automatically. Prod (which also track
 </details>
 
 <details>
-<summary>Stage 7 adds an HPA to booking in dev. Dev's Application has <code>selfHeal: true</code> and does not ignore <code>replicas</code>. What goes wrong, and what are two fixes?</summary>
+<summary>Stage 7 adds an HPA to search in dev. Dev's Application has <code>selfHeal: true</code> and does not ignore <code>replicas</code>. What goes wrong, and what are two fixes?</summary>
 
-Argo and the HPA fight: the HPA scales up, Argo sees drift and restores the Git value, the HPA scales again. Fix it with `ignoreDifferences` on `/spec/replicas`, or by leaving `replicas` out of the rendered Deployment so the HPA is the only owner.
+Argo and the HPA fight: the HPA scales up, Argo sees drift and restores the Git value, the HPA scales again. Omit `replicas` from the rendered Deployment, or configure both `ignoreDifferences` on `/spec/replicas` and sync behavior that respects that exclusion. Ignoring the comparison alone does not establish sole ownership during a later sync.
 </details>
 
 <details>

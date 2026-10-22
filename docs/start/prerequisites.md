@@ -22,22 +22,15 @@ sidebar_label: Before You Board
 
 ## Setup for the hands-on route
 
-Install Docker, then let the bootstrap script install everything else
-(kind, kubectl, Helm, jq, k6, Argo CD, ...) via [mise](https://mise.jdx.dev):
-
-```bash
-git clone https://github.com/darshan-raul/Apollo11.git
-cd Apollo11
-./prep.sh              # install mise + the course toolchain
-exec $SHELL            # reload your shell
-./prep.sh --verify     # every line should be ✅
-git checkout f6211e679f8ed66a5a19033ac49a3bfc3a506eab
-git rev-parse HEAD     # must print the hash above
-```
+Follow [Prepare your launchpad](../labs/setup#prepare-the-verified-workspace)
+for the canonical clone → pinned checkout → bootstrap → verification sequence.
+The pinned commit contains both `prep.sh` and `mise.toml`. Install Docker with
+Compose v2 first; the script installs the remaining course tools through mise.
 
 - Run every walkthrough from the `Apollo11` repo root.
-- Run `prep.sh` before the `git checkout`: the pinned commit predates the script.
-- Tool list, manual install option and preflight: [Prepare your launchpad](../labs/setup#install-the-tools-with-the-bootstrap-script).
+- The application revision is pinned; tool versions currently use `latest`.
+- Check the [host access boundary](../labs/local-access) before Stage 2:
+  Docker Desktop needs a different route to the Gateway than native Linux.
 
 ## Learning loop used throughout
 

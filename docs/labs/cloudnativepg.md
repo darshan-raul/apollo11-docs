@@ -23,7 +23,12 @@ legacy manifests are not inputs to this mission.
 
 Run from this directory:
 
+Open a dedicated Bash shell first. Its directory and `KUBECONFIG` changes
+stay inside that shell; keep it open through cleanup. If you stop early, run
+`bash teardown.sh` from the mission directory before leaving it.
+
 ```bash
+bash
 cd stages/stage10/missions/cloudnativepg
 bash apply.sh
 export KUBECONFIG="$PWD/.kubeconfig"
@@ -76,9 +81,12 @@ would be needed to measure an RPO rather than checking one retained row?
 ```bash
 bash teardown.sh
 kind get clusters
+exit                 # return to the parent shell and its original directory/kubeconfig
+kubectl config current-context
 ```
 
-Require `apollo11-cloudnativepg` to be absent. Cluster deletion removes its local
+Before `exit`, require `apollo11-cloudnativepg` to be absent. After `exit`, the context
+should match the one used before the mission (or be unset if none existed). Cluster deletion removes its local
 volumes and operator CRDs. Keep or explicitly delete your local `backup.sql`
 and verification log after reviewing the evidence.
 

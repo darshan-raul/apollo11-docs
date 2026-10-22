@@ -8,15 +8,15 @@ import {markTransform, wheelPath} from './_kubernetesMark';
 import styles from './index.module.css';
 
 const stages = [
-  {number: 'PREP', title: 'Launchpad', description: 'Meet Apollo Airlines. Learn what it takes to get its containers talking on one machine.', href: '/docs/learn/containers/process-image-container'},
-  {number: 'GO', title: 'Ignition', description: 'Bring Kubernetes into the story. Who turns your declaration into a running application?', href: '/docs/learn/cluster/why-orchestration'},
-  {number: '01', title: 'Liftoff', description: 'A booking Pod disappears. Discover who replaces it and how the application finds its feet again.', href: '/docs/learn/workloads/services-and-readiness'},
-  {number: '02', title: 'Guidance', description: 'Follow a passenger’s request through names, addresses, and routes to the right service.', href: '/docs/learn/networking/pod-network-and-cni'},
-  {number: '03', title: 'Mission Data', description: 'The database Pod is gone. Find out what must survive for the passenger’s reservation to remain.', href: '/docs/learn/storage/volume-lifetimes'},
-  {number: '04', title: 'Flight Control', description: 'Decide when a service is ready, when it needs help, and how it should leave gracefully.', href: '/docs/learn/reliability/probes'},
-  {number: '05', title: 'Payload Integration', description: 'Ship the next version of Apollo Airlines and understand what a rollback can recover.', href: '/docs/learn/delivery/rendering-and-helm'},
-  {number: '06', title: 'Mission Operations', description: 'A booking is slow. Follow the metrics, logs, and traces to discover where the time went.', href: '/docs/learn/observability/signals-and-metrics'},
-  {number: '07', title: 'Orbital Maneuvering', description: 'More passengers arrive. Explore which work to cache, when to scale, and what to measure.', href: '/docs/learn/scaling/measurement-baseline'},
+  {number: 'PREP', title: 'Launchpad', description: 'Meet Apollo Airlines. Learn what it takes to get its containers talking on one machine.', href: '/docs/missions/launchpad'},
+  {number: 'GO', title: 'Ignition', description: 'Bring Kubernetes into the story. Who turns your declaration into a running application?', href: '/docs/missions/ignition'},
+  {number: '01', title: 'Liftoff', description: 'A booking Pod disappears. Discover who replaces it and how the application finds its feet again.', href: '/docs/missions/liftoff'},
+  {number: '02', title: 'Guidance', description: 'Follow a passenger’s request through names, addresses, and routes to the right service.', href: '/docs/missions/guidance'},
+  {number: '03', title: 'Mission Data', description: 'The database Pod is gone. Find out what must survive for the passenger’s reservation to remain.', href: '/docs/missions/mission-data'},
+  {number: '04', title: 'Flight Control', description: 'Decide when a service is ready, when it needs help, and how it should leave gracefully.', href: '/docs/missions/flight-control'},
+  {number: '05', title: 'Payload Integration', description: 'Ship the next version of Apollo Airlines and understand what a rollback can recover.', href: '/docs/missions/payload-integration'},
+  {number: '06', title: 'Mission Operations', description: 'A booking is slow. Follow the metrics, logs, and traces to discover where the time went.', href: '/docs/missions/mission-operations'},
+  {number: '07', title: 'Orbital Maneuvering', description: 'More passengers arrive. Explore which work to cache, when to scale, and what to measure.', href: '/docs/missions/orbital-maneuvering'},
   {number: 'NEXT', title: 'Beyond the Local Mission', description: 'Explore Command Module security, Lunar Orbit cloud operations, and the missions still ahead.', href: '/docs/status'}
 ];
 
@@ -26,8 +26,8 @@ const features = [
     description: 'Stay with Apollo Airlines as its needs grow. A passenger’s booking gives every new Kubernetes concept a reason to exist.'
   },
   {
-    title: 'Hands-on labs',
-    description: 'Predict what will happen, try it on a local cluster, then investigate the result. You can also follow the whole story without running a lab.'
+    title: 'Guided walkthroughs',
+    description: 'Run each stage on a local cluster and follow what changes, why it changes, and how to verify it. Reading the walkthroughs also works.'
   },
   {
     title: 'Learn through recovery',

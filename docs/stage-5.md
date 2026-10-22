@@ -51,7 +51,7 @@ Stage 5 does not change Apollo itself. It replaces the way Apollo is delivered, 
 | `argocd/` | Argo CD install, `AppProject`, three `Application`s, platform objects, scripts | New |
 | `scripts/apply.sh`, `verify.sh`, `teardown.sh` | `--mode helm` (default) or `--mode kustomize`, `--env dev\|staging\|prod` | Replace Stage 4's scripts |
 | `code/` | The Stage 4 services (same probes and shutdown handling) | Carried over |
-| `.github/workflows/main.yml` (repo root) | CI: lint, render, build six images, push to GHCR | New |
+| `.github/workflows/main.yml` (repo root) | CI: lint, render, build/scan 18 images across Stages 5–7, publish passing artifacts to GHCR | New |
 
 ## Walkthrough
 
@@ -252,15 +252,37 @@ kubectl get deploy booking -n apollo-airlines-apps --show-labels | tr ',' '\n' |
 
 Helm and Kustomize both still need **someone to run a command**. Neither notices if the cluster changes afterwards. **GitOps** turns this around: the desired state lives in Git, and a controller inside the cluster keeps making the cluster match it. **Argo CD** is that controller.
 
+Choose the source before bootstrap. The checked-in Applications use upstream
+`HEAD` for dev/staging and `main` for prod. Those are remote revisions: checking
+out the course pin on your laptop does **not** pin what Argo fetches.
+
+For a reproducible **self-heal demonstration**, open
+`stages/stage5/argocd/applications/{dev,staging,prod}.yaml` and set
+`spec.source.targetRevision` in all three to
+`f6211e679f8ed66a5a19033ac49a3bfc3a506eab`. In dev and staging, set the existing
+Helm parameter `image.repository` to `apollo11`, keep `image.tag: latest`, and
+add `image.pullPolicy: IfNotPresent` as another Helm parameter. Build/load the
+local Stage 5 images below; this route does not depend on GHCR publication.
+
+For **delivery from your own Git changes**, use a fork instead. Point
+`targetRevision` at the branch you intend to push in that fork and add
+`--repo-url https://github.com/<you>/Apollo11.git` to bootstrap; it updates both
+the Applications and the AppProject's allowed repository. Your laptop's unpushed
+edits are not visible to Argo. The [promotion procedure](./learn/delivery/promotion-and-rollback#promotion-in-apollo)
+explains explicit image-reference changes and publication requirements.
+
 ```bash
 bash stages/stage5/scripts/teardown.sh --mode kustomize --env dev
+bash stages/stage5/scripts/build-images.sh                  # local images for self-heal route
 bash stages/stage5/argocd/install.sh --offline                # vendored Argo CD v3.5.1
 bash stages/stage5/argocd/scripts/bootstrap.sh --sync
 kubectl get application -n argocd \
   -o custom-columns=NAME:.metadata.name,AUTO:.spec.syncPolicy.automated,SYNC:.status.sync.status,HEALTH:.status.health.status
 ```
 
-One `Application` per environment, [`argocd/applications/dev.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/applications/dev.yaml):
+One `Application` per environment. The checked-in defaults below come from
+[`argocd/applications/dev.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/applications/dev.yaml);
+your self-heal settings above replace its revision and image repository:
 
 ```yaml
 # applications/dev.yaml (trimmed)
@@ -292,10 +314,10 @@ kubectl get deploy booking -n apollo-airlines-dev-apps -o jsonpath='{.spec.repli
 
 - **What bootstrap sets up:** a shared platform (one GatewayClass, the MetalLB pool, PriorityClasses), six namespaces, the `apollo-airlines` **AppProject** (which repo and namespaces Argo may use; cluster-scoped objects denied), and three Applications: `apollo11-dev`, `-staging`, `-prod`.
 - **What happens on drift:** Argo compares the rendered chart with the live objects. Your `kubectl scale` makes the app `OutOfSync`; self-heal sets replicas back to what `values-dev.yaml` says, within about three minutes at most. Delete a Service and it comes back the same way.
-- **Where to make a lasting change:** in Git. Edit `values-dev.yaml`, commit, and Argo applies it. `kubectl` changes are temporary by design.
+- **Where to make a lasting change:** in the remote Git source Argo follows. The pinned self-heal route deliberately stays fixed. On the fork route, push a chart change to the tracked branch; changes to the Application objects themselves also require rerunning bootstrap.
 - **Prod is different on purpose:** `apollo11-prod` has no `automated` block. Argo shows the diff, and a person decides when to sync. It also ignores `/spec/replicas` on Deployments, so an on-call engineer can scale by hand during an incident without Argo undoing it.
 - **Argo is not a Helm release:** `helm list -A` shows nothing. Argo renders the chart itself and applies the result, so Argo's sync history replaces `helm history`.
-- **Images come from GHCR:** the Applications pull `ghcr.io/darshan-raul/apollo11/stage5/*`, built and pushed by the CI workflow. Promotion means moving the same image tag from dev to prod, not rebuilding ([CI and image delivery](./learn/delivery/ci-and-image-delivery)).
+- **Images and Git are separate inputs:** defaults request GHCR images; the self-heal route uses preloaded `apollo11/*:latest`. Publishing new bytes behind `latest` does not trigger a rollout. Change the image reference in Git and re-apply the Application before expecting a new Deployment ([CI and image delivery](./learn/delivery/ci-and-image-delivery)).
 - **Compared with Step 3:** with Helm, the cluster changed when you ran `helm upgrade`. With Argo CD, it changes when Git changes, and changes from anywhere else are reported or undone.
 
 ## Image gate and runtime versions
@@ -324,7 +346,7 @@ Secrets and mutable dev/staging tags remain open hardening work.
 | `accumulating resources … no such file or directory` | Wrong path in a `kustomization.yaml` | `kubectl kustomize <overlay>` |
 | Argo app `OutOfSync` and never fixes itself | Prod (manual sync) or `selfHeal` off | `kubectl get application -n argocd`; sync in the UI or CLI |
 | Argo app `Synced` but `Degraded` | Git applied correctly; the app itself is failing | `kubectl get pods -n apollo-airlines-dev-apps`; check events |
-| `ImagePullBackOff` only under Argo | GHCR images not reachable from the cluster | `bash stages/stage5/scripts/build-images.sh`, then `bootstrap.sh --sync --image-repository apollo11` |
+| `ImagePullBackOff` only under Argo | GHCR image unavailable, or image repository/tag differs from preloaded names | Inspect the Pod image and events; use the explicit local-image settings in Step 6, then rerun bootstrap |
 
 The [troubleshooting page](./troubleshooting) has more.
 

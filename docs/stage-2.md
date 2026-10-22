@@ -344,7 +344,11 @@ spec:
 
 ### Step 8: Use HTTPS properly, not just `curl -k`
 
-`curl -k` proves a TLS port answers. It does not prove a browser would trust it. Check trust and hostname for real:
+`curl -k` proves a TLS port answers. It does not prove a browser would trust it.
+The direct-address commands below need a host route to the MetalLB IP. On Docker
+Desktop, follow [Local Gateway and browser access](./labs/local-access) for
+port-forwarded HTTPS and the browser support boundary. On a routable host,
+check trust and hostname for real:
 
 ```bash
 kubectl -n apollo-airlines-apps get secret apollo-tls-secret -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/apollo-ca.crt
@@ -358,7 +362,7 @@ bash stages/stage2/scripts/verify-tls.sh
 - **What you see:** the HTTPS listener's conditions are all `True`. Booking answers with verification on. The foreign hostname fails with exit code 60: the certificate is only valid for `*.apollo.local`.
 - **What [`verify-tls.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/scripts/verify-tls.sh) does:** trusted HTTPS health on each API, the frontend, a passenger login, a populated search, a booking and its cancellation, and the hostname rejection. Its last line is `Trusted HTTPS login, populated search, booking, cancellation, and hostname rejection passed.`
 - **Listeners are independent:** if `apollo-tls-secret` is deleted, the HTTPS listener goes `ResolvedRefs=False` (`InvalidCertificateRef`) and HTTPS fails, while plain HTTP on port 80 keeps returning 200. Check the *listener* before suspecting the app.
-- **Using the browser:** the frontend calls `https://identity.apollo.local` and friends directly. Add the Gateway IP and the five hostnames (`frontend`, `identity`, `flight`, `booking`, `search` `.apollo.local`) to your local name resolution (for example `/etc/hosts`), trust the certificate locally, then open `https://frontend.apollo.local`. In the browser's Network panel, every API call should be HTTPS.
+- **Using the browser:** follow the [Linux hostname, certificate-trust and cleanup steps](./labs/local-access#browser-on-a-routable-linux-host). Direct Gateway browser access on Docker Desktop is not a verified course path; use the documented API route there.
 
 :::caution[Self-signed certificate gotchas]
 - The certificate is self-signed. Nothing trusts it until you trust it. That is normal for a local cluster and not a production setup.
