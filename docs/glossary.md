@@ -10,6 +10,16 @@ One-line definitions of the terms used across Apollo11, with the stage that intr
 
 ---
 
+### A
+
+#### Alertmanager
+A Prometheus component that handles alerts sent by client applications such as Prometheus server. It deduplicates, groups, and routes them to receiver integrations (such as webhooks, Slack, or PagerDuty). *(Introduced in [Stage 6](./stage-6))*
+
+#### Alloy (Grafana Alloy)
+An OpenTelemetry collector and telemetry pipeline agent that runs on every node as a DaemonSet to discover container log files on the host filesystem and stream them to Loki. *(Introduced in [Stage 6](./stage-6))*
+
+---
+
 ### C
 
 #### Cluster
@@ -226,6 +236,9 @@ An abstract API object that defines a logical set of Pods and a policy by which 
 #### ServiceAccount
 An identity attached to a Pod providing authentication credentials for interacting with the Kubernetes API server. Token automount can be disabled for least-privilege security. *(Introduced in [Stage 1](./stage-1))*
 
+#### ServiceMonitor
+A Custom Resource Definition (CRD) installed by the Prometheus Operator that declaratively specifies how groups of Kubernetes Services should be discovered and scraped by Prometheus. *(Introduced in [Stage 6](./stage-6))*
+
 #### Startup Probe
 A probe that checks whether an application has finished its initial boot process. Suspends liveness and readiness checks until it passes. *(Introduced in [Stage 4](./stage-4))*
 
@@ -242,6 +255,9 @@ A Kubernetes object describing the provisioner, parameters, and volume binding m
 #### Taints and Tolerations
 - **Taint**: A node attribute that repels Pods.
 - **Toleration**: A Pod attribute that permits the Pod to schedule onto a tainted node. *(Introduced in [Stage 7](./stage-7))*
+
+#### Tempo (Grafana Tempo)
+A high-volume, cost-effective distributed tracing backend that stores traces in object storage and correlates with Grafana and Loki via Trace IDs. *(Introduced in [Stage 6](./stage-6))*
 
 #### Topology Spread Constraints
 A Pod specification field (`topologySpreadConstraints`) that directs the scheduler to distribute replicas evenly across failure domains (nodes, availability zones). *(Introduced in [Stage 4](./stage-4))*

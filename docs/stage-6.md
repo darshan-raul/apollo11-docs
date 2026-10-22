@@ -341,7 +341,13 @@ now adds Alertmanager, an in-cluster webhook receiver and Blackbox Exporter.
 An internal Probe checks the frontend Service. A separate HTTPS edge Probe
 checks the Gateway IP with the frontend hostname for TLS SNI and routing.
 
-After installing the full Stage 6 snapshot, run from the Apollo11 root:
+If you followed the incremental substages (Steps 2–7) above, install the complete Stage 6 observability snapshot containing Alertmanager, the webhook receiver, and Blackbox Exporter:
+
+```bash
+bash stages/stage6/scripts/apply.sh
+```
+
+Then verify the alert and probe deployments from the Apollo11 root:
 
 ```bash
 export KUBE_CONTEXT=kind-apollo11

@@ -284,7 +284,7 @@ bash stages/stage3/scripts/verify.sh
 ```
 
 - **What you see:** `identity readyz=200` for a successful HTTPS request. `verify-tls.sh` checks trusted HTTPS, hostname rejection, login, populated search, booking, and cancellation. `verify.sh` also checks StatefulSets, PVCs, headless DNS, seed counts, and a booking surviving database Pod replacement.
-- **Why this way:** `--resolve` directs the hostname to MetalLB's current IP while preserving TLS hostname verification. The certificate is read from this installation's Secret, since teardown and reapply can replace it. An HTTP redirect alone would not prove the HTTPS route works.
+- **Why this way:** `--resolve` directs the hostname to MetalLB's current IP while preserving TLS hostname verification. (On Docker Desktop for macOS/Windows where MetalLB IPs are not host-routable, refer to [Local Gateway and browser access](./labs/local-access) for port-forwarding or containerized verification.) The certificate is read from this installation's Secret, since teardown and reapply can replace it. An HTTP redirect alone would not prove the HTTPS route works.
 - **Compared with Stage 2:** the access mechanism is the same, but the verifier now checks storage and a record surviving replacement. The built-in readiness endpoint alone does not prove data survival.
 - **Verification scope:** the verifier replaces `booking-db-0`, causing another brief database outage. Its booking check covers Pod replacement with the original volume; it does not prove backup restoration. See [Recovery boundaries](./learn/storage/recovery-boundaries).
 

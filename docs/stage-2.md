@@ -284,10 +284,14 @@ kubectl get httproute -A
 kubectl get svc -n envoy-gateway-system               # the proxy Service, type LoadBalancer, MetalLB IP
 GW=$(kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.addresses[0].value}'); echo $GW
 kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}{"\n"}'
+# On Linux with host routing to kind:
 for h in identity flight booking search; do
   printf '%-9s ' $h; curl -s -o /dev/null -w '%{http_code}\n' -H "Host: $h.apollo.local" http://$GW/healthz
 done
 curl -s -o /dev/null -w 'frontend %{http_code}\n' -H "Host: frontend.apollo.local" http://$GW/
+
+# On macOS/Windows Docker Desktop (where $GW is not directly host-routable), test via control-plane:
+# docker exec apollo11-control-plane curl -s -H "Host: identity.apollo.local" http://$GW/healthz
 ```
 
 From [`01-gateway.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/05-envoy-gateway/01-gateway.yaml), [`00b-envoyproxy.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/05-envoy-gateway/00b-envoyproxy.yaml), [`07-httproute-frontend.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/05-envoy-gateway/07-httproute-frontend.yaml) and [`01a-referencegrant.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/05-envoy-gateway/01a-referencegrant.yaml):
@@ -347,7 +351,9 @@ spec:
 `curl -k` proves a TLS port answers. It does not prove a browser would trust it.
 The direct-address commands below need a host route to the MetalLB IP. On Docker
 Desktop, follow [Local Gateway and browser access](./labs/local-access) for
-port-forwarded HTTPS and the browser support boundary. On a routable host,
+port-forwarded HTTPS and the browser support boundary (note that `verify-tls.sh`
+connects directly to `$GW:443`, requiring a routable host network or execution
+from a container on the kind network). On a routable host,
 check trust and hostname for real:
 
 ```bash

@@ -149,14 +149,14 @@ booking:
 
 ```bash
 cd stages/launchpad
-cp .env.example .env          # then change the example values
+cp .env.example .env          # customize secrets if desired
 docker compose up --build --wait -d
 docker compose ps
 ```
 
 - **What happens:** Compose builds six images, creates the `apollo-airlines` network and three named volumes, then starts containers in `depends_on` order. `--wait` returns once all are healthy. The first build can take several minutes.
 - **What you see:** ten containers `Up (healthy)`.
-- **Why `.env`:** `POSTGRES_USER`, `POSTGRES_PASSWORD` and `JWT_SECRET` stay out of Git. Use URL-safe characters in the password, because it is embedded in `DATABASE_URL`.
+- **Why `.env`:** Separates environment credentials (`POSTGRES_PASSWORD`, `JWT_SECRET`) from source control. Keep `POSTGRES_USER=postgres` unchanged, as downstream database scripts and seed jobs expect that username. If customizing `POSTGRES_PASSWORD`, use URL-safe alphanumeric characters because it is embedded in `DATABASE_URL`.
 - **If you see `variable not set`:** `.env` is missing.
 - **Ports on your host:** `3000` frontend, `8080` identity, `8081` flight, `8082` booking, `8083` search, `8084` notification.
 

@@ -27,3 +27,21 @@ The [October 22 evidence](https://github.com/darshan-raul/Apollo11/blob/f6211e67
 records successful reruns alongside failed attempts and their fixes. The G1
 lifecycle gap remains in progress; old counts alone do not close it. Conceptual
 chapters stand alone, and runnable commands require the matching snapshot.
+
+## Tools by stage and lifecycle status
+
+| Stage | Mission / Area | Primary Tools Introduced & Taught | Runnable Today? |
+|---|---|---|---|
+| **Launchpad** | Containers & Local Compose | Docker, Docker Compose, PostgreSQL | ✅ Runnable |
+| **Stage 1** | Cluster Ignition & Workloads | kind, kubectl, k9s, Headlamp | ✅ Runnable |
+| **Stage 2** | Guidance (Networking & Edge) | Envoy Gateway (Gateway API), MetalLB, Traefik (Ingress & TLS), CoreDNS | ✅ Runnable |
+| **Stage 3** | Mission Data (Stateful & Storage) | PostgreSQL StatefulSets, Redis, local-path provisioner | ✅ Runnable |
+| **Stage 4** | Flight Control (Reliability & Probes) | Liveness/Readiness/Startup Probes, Requests & Limits, PriorityClasses, PodDisruptionBudgets | ✅ Runnable |
+| **Stage 5** | Payload Integration (Packaging & GitOps) | Helm, Kustomize, Argo CD, GitHub Actions | ✅ Runnable (dev/local) |
+| **Stage 6** | Mission Operations (Observability) | Prometheus, OpenTelemetry SDK & Collector, Grafana, Grafana Tempo, Grafana Alloy, Grafana Loki, Alertmanager | ✅ Runnable (dev) |
+| **Stage 7** | Orbital Maneuvering (Scaling & Caching) | Horizontal Pod Autoscaler (HPA), Vertical Pod Autoscaler (VPA), Redis (Cache-aside), k6 | ✅ Runnable (dev) |
+| **Stage 8** | Command Module (Security Hardening) | HashiCorp Vault, External Secrets Operator (ESO), Kyverno, Cosign / Sigstore, Trivy, Calico | ⏳ *Planned* |
+| **Stage 9** | Lunar Orbit (Cloud Infrastructure) | AWS EKS, AWS Load Balancer Controller, EBS CSI, IAM Roles for Service Accounts (IRSA) | ⏳ *Planned* |
+| **Stage 10** | Mission Extensions (Production Patterns) | CloudNativePG (PostgreSQL Operator), Falco (Runtime Security), Velero, Keycloak | 🔬 *Selective Labs* (CloudNativePG & Falco have live evidence) |
+| **Stage 11** | Deep Dives & Mars Architecture | Service mesh (Linkerd), Chaos Mesh, Karpenter, KEDA, OpenCost, Goldilocks | ⏳ *Planned* |
+

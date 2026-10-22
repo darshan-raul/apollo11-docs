@@ -264,6 +264,7 @@ They only look; nothing in them changes Apollo. Come back here when you are done
 bash stages/stage1/scripts/verify.sh      # optional: the full automated check
 bash stages/stage1/scripts/teardown.sh
 kubectl get ns apollo-airlines            # NotFound
+kubectl config set-context --current --namespace=default  # reset context namespace if altered during Flight Deck
 ```
 
 The kind cluster stays for Stage 2.

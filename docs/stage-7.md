@@ -300,7 +300,9 @@ stage's chart to the running release.
 
 The cache benchmark fixes one replica to isolate cache impact. Capacity is a
 separate run through the Gateway, preserving the HPA's normal 70% target and
-stabilization windows. From the Apollo11 root, with trusted TLS/name resolution:
+stabilization windows. From the Apollo11 root, with trusted TLS and host name
+resolution (see [Local Gateway and browser access](./labs/local-access) for `/etc/hosts`
+setup; on Docker Desktop without host-to-MetalLB routing, see the port-forward or containerized test route):
 
 ```bash
 export KUBE_CONTEXT=kind-apollo11

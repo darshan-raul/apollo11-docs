@@ -53,7 +53,7 @@ Always test **both** a path that should be blocked and one that should work:
 ```bash
 kubectl get pods -n calico-system                                                                              # is an engine present?
 kubectl exec -n apollo-airlines-ui curl-client -- curl --connect-timeout 3 http://booking-db.apollo-airlines-apps:5432   # must fail
-kubectl exec -n apollo-airlines-apps deploy/booking -- curl -s http://flight:8081/readyz                       # must work
+kubectl exec -n apollo-airlines-apps deploy/booking -- curl -s http://flight:8081/healthz/ready               # must work
 ```
 
 A policy that blocks everything proves nothing, and a policy that blocks nothing is not enforced.

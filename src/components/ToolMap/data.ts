@@ -29,6 +29,8 @@ export const zones: Zone[] = [
       {
         title: 'Networking',
         tools: [
+          {name: 'Envoy Gateway', role: 'Gateway API', href: 'https://gateway.envoyproxy.io/', badge: 'EG'},
+          {name: 'MetalLB', role: 'Bare-metal LB', href: 'https://metallb.universe.tf/', badge: 'MLB'},
           {name: 'Traefik', role: 'Ingress controller', href: 'https://traefik.io/traefik/', logo: 'traefik.png'},
           {name: 'Linkerd', role: 'Service mesh', href: 'https://linkerd.io/', logo: 'linkerd.svg'},
         ],
@@ -37,18 +39,18 @@ export const zones: Zone[] = [
         title: 'Observability',
         tools: [
           {name: 'Prometheus', role: 'Metrics', href: 'https://prometheus.io/', logo: 'prometheus.svg'},
-          {name: 'OpenTelemetry', role: 'Tracing', href: 'https://opentelemetry.io/', logo: 'opentelemetry.svg'},
-          {name: 'Fluent Bit', role: 'Log shipping', href: 'https://fluentbit.io/', logo: 'fluentbit.png', wide: true},
+          {name: 'OpenTelemetry', role: 'Tracing SDK & Collector', href: 'https://opentelemetry.io/', logo: 'opentelemetry.svg'},
+          {name: 'Grafana Alloy', role: 'Log & telemetry agent', href: 'https://grafana.com/oss/alloy/', badge: 'ALLOY'},
           {name: 'Grafana Loki', role: 'Log storage', href: 'https://grafana.com/oss/loki/', logo: 'loki.png'},
         ],
       },
       {
         title: 'Management tools',
         tools: [
-          {name: 'Portainer', role: 'Container management', href: 'https://www.portainer.io/', logo: 'portainer.svg'},
-          {name: 'Podman', role: 'Containers', href: 'https://podman.io/', logo: 'podman.svg'},
-          {name: 'Tilt', role: 'Local development', href: 'https://tilt.dev/', logo: 'tilt.svg'},
+          {name: 'Docker', role: 'Containers & Compose', href: 'https://www.docker.com/', badge: 'DOC'},
           {name: 'kind', role: 'Local cluster', href: 'https://kind.sigs.k8s.io/', logo: 'kind.png', wide: true},
+          {name: 'kubectl', role: 'Kubernetes CLI', href: 'https://kubernetes.io/docs/reference/kubectl/', badge: 'KCTL'},
+          {name: 'Portainer', role: 'Container management', href: 'https://www.portainer.io/', logo: 'portainer.svg'},
         ],
       },
       {
@@ -57,7 +59,7 @@ export const zones: Zone[] = [
           {name: 'k9s', role: 'Terminal dashboard', href: 'https://k9scli.io/', logo: 'k9s.png', wide: true},
           {name: 'Headlamp', role: 'UI dashboard', href: 'https://headlamp.dev/', logo: 'headlamp.svg'},
           {name: 'Grafana', role: 'Unified dashboards', href: 'https://grafana.com/oss/grafana/', logo: 'grafana.svg'},
-          {name: 'Jaeger', role: 'Tracing dashboard', href: 'https://www.jaegertracing.io/', logo: 'jaeger.svg'},
+          {name: 'Grafana Tempo', role: 'Distributed tracing', href: 'https://grafana.com/oss/tempo/', badge: 'TEMPO'},
         ],
       },
       {
@@ -141,6 +143,8 @@ export const zones: Zone[] = [
           {name: 'Keycloak', role: 'Auth provider', href: 'https://www.keycloak.org/', logo: 'keycloak.svg'},
           {name: 'Kubescape', role: 'Benchmarking', href: 'https://kubescape.io/', logo: 'kubescape.svg'},
           {name: 'Vault', role: 'Secrets store', href: 'https://developer.hashicorp.com/vault', logo: 'vault.png'},
+          {name: 'External Secrets', role: 'Secret operator', href: 'https://external-secrets.io/', badge: 'ESO'},
+          {name: 'Kyverno', role: 'Policy engine', href: 'https://kyverno.io/', badge: 'KYV'},
           {name: 'TruffleHog', role: 'Secret scanning', href: 'https://trufflesecurity.com/trufflehog', logo: 'trufflehog.png', wide: true},
           {name: 'Falco', role: 'Runtime security', href: 'https://falco.org/', logo: 'falco.svg'},
         ],

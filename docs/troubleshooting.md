@@ -16,7 +16,7 @@ sidebar_label: "Troubleshooting Bible"
 |---|---|---|
 | `Pending`, `NODE <none>` | Scheduler | `kubectl describe pod` → Events (`FailedScheduling`) |
 | `ErrImagePull` / `ImagePullBackOff` | Kubelet / registry | `kubectl describe pod` → Events |
-| `Running` but `0/1`, `RESTARTS 0` | Readiness (config or dependency) | `describe` → Readiness; `exec … wget /readyz` |
+| `Running` but `0/1`, `RESTARTS 0` | Readiness (config or dependency) | `describe` → Readiness; `exec … wget /readyz` (or `/healthz/ready` in Stage 4+) |
 | `CrashLoopBackOff` | Your app | `kubectl logs --previous` |
 | Service resolves, calls hang | Selector / endpoints | `kubectl get endpoints <svc>` (`<none>` = no match) |
 | `NXDOMAIN` across namespaces | DNS name form | `nslookup <svc>.<namespace>` |
@@ -27,15 +27,10 @@ sidebar_label: "Troubleshooting Bible"
 | Helm says `deployed`, app broken | Release ≠ health | `kubectl rollout status`; use `--atomic` |
 | Argo reverts my change | GitOps self-heal | Edit Git, not the cluster |
 
-## 🪜 The Golden Rule: the 5-rung evidence ladder
+## 🪜 The Golden Rule: The 5-Rung Evidence Ladder
 
 - Pick the rung that answers your **current** question. Never use a later rung to replace missing earlier evidence.
 - A `Pending` Pod has no logs: read Events (rung 2), not logs (rung 4).
-
-
----
-
-## 🪜 The Golden Rule: The 5-Rung Evidence Ladder
 
 Use these scopes to choose the next useful observation. They are not mandatory
 steps to run blindly: skip directly to the rung that can answer your current
@@ -192,7 +187,8 @@ kubectl get endpointslices -n <namespace> -l kubernetes.io/service-name=<service
    - If the Service selects `app: booking`, but the Pod is labeled `app: boking` or `name: booking`, the selector matches 0 pods!
 2. **Pod Failing Readiness Probe**:
    - `Endpoints` only include Pods whose status condition is **`Ready: True`**!
-   - If `booking` pods are in `Running` state, but failing `/readyz`, Kubernetes removes them from endpoints.
+   - If `booking` pods are in `Running` state, but failing `/readyz` (Stages 1–3) or `/healthz/ready` (Stages 4+), Kubernetes removes them from endpoints.
+   - *Note on probe endpoints:* In Stage 4+, workloads expose dedicated `/healthz/startup`, `/healthz/live`, and `/healthz/ready` endpoints. `booking`'s `/healthz/ready` only checks its database (`booking-db`), whereas the legacy `/readyz` also checks all 3 downstream microservices (`identity`, `flight`, `notification`).
    - Run `kubectl describe pod <name>` and look for `Readiness probe failed`.
 
 ---
@@ -228,9 +224,9 @@ kubectl describe httproute <route-name> -n <namespace> | grep -A 8 Conditions:
 
 #### Common Causes & Fixes:
 1. **Missing `ReferenceGrant` (Cross-Namespace Access)**:
-   If an `HTTPRoute` in `apollo-airlines-apps` references a Service in `apollo-airlines-ui`, conditions will report:
+   If an `HTTPRoute` references a Service in a different namespace (e.g. a route in `apollo-airlines-apps` targeting `frontend` in `apollo-airlines-ui`), conditions will report:
    `ResolvedRefs: False` with `RefNotPermitted`.
-   **Fix**: Apply a `ReferenceGrant` in the target namespace granting permission.
+   **Fix**: Apply a `ReferenceGrant` in the target namespace (`apollo-airlines-ui`) granting permission to `HTTPRoute` objects from the source namespace (`apollo-airlines-apps`).
 2. **Backend Service Has No Ready Endpoints**:
    Envoy Gateway cannot forward traffic if all backing pods are failing readiness probes.
 
@@ -317,7 +313,7 @@ kubectl describe hpa <hpa-name> -n <namespace>
 ### Symptom: Pod `Running`, `READY 0/1`, no restarts
 
 - Readiness is failing: the kubelet removed the Pod from endpoints but left it running.
-- Check: `kubectl describe pod <pod> | grep -i readiness`; `kubectl exec <pod> -- wget -qO- http://127.0.0.1:<port>/readyz`.
+- Check: `kubectl describe pod <pod> | grep -i readiness`; `kubectl exec <pod> -- wget -qO- http://127.0.0.1:<port>/readyz` (Stages 1–3) or `/healthz/ready` (Stages 4+).
 - Typical causes: a dependency down (DB, flight), or wrong config (e.g. `FLIGHT_SERVICE_URL` typo after a ConfigMap edit).
 - `kubectl rollout undo` does **not** fix a bad ConfigMap; fix the ConfigMap and restart the rollout.
 
@@ -328,7 +324,7 @@ kubectl describe hpa <hpa-name> -n <namespace>
 | `Accepted=False` (`NotAllowedByListeners`) | Listener's `allowedRoutes` forbids the route's namespace | Edit the Gateway listener |
 | `ResolvedRefs=False` (`RefNotPermitted`) | Cross-namespace backend without `ReferenceGrant` | Add the grant in the Service's namespace |
 | `ResolvedRefs=False` (`BackendNotFound`) | Wrong Service name/port | Fix `backendRefs` |
-| Listener `ResolvedRefs=False` (`InvalidCertificateRef`) | TLS Secret missing | Recreate the Secret; HTTP listener keeps working |
+| Listener `ResolvedRefs=False` (`InvalidCertificateRef`) | TLS Secret missing | Recreate the Secret (`apollo-tls-secret` in Stages 2–4, `apollo-edge-tls` in Stages 5–7); HTTP listener keeps working |
 
 ### Symptom: Helm upgrade "succeeded", app unhealthy
 
