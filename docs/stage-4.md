@@ -7,7 +7,7 @@ sidebar_label: "Stage 4: Flight Control (Reliability)"
 # Stage 4: Flight Control
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage4`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage4) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage4`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: [Stage 3](./stage-3) (StatefulSets, PVCs, Envoy Gateway on MetalLB). Namespaces: `apollo-airlines-apps` and `apollo-airlines-ui`.
 - Concepts behind this stage: [Probes](./learn/reliability/probes) · [Termination and draining](./learn/reliability/termination-and-draining) · [Requests, limits and pressure](./learn/reliability/requests-limits-and-pressure) · [Scheduling and placement](./learn/reliability/scheduling) · [Priority and spreading](./learn/reliability/priority-and-spreading) · [Disruption budgets](./learn/reliability/disruption-budgets)
 :::
@@ -64,7 +64,7 @@ bash stages/stage4/scripts/apply.sh   # add --skip-build to reuse loaded images
 
 ### Step 2: Read the three probes on booking
 
-Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage4/k8s/apps/booking/booking-dep.yaml):
+Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/k8s/apps/booking/booking-dep.yaml):
 
 ```yaml
 # booking-dep.yaml (container, trimmed)
@@ -83,7 +83,7 @@ readinessProbe:
   failureThreshold: 3          # 3 misses → removed from the Service, not restarted
 ```
 
-And the handler behind readiness, in [`code/booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage4/code/booking/main.go):
+And the handler behind readiness, in [`code/booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/code/booking/main.go):
 
 ```go
 r.GET("/healthz/ready", func(c *gin.Context) {
@@ -286,6 +286,8 @@ The [troubleshooting page](./troubleshooting) has more.
 | Resources | Not set | Not set | Not set | Not set | Not set | **`requests == limits`, `Guaranteed`; priority; spreading** |
 | Shutdown | Container stop | — | Immediate | Immediate | Immediate | **`preStop` + SIGTERM drain** |
 | How it's deployed | `docker compose up` | `kubectl apply -f pod.yaml` | `apply.sh` | `apply.sh --substage N` | `apply.sh` | `apply.sh` |
+
+The teardown now also audits and removes owned Gateway API, Envoy Gateway and MetalLB cluster resources. If custom resources outside this stage still use those CRDs, it retains the shared definitions and exits with a list of those resources. Inspect that list before continuing; namespace deletion alone is not proof of a clean teardown.
 
 ## Clean up
 

@@ -4,17 +4,26 @@ title: "Mission Status — Where Apollo Stands"
 
 # Mission status
 
-- **Verified revision:** `69113dcc80f77e32301d8ee7b9e73a67c923de96`. Includes runtime-owned certificates, HTTPS frontend API URLs, token automount protections, Promtool-tested booking SLO rules, and the repeatable k6 cache benchmark.
-- Check yours before running anything: [setup](./labs/setup#prepare-the-verified-workspace).
-- Older check totals in repo READMEs are history. Record the current verifier's summary **and** your own behavioural evidence.
+- **Documentation source revision:** `f6211e679f8ed66a5a19033ac49a3bfc3a506eab` (2026-10-22 alignment).
+- Prepare the [pinned workspace](./labs/setup#prepare-the-verified-workspace).
+- Source of gap status: [`GAPS_TRACKER.md`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/GAPS_TRACKER.md).
+- This docs revision was checked statically and built; it does not constitute a new cluster run.
 
-| Area | Boundary | Do |
+| Area | Recorded evidence and boundary | Do |
 |---|---|---|
-| Launchpad → Stage 7 | Runnable; local lifecycle evidence at the commit above | Follow the stage walkthrough |
-| Stage 6 ordered signals + booking SLO | Implemented; see `stages/stage6/SIGNALS.md` and `slo-lab.sh` | Follow [Stage 6](./stage-6) |
-| Stage 7 cache comparison | Implemented; k6 constant-arrival-rate | Follow `stages/stage7/k6/README.md` |
-| Command Module (security) | **Planned** clean rebuild | Read [Stage 8](./stage-8); a directory's existence is not implementation |
-| Lunar Orbit + EKS | **Planned**; untrusted AWS prototype | Study ownership and recovery; create no cloud resources |
-| Stage 10 / 11 | **Planned** optional catalogs | Names are proposals until runtime proof exists |
+| Launchpad → Stage 4 | Runnable snapshots; historical lifecycle evidence, including October Stage 2–4 runs | Follow the walkthrough and retain your own endpoint and recovery evidence |
+| Stage 5 dev | Helm 174/174; Kustomize 163/163; clean purges | Follow [Stage 5](./stage-5) |
+| Stage 6 dev | Helm 212/212; Kustomize 201/201; trace/Loki correlation and observability lab passed after Identity resource fix | Follow [Stage 6](./stage-6) |
+| Stage 7 dev | Helm 227/227; Kustomize 216/216; trace/observability labs passed after spread fix | Follow [Stage 7](./stage-7) |
+| Stage 7 capacity | Normal 70% CPU policy scaled 1→2→3; zero failed requests, but dropped iterations failed the k6 threshold | Treat as a measured boundary, not a fully passing benchmark |
+| Stage 6/7 Argo CD; Helm/staging | Not rerun in the October 22 pass | Do not extend dev pass counts to these paths |
+| Hosted CI and GHCR | Local validation and all 18 image scans passed; hosted run and publication remain unobserved | Registry examples describe the configured contract, not proof images exist |
+| Stage 8 | Planned clean security rebuild | Read [Stage 8](./stage-8); no inherited trust |
+| Stage 9 / EKS | Planned capstone; EKS remains a prototype without a real-account lifecycle | Study [the boundary](./eks) |
+| Stage 10 | CloudNativePG and Falco have live evidence and teardown; other missions planned | Follow [the optional catalog](./stage-10) |
+| Stage 11 | Planned specializations | Read [Stage 11](./stage-11) |
 
-- Conceptual chapters stand alone. A command is supported only when a matching implementation and verified prerequisites exist.
+The [October 22 evidence](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/verification-runs/fix-2026-10-22/README.md)
+records successful reruns alongside failed attempts and their fixes. The G1
+lifecycle gap remains in progress; old counts alone do not close it. Conceptual
+chapters stand alone, and runnable commands require the matching snapshot.

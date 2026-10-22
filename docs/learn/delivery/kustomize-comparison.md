@@ -77,7 +77,7 @@ The `images:` transformer matches on the *image name*, not the container name. A
 # overlays/prod/kustomization.yaml (trimmed)
 images:
   - name: apollo11/booking                            # find containers using this image…
-    newName: ghcr.io/darshan-raul/apollo11/booking    # …change the name…
+    newName: ghcr.io/darshan-raul/apollo11/stage5/booking    # …change the name…
     newTag: v1.0.0                                    # …and the tag
 ```
 
@@ -148,7 +148,7 @@ The base goes one step further with `includeTemplates: true`, which also stamps 
 
 ## Apollo example: a base that is a Helm render
 
-Apollo's [`overlays/base/kustomization.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/overlays/base/kustomization.yaml) has one resource, `generated.yaml`. That file is a committed render of the Helm chart: ConfigMaps, Secrets, 13 ServiceAccounts, 4 StatefulSets, 6 Deployments, Services, seed Jobs, Gateway resources and the MetalLB pool. That makes the two Stage 5 paths deploy identical objects; only the method differs.
+Apollo's [`overlays/base/kustomization.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/overlays/base/kustomization.yaml) has one resource, `generated.yaml`. That file is a committed render of the Helm chart: ConfigMaps, Secrets, 13 ServiceAccounts, 4 StatefulSets, 6 Deployments, Services, seed Jobs, Gateway resources and the MetalLB pool. That makes the two Stage 5 paths deploy identical objects; only the method differs.
 
 The CI workflow's `lint` job includes a step meant to keep that snapshot honest. It re-renders the chart with the base's settings and runs `diff` against `generated.yaml`, so a template change that is not re-rendered into the base should fail the build. This is a common real-world pattern: render a third-party chart once, commit the output, and manage the environment differences with Kustomize, so reviewers see plain YAML diffs.
 
@@ -158,7 +158,7 @@ The three overlays, side by side:
 |---|---|---|---|
 | `resources` | `../base` | `../base` | `../base`, `pdb.yaml` |
 | `replicas` | 1 each | 2 each | 3 each |
-| `images` | `apollo11/*` → `:latest` | (none: inherits base) | → `ghcr.io/darshan-raul/apollo11/*:v1.0.0` |
+| `images` | `apollo11/*` → `:latest` | (none: inherits base) | → `ghcr.io/darshan-raul/apollo11/stage5/*:v1.0.0` |
 | `labels` | `environment: dev` | `environment: staging` | `environment: prod` |
 | Extra objects | — | — | `booking-pdb`, `frontend-pdb` (`minAvailable: 2`) |
 
@@ -196,7 +196,7 @@ diff /tmp/dev.yaml /tmp/prod.yaml | grep -E '^[<>] +(replicas|image):' | sort | 
       6 >   replicas: 3
       1 <         image: apollo11/booking:latest
       …
-      1 >         image: ghcr.io/darshan-raul/apollo11/booking:v1.0.0
+      1 >         image: ghcr.io/darshan-raul/apollo11/stage5/booking:v1.0.0
       …
 ```
 

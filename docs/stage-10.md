@@ -1,16 +1,28 @@
 ---
 title: "Stage 10 — Optional Operations Missions"
-description: "Planned independent mission catalog and its implementation boundary."
-sidebar_label: "Stage 10: Missions (Planned)"
+description: "Two verified standalone missions and the remaining planned operations catalog."
+sidebar_label: "Stage 10: Optional Missions"
 ---
 
 # Stage 10: Optional operations missions
 
-:::warning[Status: not implemented]
-- **Do not apply** `stages/stage10/`. Its README calls it unverified legacy scaffolding from a different application.
-- Stage 10 will be a catalog of independent missions, not the next required deployment.
-- Sources: `stages/stage10/README.md`, Stage 10 section of `ROADMAP.md`.
+:::info[Status: two runnable missions; remaining catalog planned]
+CloudNativePG and Falco have recorded live verification and teardown evidence.
+Only their dedicated `missions/` directories are trusted inputs. The legacy
+Stage 10 `code/` and `k8s/` trees remain untrusted scaffolding.
 :::
+
+## Runnable standalone missions
+
+| Mission | Prerequisites and observable outcome | Guide |
+|---|---|---|
+| CloudNativePG | Stage 3 persistence and Stage 4 disruption; two PostgreSQL instances, primary replacement, retained row and logical restore into a separate database | [Build, inspect, fail over, restore and teardown](./labs/cloudnativepg) |
+| Falco | Linux kernel with modern eBPF; detect a harmless marker write, demonstrate a rule blind spot, restore detection and clean up | [Build, inspect, detect and teardown](./labs/falco) |
+
+Run these separately on constrained hosts. CloudNativePG is a small evidence
+database, not a migration of Apollo Booking; logical restore is not PITR or
+proof of zero data loss. Falco detects a successful write and does not block it.
+Its standalone success does not complete Stage 8.
 
 **You will be able to:** distinguish a roadmap entry from a verified stage.
 
@@ -31,7 +43,7 @@ sidebar_label: "Stage 10: Missions (Planned)"
 | Chaos Mesh | Controlled failure experiments |
 | Advanced DR | Builds on Stage 9's Velero backups |
 
-- No verified manifests, commands, traffic percentages, SLOs or recovery procedures exist yet.
+- The remaining catalog entries above have no verified mission lifecycle yet.
 - Lifecycle hooks already belong to Stage 4; the DevSecOps baseline belongs to Stage 8. Don't re-label them as Stage 10.
 
 ## What makes a mission runnable
@@ -41,16 +53,15 @@ sidebar_label: "Stage 10: Missions (Planned)"
 - Has a safe failure-and-recovery demonstration.
 - Returns the cluster to baseline.
 
-## Check the repo's status
+## Check the implementation boundary
 
-```bash
-sed -n '1,100p' stages/stage10/README.md
-find stages/stage10 -maxdepth 2 -type f | sort
-grep -n "not implemented" stages/stage10/README.md
-grep -n "different application" stages/stage10/README.md
-```
+Read `stages/stage10/README.md` and the individual mission README before
+installing. October 22 evidence records CloudNativePG failover in 7 seconds,
+retained data and a matching logical restore, plus Falco detection and cluster
+teardown. Falco chart downloads timed out three times before the successful
+attempt; an install error is not detection evidence.
 
-- The README says not to apply it, and both `grep`s match. The files are scaffolding from another app, not a mission.
+Source: [recorded mission results](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/verification-runs/fix-2026-10-22/README.md#stage-10-missions).
 
 ## You should now be able to explain
 

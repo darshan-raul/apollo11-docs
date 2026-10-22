@@ -7,7 +7,7 @@ sidebar_label: "Launchpad (Docker Compose)"
 # Launchpad: Apollo on Docker Compose
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/launchpad`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/launchpad) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from `stages/launchpad` unless stated.
+- Repo folder: [`stages/launchpad`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/launchpad) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from `stages/launchpad` unless stated.
 - Builds on: nothing. This is the start. You need Docker with Compose, `curl` and `jq`.
 - Concepts behind this stage: [Process, image, container](./learn/containers/process-image-container) · [Images and configuration](./learn/containers/images-and-configuration) · [Networks and clients](./learn/containers/networks-and-clients) · [State and dependencies](./learn/containers/state-and-dependencies) · [Least privilege for containers](./learn/containers/least-privilege)
 :::
@@ -50,6 +50,25 @@ Launchpad packages each service into an **image** (a read-only bundle of the pro
 
 The ten workloads: six application services (`frontend`, `identity`, `flight`, `booking`, `search`, `notification`), three PostgreSQL databases (`identity-db`, `flight-db`, `booking-db`) and `redis`. Dozzle, a log viewer, sits in an optional `tools` profile and is not started by default.
 
+## Application behavior carried through Stages 1–7
+
+The October API fixes change what successful and failed requests mean:
+
+| Request | Current behavior |
+|---|---|
+| Register | Valid email and password of at least six characters required; duplicates return 409 |
+| Flight/user/booking IDs | Malformed UUIDs return 400 |
+| Flight create/update | Validate timestamps, arrival order and status; create also checks positive capacity and known airports |
+| Seat mutation | Atomic update keeps seats within 0..capacity; out-of-range returns 409 |
+| Search | Invalid date returns 400; Flight failure returns 502, with no cached error in Stage 7 |
+| Booking insert fails after seat decrement | Attempts to restore the seat; a failed restoration is logged |
+| Admin frontend | Edit status and times; unsupported Delete action and Capacity column removed |
+
+Each seed flight keeps its own times; overnight AA202 arrives on the following
+day. Existing initialized volumes are not rewritten by changing `init.sql`.
+Database health checks and verification use the configured `POSTGRES_USER`.
+Use a disposable lab volume when comparing first-start seed behavior.
+
 ## Walkthrough
 
 ### Step 1: Read one service end to end before starting anything
@@ -69,7 +88,7 @@ Browser :3000
           └── notification :8084 ─────► redis :6379
 ```
 
-Booking has the most dependencies, so follow it. First its image, [`code/booking/Dockerfile`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/launchpad/code/booking/Dockerfile):
+Booking has the most dependencies, so follow it. First its image, [`code/booking/Dockerfile`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/launchpad/code/booking/Dockerfile):
 
 ```dockerfile
 FROM golang:1.22-alpine AS builder      # stage 1: has the Go compiler
@@ -90,7 +109,7 @@ USER apollo                             # the process does not run as root
 CMD ["/app/booking-service"]
 ```
 
-Then how it runs, in [`docker-compose.yml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/launchpad/docker-compose.yml):
+Then how it runs, in [`docker-compose.yml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/launchpad/docker-compose.yml):
 
 ```yaml
 # docker-compose.yml → booking (trimmed)

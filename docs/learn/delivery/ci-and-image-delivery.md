@@ -56,31 +56,34 @@ flowchart LR
 
 ### Step 1: what Apollo's CI does
 
-[`.github/workflows/main.yml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/.github/workflows/main.yml) runs on every pull request to `main`, every push to `main`, and every tag that starts with `v`. It has three jobs that run one after another (`needs:`):
+[`.github/workflows/main.yml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/.github/workflows/main.yml) runs on every pull request to `main`, every push to `main`, and every tag that starts with `v`. It also supports manual dispatch. Jobs run in dependency order:
 
 | Job | Runs on | What it does | Why |
 |---|---|---|---|
-| `lint` | every event | `helm lint` for each environment, a smoke `helm template`, a check that the committed Kustomize base matches a fresh render, `kubectl kustomize` for every overlay, `shellcheck` on all scripts, validation of the Argo CD Applications | Catch broken packaging before spending time on builds |
-| `build` | every event, after `lint` | Builds all six images (a **matrix**: one parallel run per service) with `push: false` | Prove every Dockerfile still builds, on every PR |
-| `push` | only `push` to `main` or a `v*` tag, after `build` | Logs in to GHCR, builds again with the layer cache, pushes with tags | Only reviewed, merged code reaches the registry |
+| `lint` | every event | `bash test/ci.sh`: generated-manifest checks, Python review regressions, Go race tests, Helm lint/render and Kustomize renders for Stages 5–7, Argo validation, shellcheck over stage scripts | Catch regressions before image builds |
+| `build` | after `lint` | Matrix of Stages 5, 6, 7 × six services: 18 builds; Trivy scans each loaded image | Build the snapshot each image claims to ship |
+| `publish` | main/tag pushes after all builds pass | Downloads and loads each saved scanned image, retags it and pushes to GHCR | Publish the exact scanned artifact without rebuilding |
 
-The split between `build` and `push` is a security decision, not just tidiness. A pull request can come from anyone's fork. If PR builds could push, anyone could publish an image under Apollo's name. The `push` job also declares exactly the permissions it needs:
+Fixable HIGH or CRITICAL OS/library vulnerabilities fail the image gate.
+Unfixed findings are excluded (`ignore-unfixed: true`), so a passing scan does
+not mean an image has no vulnerabilities. The Trivy action is pinned by commit;
+the scanner version in CI is v0.70.0. PR builds cannot publish. Only the
+publication job has `packages: write`.
 
-```yaml
-# .github/workflows/main.yml, push job (trimmed)
-push:
-  needs: build
-  if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-  permissions:
-    contents: read
-    packages: write          # may write to GHCR, nothing else
-  steps:
-    - uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}   # short-lived token GitHub issues per run
+Images use `ghcr.io/darshan-raul/apollo11/stageN/SERVICE:TAG`. Stage 5 images
+cannot supply Stage 6 telemetry or Stage 7 caching. The examples below use Stage
+5; change the stage component when working in a later snapshot.
+
+Run local validation from the Apollo11 root:
+
+```bash
+bash test/ci.sh
 ```
+
+Install Python/PyYAML, Go, Helm, kubectl and shellcheck first. This command does
+not run the Docker build/scan matrix or publish images. Local validation and
+18 local scans have evidence; a hosted workflow run and first GHCR publication
+remain unverified. Check registry availability before using production examples.
 
 Notice what CI does **not** do: it never runs `helm upgrade` or `kubectl apply`. CI has no credentials for any cluster. Getting the new image into a cluster is the job of [GitOps](./gitops-and-ownership), which pulls from Git and the registry. That keeps cluster credentials out of CI entirely.
 
@@ -89,7 +92,7 @@ Notice what CI does **not** do: it never runs `helm upgrade` or `kubectl apply`.
 A full image reference has up to four parts:
 
 ```text
-ghcr.io / darshan-raul/apollo11/booking : sha-abc1234 @ sha256:9f86d0…
+ghcr.io / darshan-raul/apollo11/stage5/booking : sha-abc1234 @ sha256:9f86d0…
 └─┬───┘   └──────────┬────────────────┘   └────┬────┘   └────┬─────┘
 registry         repository                   tag          digest
 ```
@@ -101,7 +104,7 @@ registry         repository                   tag          digest
 
 ### Step 3: which tags Apollo pushes
 
-The `push` job uses `docker/metadata-action` to decide the tags:
+The `publish` job uses `docker/metadata-action` to decide the tags:
 
 ```yaml
 tags: |
@@ -115,7 +118,9 @@ tags: |
 | Merge to `main` | `sha-abc1234`, `latest` | `sha-…`: no (by convention). `latest`: **yes**, on every merge |
 | Push git tag `v1.0.0` | `sha-abc1234`, `v1.0.0` | Only if someone re-pushes the tag |
 
-The same action also adds standard **labels** to the image, including `org.opencontainers.image.revision` (the full commit SHA) and `org.opencontainers.image.source` (the repo URL). Those labels travel inside the image, so you can go from a running image back to its commit even if all the tags have since moved.
+The metadata action computes tags, but this workflow does not pass its labels
+into the Docker build. Do not assume the image contains an OCI revision label.
+Retain the build revision and image digest together as release evidence.
 
 ### Step 4: tags versus digests
 
@@ -145,7 +150,7 @@ Apollo's values set the policy explicitly per environment:
 | | Image | `imagePullPolicy` | Why |
 |---|---|---|---|
 | dev, staging (local) | `apollo11/*:latest` | `IfNotPresent` | Images are loaded straight into the kind nodes; there is no registry to pull from |
-| prod | `ghcr.io/darshan-raul/apollo11/*:v1.0.0` | `Always` | Every Pod start re-checks the registry, so a node never runs a stale cached copy |
+| prod | `ghcr.io/darshan-raul/apollo11/stage5/*:v1.0.0` | `Always` | Every Pod start re-checks the registry, so a node never runs a stale cached copy |
 
 ### The local shortcut: `kind load`
 
@@ -170,7 +175,7 @@ The Pod records both what was asked for and what is actually running:
 
 To answer "is commit `abc1234` running?":
 
-1. Find the digest CI pushed for that commit: `docker buildx imagetools inspect ghcr.io/darshan-raul/apollo11/booking:sha-abc1234` prints a `Digest:` line.
+1. Find the digest CI pushed for that commit: `docker buildx imagetools inspect ghcr.io/darshan-raul/apollo11/stage5/booking:sha-abc1234` prints a `Digest:` line.
 2. Read the digest each running Pod actually has (`imageID`, below).
 3. If every Pod's digest matches, yes. If any differ, some replicas run something else.
 
@@ -227,7 +232,7 @@ The kubelet would try to pull `docker.io/apollo11/booking:latest` from Docker Hu
 <details>
 <summary>The tag <code>v1.0.0</code> has been re-pushed. How can you still find which commit a running Pod came from?</summary>
 
-Take the digest from the Pod's `imageID` and inspect that image's labels. `org.opencontainers.image.revision` holds the commit SHA it was built from, whatever its tags say now.
+Take the digest from the Pod's `imageID` and match it to retained CI publication evidence. This workflow does not explicitly inject OCI revision labels; a moved tag alone cannot prove the original commit.
 </details>
 
 <details>

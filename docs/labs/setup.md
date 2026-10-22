@@ -63,14 +63,39 @@ kind version && kubectl version --client && helm version && jq --version && k6 v
 
 ```bash
 cd Apollo11              # the clone from the bootstrap step
-git checkout 69113dcc80f77e32301d8ee7b9e73a67c923de96
+git checkout f6211e679f8ed66a5a19033ac49a3bfc3a506eab
 git status --short       # expect empty
-git rev-parse HEAD       # expect 69113dcc80f77e32301d8ee7b9e73a67c923de96
+git rev-parse HEAD       # expect f6211e679f8ed66a5a19033ac49a3bfc3a506eab
 ```
 
 - A detached-HEAD message is expected.
 - Different revision? Paths, namespaces and output will differ. Record the hash with your results.
 - Run every lab from the repo root.
+
+## Install the repository toolchain with mise
+
+From the pinned repository root:
+
+```bash
+./prep.sh
+# Restart your shell so mise activation takes effect, then:
+./prep.sh --verify
+k9s version
+```
+
+`prep.sh` installs mise, activates it in your shell profile and installs the tools
+from `mise.toml` into your global mise configuration. This includes kubectl,
+kind, Helm, Kustomize, jq, k9s, Argo CD, k6 and Trivy. Docker Engine or Docker
+Desktop, Compose v2 and a running daemon must be installed separately. Devbox
+is no longer the toolchain entry point. Tools currently use `latest`; record
+actual versions with results rather than assuming the course pin pins tools.
+AWS CLI and Terraform are optional, installed on demand for the cloud track.
+
+For Stages 6–7 use a quiet host and avoid concurrent image builds during load
+measurements. The recorded host had six cores and 16 GB RAM; host load above
+30 caused startup timeouts. These observations do not establish a universal
+minimum. `promtool` is installed separately for rule fixtures; local CI also
+needs Python/PyYAML, Go and shellcheck.
 
 ## Know the stage boundary
 
@@ -135,5 +160,5 @@ More: [Troubleshooting](../troubleshooting).
 
 ## Revision and verification boundary
 
-- Verified revision: `69113dcc80f77e32301d8ee7b9e73a67c923de96`. Includes runtime-owned certificates, HTTPS frontend API URLs, token automount protections, promtool-verified SLO rules and the repeatable k6 cache benchmark. No patches needed.
+- Documentation source revision: `f6211e679f8ed66a5a19033ac49a3bfc3a506eab`. Includes the application API fixes, mise toolchain, stage-specific CI image gate, alert delivery, edge probes and Stage 7 scheduling fixes. See [mission status](../status) for the exact live evidence and remaining verification gaps. No patches needed.
 - Before each stage: `git rev-parse HEAD` matches and `git status --short` is clean.

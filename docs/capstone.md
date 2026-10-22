@@ -7,7 +7,7 @@ sidebar_label: "Core Capstone"
 # Capstone: the whole platform, one booking
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage7`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage7) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage7`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: everything from Launchpad to Stage 7. Security and cloud are still *planned* (Stages 8–9).
 - Read first: [A passenger's booking](./learn/capstone/a-booking-through-kubernetes), the chapter version of this page.
 :::

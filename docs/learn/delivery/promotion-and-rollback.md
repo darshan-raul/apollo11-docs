@@ -46,14 +46,14 @@ Apollo's environments differ in their values file and Argo CD Application:
 | PodDisruptionBudgets | off | off | `minAvailable: 2` |
 | Argo sync | automatic, self-heal | automatic, self-heal | manual |
 
-Dev and staging follow the moving `latest` tag. That gives fast feedback: every merge to `main` produces a new `latest`, and both environments pick it up. It also means dev and staging are not pinned to anything. Prod is pinned to `v1.0.0`.
+Argo dev and staging request the moving `latest` tag in their stage-specific GHCR repository. A new image behind the same tag does not itself change the Deployment or trigger a rollout. The local Helm/dev and staging paths use locally built `apollo11/*:latest` with `IfNotPresent`. Prod requests `v1.0.0`; confirm publication before deploying it. Tags remain mutable, and hosted publication has not yet been observed.
 
 Promoting a release to prod is therefore a **change in Git**:
 
 1. Merge the change to `main`. CI pushes `sha-abc1234` and `latest`; dev and staging sync to it automatically.
 2. Test in staging.
 3. Create the release tag. Pushing git tag `v1.1.0` makes CI push an image tagged `v1.1.0`, built from the same commit as `sha-abc1234`.
-4. Open a pull request that changes the `image.tag` parameter in [`argocd/applications/prod.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/argocd/applications/prod.yaml) from `v1.0.0` to `v1.1.0`. That parameter overrides `values-prod.yaml`, so it is the line that decides prod's tag. Reviewers see a one-line diff.
+4. Open a pull request that changes the `image.tag` parameter in [`argocd/applications/prod.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/applications/prod.yaml) from `v1.0.0` to `v1.1.0`. That parameter overrides `values-prod.yaml`, so it is the line that decides prod's tag. Reviewers see a one-line diff.
 5. Merge, then re-apply the Application (`bash stages/stage5/argocd/scripts/bootstrap.sh`). Apollo's Application objects are applied with `kubectl`, not managed by Argo itself, so a change to them only takes effect when re-applied. `apollo11-prod` becomes `OutOfSync`.
 6. Run `argocd app diff apollo11-prod`, check that only the six images changed, and sync.
 

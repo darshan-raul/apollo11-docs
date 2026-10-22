@@ -28,7 +28,7 @@ flowchart TD
   C -->|MISS| F[Query flight]
   F -->|ok| S[SET key EX 300; return]
   F -->|error| E{policy}
-  E -->|fail closed| X[503]
+  E -->|Apollo upstream failure| X[502]
   C -->|Redis error| B[bypass to flight, uncached]
 ```
 
@@ -36,7 +36,7 @@ flowchart TD
 |---|---|---|
 | **Hit** | Return in milliseconds; the database is untouched | The data may be **stale** until the TTL expires |
 | **Miss** | Read the database, write the cache with a TTL, return | First-request latency |
-| **Database failure on a miss** | Fail closed (503) or serve stale | Stale answers versus errors |
+| **Flight failure on a miss** | Apollo returns 502 and does not cache the error | Search must not disguise upstream failure as an empty successful result |
 | **Cache outage** | Apollo bypasses the cache; search stays up and `readyz` reports `cache: unreachable` | A **stampede**: all reads now hit the database |
 
 The last row is a hidden danger: a cache can mask an under-sized backend. When it disappears, the database suddenly sees the full request rate.
@@ -50,6 +50,8 @@ Match the TTL to how fast the data changes and how costly staleness is:
 | Airport codes, static routes | Hours |
 | Flight schedules (Apollo search) | 5 min (`300 s`) |
 | Seat availability, booking checks | **None.** Always ask the source of truth |
+
+Search caches the full result, including seat availability, for 300 seconds. A warm result can show the old count after a booking; Booking checks Flight directly. Concurrent cold misses may each call Flight. Redis errors fall back to Flight, and a recovered Redis connection can repopulate the cache without restarting Search.
 
 ## Evidence
 

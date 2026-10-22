@@ -7,7 +7,7 @@ sidebar_label: "Stage 6: Mission Ops (Observability)"
 # Stage 6: Mission Operations
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage6`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage6`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the Stage 5 Helm chart and the `kind-apollo11` cluster. Tear down Stage 5 first. Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui`, and new `apollo-observability`. Allow about 8 GB of free RAM.
 - Concepts behind this stage: [Signals and metrics](./learn/observability/signals-and-metrics) · [How signals leave a service](./learn/observability/instrumenting-services) · [Discovery and collection](./learn/observability/discovery-and-collection) · [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives) · [Logs](./learn/observability/logs) · [Distributed traces](./learn/observability/traces) · [Correlating a booking](./learn/observability/correlating-a-booking)
 :::
@@ -63,7 +63,9 @@ Stage 6 adds the three signals that answer these questions:
 | `scripts/apply.sh` | Installer. `--without-observability` installs only the Stage 5-compatible baseline | Extends Stage 5's |
 | `scripts/signals-lab.sh`, `select-signals.py` | Add the signals one at a time (substages 1–6) | New |
 | `scripts/slo-lab.sh` | A bounded, self-restoring booking outage | New |
-| `scripts/trace-test.sh` | Makes a booking and checks for one trace across four services | New |
+| `scripts/trace-test.sh` | Makes/cancels a booking, checks its four-service Tempo trace and polls Loki for matching logs | New |
+| `scripts/edge-probe.sh`, `observability-lab.sh` | Trusted HTTPS edge Probe; reversible route failure/recovery and firing/resolved delivery | New |
+| `OBSERVABILITY.md` | Alert delivery, silences, edge routing and Grafana correlation walkthrough | New |
 | `SIGNALS.md` | The ordered signal path this page follows | New |
 
 ## Walkthrough
@@ -83,7 +85,7 @@ kubectl exec -n apollo-airlines-apps deploy/search -- \
   wget -qO- http://127.0.0.1:8083/metrics | grep '^http_requests_total' | head -3
 ```
 
-The apps are instrumented already. Only the collectors are missing. The key part of [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/code/booking/main.go):
+The apps are instrumented already. Only the collectors are missing. The key part of [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/code/booking/main.go):
 
 ```go
 // booking/main.go (trimmed)
@@ -117,7 +119,7 @@ kubectl port-forward -n apollo-observability svc/prometheus 19090:9090 >/dev/nul
 curl -s localhost:19090/api/v1/targets | jq -r '.data.activeTargets[] | "\(.labels.job) \(.health)"' | sort
 ```
 
-[`signals-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/scripts/signals-lab.sh) installs the Operator bundle, then applies the observability objects for the chosen substage. Two objects do the work:
+[`signals-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/scripts/signals-lab.sh) installs the Operator bundle, then applies the observability objects for the chosen substage. Two objects do the work:
 
 ```yaml
 # servicemonitors/booking-sm.yaml
@@ -162,7 +164,7 @@ kubectl port-forward -n apollo-observability svc/grafana 13000:3000 >/dev/null 2
 curl -s localhost:13000/api/health
 ```
 
-Open `http://localhost:13000` (`admin` / `apollo-admin`, from `observability.grafana` in [`values.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/helm/apollo11/values.yaml)). Grafana is also routed through the Stage 2 Envoy Gateway at `grafana.apollo.local`.
+Open `http://localhost:13000` (`admin` / `apollo-admin`, from `observability.grafana` in [`values.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/values.yaml)). Grafana is also routed through the Stage 2 Envoy Gateway at `grafana.apollo.local`.
 
 | Dashboard (folder `Apollo11`) | Shows |
 |---|---|
@@ -188,7 +190,7 @@ First, two terms:
 - **SLO (service level objective):** a target for how often something should work. Here: **99.5% of eligible booking-creation requests succeed**.
 - **Error budget:** the 0.5% that may fail. Spending it faster than planned is the warning sign.
 
-The rules are in [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/helm/apollo11/templates/observability/prometheus/rules.yaml):
+The rules are in [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/prometheus/rules.yaml):
 
 ```yaml
 # group apollo.booking-slo (trimmed)
@@ -210,7 +212,7 @@ The rules are in [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apoll
 - **Why two windows in the alert:** the 5-minute window reacts quickly. The 1-hour window confirms it isn't a blip. 14.4× is the burn speed that would use the whole budget far too early. The [objectives chapter](./learn/observability/queries-alerts-and-objectives) explains burn rates.
 - **The other rules:** `ApolloServiceDown` (`up == 0` for 2 m), `ApolloErrorRateHigh` (5xx above 5% per service), `ApolloBookingLatencyP95High` (p95 above 500 ms).
 
-Now see the number move. Read [`slo-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/scripts/slo-lab.sh) first: it saves flight's replica count, scales flight to 0, sends real booking attempts for 150 s (each gets a 502), restores flight, then makes and cancels one recovery booking. It restores flight on exit even if interrupted.
+Now see the number move. Read [`slo-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/scripts/slo-lab.sh) first: it saves flight's replica count, scales flight to 0, sends real booking attempts for 150 s (each gets a 502), restores flight, then makes and cancels one recovery booking. It restores flight on exit even if interrupted.
 
 ```bash
 Q() { curl -sG localhost:19090/api/v1/query --data-urlencode "query=$1" | jq -c '.data.result'; }
@@ -223,7 +225,7 @@ curl -s localhost:19090/api/v1/alerts | jq -r '.data.alerts[] | "\(.labels.alert
 
 - **What you see:** the 5-minute ratio jumps toward 1, the budget goes negative, and `ApolloBookingErrorBudgetBurn` goes `pending` then `firing`. Minutes later the 5-minute ratio falls; the 1-hour and 28-day ratios fall slowly.
 - **Why a drill can't prove the SLO:** a fresh cluster has minutes of history. The 28-day window only *looks* like a monthly number.
-- **Where alerts go:** nowhere yet. There is no Alertmanager. You see alert state on the Prometheus alerts page and in Grafana.
+- **Where alerts go:** Prometheus sends firing alerts to Alertmanager, which groups/routes them to the in-cluster `alert-receiver`. Inspect firing and resolved payloads; no external messaging account is needed. See the delivery walkthrough below.
 - **Compared with Stage 4:** readiness told the kubelet whether *one Pod* should get traffic. The SLO tells *people* whether *passengers* are being served.
 
 ### Step 5: Logs: one place, all services, after Pods are gone
@@ -237,7 +239,7 @@ curl -sG localhost:13100/loki/api/v1/query_range \
   --data-urlencode 'limit=5' | jq -r '.data.result[].values[][1]'
 ```
 
-Alloy is the per-node collector. Its config in [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml):
+Alloy is the per-node collector. Its config in [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml):
 
 ```alloy
 discovery.kubernetes "pods" {
@@ -266,7 +268,7 @@ bash stages/stage6/scripts/signals-lab.sh apply 5 helm
 bash stages/stage6/scripts/trace-test.sh             # prints trace_id=... services=...
 ```
 
-A **span** is one timed operation (an incoming request, or one outgoing call). A **trace** is all spans that share one `trace_id`. The code that keeps one booking in one trace, from [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/code/booking/main.go):
+A **span** is one timed operation (an incoming request, or one outgoing call). A **trace** is all spans that share one `trace_id`. The code that keeps one booking in one trace, from [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/code/booking/main.go):
 
 ```go
 r.Use(otelgin.Middleware("booking"))      // reads an incoming traceparent header, starts a server span
@@ -280,7 +282,7 @@ func callService(parent context.Context, url, method, body, requestID string, ..
 }
 ```
 
-The Pods send spans to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector.apollo-observability.svc.cluster.local:4317`, set by the app templates). The Collector config, [`otel-collector/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/helm/apollo11/templates/observability/otel-collector/config.yaml):
+The Pods send spans to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector.apollo-observability.svc.cluster.local:4317`, set by the app templates). The Collector config, [`otel-collector/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/otel-collector/config.yaml):
 
 ```yaml
 receivers:  {otlp: {protocols: {grpc: {endpoint: 0.0.0.0:4317}, http: {endpoint: 0.0.0.0:4318}}}}
@@ -298,7 +300,7 @@ curl -s localhost:13200/api/traces/$TRACE_ID \
   | jq -r '[.batches[].resource.attributes[] | select(.key=="service.name").value.stringValue] | unique'
 ```
 
-- **What happens:** [`trace-test.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/scripts/trace-test.sh) logs in as the seeded passenger, books with a generated `traceparent`, waits until Tempo holds one trace containing booking, identity, flight and notification, then cancels the booking and checks the seat comes back.
+- **What happens:** [`trace-test.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/scripts/trace-test.sh) logs in as the seeded passenger, books with a generated `traceparent`, waits until Tempo holds one trace containing booking, identity, flight and notification, then cancels the booking and checks the seat comes back.
 - **Why every service must forward `traceparent`:** each hop only knows the trace it was handed. If one service builds its outbound request from a fresh context, the next service starts a new trace and the chain breaks. The README lists this as a lesson from building the stage.
 - **Why a Collector in between:** apps send to one nearby endpoint and don't need to know about Tempo. Batching, memory limits and the backend choice live in one config.
 - **Tracing is out of band:** if the Collector can't reach Tempo, bookings keep working and traces are silently lost. That is good for passengers, and a reason to check traces as their own pipeline.
@@ -332,6 +334,56 @@ curl -sG localhost:13100/loki/api/v1/query_range \
 - **Watch out:** not every failure logs. In the Step 4 drill, booking returns `502 Flight service unavailable` without writing a log line. The trace's failed `booking → flight` span is the evidence.
 - The [correlation chapter](./learn/observability/correlating-a-booking) walks through more cases, including a notification failure under a successful booking.
 
+## Alert delivery and trusted edge probes
+
+A healthy frontend Pod does not prove that the public route works. The chart
+now adds Alertmanager, an in-cluster webhook receiver and Blackbox Exporter.
+An internal Probe checks the frontend Service. A separate HTTPS edge Probe
+checks the Gateway IP with the frontend hostname for TLS SNI and routing.
+
+After installing the full Stage 6 snapshot, run from the Apollo11 root:
+
+```bash
+export KUBE_CONTEXT=kind-apollo11
+kubectl --context "$KUBE_CONTEXT" -n apollo-observability get deploy alertmanager alert-receiver blackbox
+bash stages/stage6/scripts/edge-probe.sh
+bash stages/stage6/scripts/observability-lab.sh
+```
+
+`edge-probe.sh` copies only the public certificate into observability; the
+private key stays in the application namespace. Rerun after certificate rotation
+or a Gateway IP change. This IP-targeted probe does not test workstation DNS.
+In Prometheus query `probe_success`: require both internal and edge series to
+equal 1. Missing series means discovery needs inspection. Query
+`probe_ssl_earliest_cert_expiry` to inspect certificate expiry.
+
+`observability-lab.sh` saves and deletes the frontend HTTPRoute, requires the
+edge probe to fail, restores the route and requires success. Its exit trap
+restores the route if interrupted. A temporary synthetic alert then proves
+actual firing and resolved webhook delivery. This separates delivery evidence
+from the booking SLO's longer evaluation windows; run `slo-lab.sh` separately.
+
+To inspect notifications and silences, open separate terminals:
+
+```bash
+kubectl --context "$KUBE_CONTEXT" -n apollo-observability port-forward svc/alertmanager 19093:9093
+kubectl --context "$KUBE_CONTEXT" -n apollo-observability port-forward svc/alert-receiver 18090:8080
+```
+
+Open `http://localhost:19093` and read `curl -fsS http://localhost:18090/`.
+During a firing SLO alert, add a short silence matching its alert name and
+inspect its suppressed state. Expire the silence and observe resumed delivery
+if the alert still fires. After recovery, require a resolved payload as well
+as a successful create/cancel booking. Alertmanager silence state is ephemeral;
+the receiver keeps only its last 100 payloads in memory.
+
+Stage 7 carries these components and scripts forward; substitute `stage7` in
+the paths when that snapshot is installed. Teardown removes Probes and the
+trust ConfigMap with the observability namespace.
+
+Explain why internal success can coexist with edge failure, how a rule differs
+from notification routing, and what a silence suppresses.
+
 ## When something looks wrong
 
 | You see | Likely cause | First command |
@@ -355,7 +407,7 @@ The [troubleshooting page](./troubleshooting) has more.
 | Replica counts are fixed per environment (dev 1, staging 2, prod 3) | Too many Pods at night, too few in a spike | [Stage 7](./stage-7): HPA |
 | Stage 4's CPU/memory requests were educated guesses | Wasted capacity or throttling, and nothing suggests better values | [Stage 7](./stage-7): VPA recommendations |
 | `kubectl top` returns nothing | No metrics-server on kind | [Stage 7](./stage-7) |
-| Alerts fire but notify nobody | No Alertmanager or contact point is configured | No stage page plans this yet |
+| Alerts fire but notify nobody | Routing, silence or receiver problem | Inspect Alertmanager alerts/silences and `svc/alert-receiver` payloads |
 | Grafana allows anonymous access; its admin password is in `values.yaml` | Anyone who reaches Grafana can read operations data | [Stage 8](./stage-8) (planned): Command Module (security) |
 | One Prometheus, one Loki, one Tempo, on local PVCs | Telemetry is lost if the node or volume is | [Stage 9](./stage-9) (planned): Lunar Orbit, on real cloud storage |
 | A rollout is gated only by readiness; nothing checks the error ratio before it continues | A bad release spends the error budget before anyone reacts | [Stage 10](./stage-10) (planned): Argo Rollouts mission |

@@ -85,7 +85,7 @@ flowchart LR
 
 ### The Application: one environment, one object
 
-An **Application** is a custom resource that says *what* to deploy (source), *where* (destination) and *how* to keep it in sync (policy). Apollo has one per environment. Here is [`applications/dev.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/argocd/applications/dev.yaml), trimmed and annotated:
+An **Application** is a custom resource that says *what* to deploy (source), *where* (destination) and *how* to keep it in sync (policy). Apollo has one per environment. Here is [`applications/dev.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/applications/dev.yaml), trimmed and annotated:
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -104,7 +104,7 @@ spec:
     helm:
       valueFiles: [values-dev.yaml]
       parameters:                              # like --set
-        - {name: image.repository, value: ghcr.io/darshan-raul/apollo11}
+        - {name: image.repository, value: ghcr.io/darshan-raul/apollo11/stage5}
         - {name: namespaces.apps,  value: apollo-airlines-dev-apps}
         - {name: namespaces.ui,    value: apollo-airlines-dev-ui}
         - {name: priorityClasses.enabled, value: "false"}   # cluster-scoped: owned by the platform layer
@@ -132,7 +132,7 @@ Things to notice:
 
 ### The AppProject: guard rails
 
-An **AppProject** limits what its Applications may do. Apollo's [`projects/project.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/argocd/projects/project.yaml):
+An **AppProject** limits what its Applications may do. Apollo's [`projects/project.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/projects/project.yaml):
 
 ```yaml
 kind: AppProject
@@ -148,7 +148,7 @@ spec:
   namespaceResourceWhitelist: [{group: '*', kind: '*'}]
 ```
 
-`clusterResourceWhitelist: []` means no Application in this project can create a Namespace, CRD, ClusterRole, PriorityClass or GatewayClass. A mistake in one environment's values cannot change something every environment shares. Those shared, cluster-scoped objects live in [`platform/platform.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/argocd/platform/platform.yaml), which `bootstrap.sh` applies once. That is why each Application sets `priorityClasses.enabled=false` and `gateway.createClass=false`: otherwise dev, staging and prod would all try to own the same PriorityClass, and the project would refuse it anyway.
+`clusterResourceWhitelist: []` means no Application in this project can create a Namespace, CRD, ClusterRole, PriorityClass or GatewayClass. A mistake in one environment's values cannot change something every environment shares. Those shared, cluster-scoped objects live in [`platform/platform.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/platform/platform.yaml), which `bootstrap.sh` applies once. That is why each Application sets `priorityClasses.enabled=false` and `gateway.createClass=false`: otherwise dev, staging and prod would all try to own the same PriorityClass, and the project would refuse it anyway.
 
 ### Detecting change: polling, watching, refreshing
 
@@ -209,7 +209,7 @@ Why prod is different:
 - **No self-heal is an incident-response choice.** On-call engineers can still `kubectl` their way out of an emergency without Argo undoing it a few seconds later. The Application then shows `OutOfSync`, which is a visible reminder to put the fix into Git.
 - **Ignoring `replicas` hands that field to another owner.** In prod, the number of booking Pods may be changed by a human during an incident, or by a HorizontalPodAutoscaler from Stage 7. If Argo also enforced `replicas: 3` from Git, the two would fight. `ignoreDifferences` tells Argo to leave that one field out of its comparison.
 
-**On kind, images come from GHCR.** The Applications set `image.repository` to `ghcr.io/darshan-raul/apollo11`, so the kind nodes need internet access to pull. If they cannot, `bootstrap.sh --image-repository apollo11` points the Applications at the locally built images instead.
+**On kind, images come from GHCR.** The Applications set `image.repository` to `ghcr.io/darshan-raul/apollo11/stage5`, so the kind nodes need internet access to pull. If they cannot, `bootstrap.sh --image-repository apollo11` points the Applications at the locally built images instead.
 
 **To see push-to-deploy, use a fork.** You cannot push to the upstream repo, so with the defaults you can only watch self-heal. Fork Apollo11, run `bootstrap.sh --repo-url https://github.com/<you>/Apollo11.git`, and commits to your fork drive the cluster.
 

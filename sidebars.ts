@@ -163,7 +163,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category', label: 'Beyond the Mission', collapsed: true,
-      items: ['stage-10', 'stage-11', 'status'],
+      items: ['stage-10', 'labs/cloudnativepg', 'labs/falco', 'stage-11', 'status'],
     },
     {
       type: 'category', label: 'Flight Kit & Reference', collapsed: true,

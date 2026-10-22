@@ -44,6 +44,22 @@ kubectl logs -n apollo-airlines-apps deploy/booking | grep '<booking-ref>' | jq 
 curl -s localhost:13200/api/traces/<trace-id> | jq '.batches[].scopeSpans[].spans[] | {name, ms: ((.endTimeUnixNano|tonumber) - (.startTimeUnixNano|tonumber))/1e6, status}'
 ```
 
+## Follow a fresh booking in Grafana
+
+On Stage 6 run `bash stages/stage6/scripts/trace-test.sh` (use `stage7` for
+that installed snapshot). It creates and cancels a real booking, checks its
+linked Tempo trace, and polls Loki for the same trace ID.
+
+In Grafana Explore, select Loki, expand the JSON log and click **View trace**.
+From a Tempo span, follow **Logs** back to matching log lines. The provisioned
+datasources use JSON `trace_id` filtering with a two-minute time margin. Trace
+IDs remain parsed fields rather than high-cardinality Loki labels.
+
+The ordered signal lab's Collector-exporter failure shows the boundary: new
+logs can still arrive while their trace does not. After restoring the exporter,
+generate a fresh request and require both directions of correlation. Old
+stored logs and traces do not prove recovery.
+
 ## Limits
 
 - An aggregate percentile cannot hand you the trace of one slow request.

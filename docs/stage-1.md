@@ -7,7 +7,7 @@ sidebar_label: "Stage 1: Liftoff (Workloads)"
 # Stage 1: Liftoff
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage1`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage1`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the `kind-apollo11` cluster from [Ignition](./ignition). Namespace: `apollo-airlines`.
 - Concepts behind this stage: [ReplicaSets](./learn/cluster/replicasets) · [Deployments](./learn/cluster/deployments) · [Services and readiness](./learn/workloads/services-and-readiness) · [Configuration and identity](./learn/workloads/configuration-and-identity) · [Jobs and initialization](./learn/workloads/jobs-and-initialization) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback) · [Ephemeral state](./learn/workloads/ephemeral-state)
 :::
@@ -55,7 +55,7 @@ Stage 1 closes both gaps, and moves the rest of what Compose did (config, secret
 
 ### Step 1: Read one service end to end before applying anything
 
-Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1/k8s/apps/booking/booking-dep.yaml) and [`booking-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1/k8s/apps/booking/booking-svc.yaml). The parts that matter:
+Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/apps/booking/booking-dep.yaml) and [`booking-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/apps/booking/booking-svc.yaml). The parts that matter:
 
 ```yaml
 # booking-dep.yaml (trimmed)
@@ -100,7 +100,7 @@ kubectl config current-context        # must be kind-apollo11
 bash stages/stage1/scripts/apply.sh   # add --skip-build to reuse loaded images
 ```
 
-[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1/scripts/apply.sh) runs six phases:
+[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/scripts/apply.sh) runs six phases:
 
 1. Namespace, ConfigMap, Secret, ServiceAccounts.
 2. The three Postgres Deployments and Redis, with their Services.
@@ -165,7 +165,7 @@ kubectl logs job/init-booking-db -n apollo-airlines
 ```
 
 - **What a Job is:** a controller for work that should *finish*. A Deployment restarts a container that exits. A Job counts an exit code 0 as success and stops.
-- **How these Jobs work** ([`init-booking-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage1/k8s/jobs/init-booking-db.yaml)):
+- **How these Jobs work** ([`init-booking-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/jobs/init-booking-db.yaml)):
   - Wait for `pg_isready` on `booking-db`, up to 30 tries.
   - Run `psql -v ON_ERROR_STOP=1 -f /init/init.sql`. The SQL is mounted from a ConfigMap.
   - `backoffLimit: 3` with `restartPolicy: Never`: failed attempts leave Pods you can read logs from.

@@ -67,7 +67,7 @@ If Tempo is down, booking keeps taking bookings and the spans are dropped. If Pr
 
 ## Apollo example
 
-- [`stages/stage6/code/booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage6/code/booking/main.go): metrics vars, `logJSON`, `callService`, `addTraceparent`, OTel set-up.
+- [`stages/stage6/code/booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/code/booking/main.go): metrics vars, `logJSON`, `callService`, `addTraceparent`, OTel set-up.
 - The Helm app templates set `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` on each Deployment.
 - Stage 5's chart and Stage 6's chart deploy the apps the same way. The difference is in the code.
 

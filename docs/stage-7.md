@@ -7,7 +7,7 @@ sidebar_label: "Stage 7: Orbital (Scaling)"
 # Stage 7: Orbital Maneuvering
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage7`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage7) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage7`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the Stage 6 chart, including its observability stack, on the `kind-apollo11` cluster (two workers needed for Step 6). Tear down Stage 6 first. Namespace for this stage's changes: `apollo-airlines-apps`. Step 3 needs [k6](https://grafana.com/docs/k6/latest/) installed.
 - Concepts behind this stage: [Measurement before optimization](./learn/scaling/measurement-baseline) · [Cache-aside](./learn/scaling/cache-aside) · [Horizontal Pod Autoscaling](./learn/scaling/hpa) · [VPA and capacity planning](./learn/scaling/vpa-and-capacity) · [Requests, limits and pressure](./learn/reliability/requests-limits-and-pressure) · [Scheduling and placement](./learn/reliability/scheduling)
 :::
@@ -43,7 +43,8 @@ Stage 7 fixes these in a fixed order: **measure first, then cache, then scale ou
 | Path | What it is | New or replaces |
 |---|---|---|
 | `code/search/main.go`, `go.mod` | Redis client (`go-redis/v9`), cache-aside, `X-Cache`, cache counters and spans, cache state in readiness | Changes Stage 6's search |
-| `code/search/cache_test.go` | Unit tests for `CACHE_ENABLED` and a bad `REDIS_URL` | New |
+| `code/search/cache_test.go`, `handler_test.go` | Cache configuration plus HTTP handler, expiry, concurrency and recovery tests | New |
+| `k6/capacity.js`, `PERFORMANCE.md` | Normal-policy capacity run, cache correctness and staging VPA procedure | New |
 | `helm/apollo11/templates/autoscaling/search-hpa.yaml` | The HPA | New |
 | `helm/apollo11/templates/autoscaling/search-vpa.yaml` | The VPA, `Off` mode | New |
 | `helm/apollo11/templates/autoscaling/metrics-server-install.yaml`, `vpa-install.yaml` + `bundles/` | metrics-server v0.8.1 (with kind's `--kubelet-insecure-tls`); VPA 1.7.0 recommender and updater, no admission webhook | New |
@@ -71,13 +72,13 @@ kubectl top pods -n apollo-airlines-apps -l app=search        # works now
 kubectl get hpa search-hpa -n apollo-airlines-apps
 ```
 
-- **What happens:** [`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage7/scripts/apply.sh) installs the Stage 6 stack as before, plus metrics-server. In dev it skips the VPA bundle. The HPA starts reporting `TARGETS` like `3%/70%` within about 30 s.
+- **What happens:** [`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/scripts/apply.sh) installs the Stage 6 stack as before, plus metrics-server. In dev it skips the VPA bundle. The HPA starts reporting `TARGETS` like `3%/70%` within about 30 s.
 - **What metrics-server is:** a small cluster add-on that collects CPU and memory from each kubelet and serves them as the `metrics.k8s.io` API. `kubectl top` and the HPA both read it.
 - **Why not use Prometheus for this?** Prometheus (Stage 6) is for people and alerts. The HPA reads the standard resource-metrics API, which metrics-server provides. Two consumers, two purposes.
 
 ### Step 2: Read the cache-aside code
 
-[`search/main.go`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage7/code/search/main.go), trimmed:
+[`search/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/code/search/main.go), trimmed:
 
 ```go
 cacheKey := fmt.Sprintf("search:%s:%s:%s", origin, destination, date)   // same 3 inputs = same answer
@@ -107,7 +108,7 @@ c.Header("X-Cache", "MISS")
 
 ### Step 3: Measure the baseline before turning the cache on
 
-A change is only "better" against a measured "before". The [k6 README](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage7/k6/README.md) holds the full procedure, with a trap that restores everything on exit. Its core:
+A change is only "better" against a measured "before". The [k6 README](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/k6/README.md) holds the full procedure, with a trap that restores everything on exit. Its core:
 
 ```bash
 NS=apollo-airlines-apps
@@ -122,7 +123,7 @@ BASE_URL=http://localhost:18083 EXPECT_CACHE=off \
   k6 run --summary-export baseline-summary.json stages/stage7/k6/search.js
 ```
 
-What [`search.js`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage7/k6/search.js) holds fixed:
+What [`search.js`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/k6/search.js) holds fixed:
 
 ```js
 const ROUTES = [['BOM','SIN'], ['SIN','BOM'], ['DEL','DXB'], ['DXB','DEL'], ['BOM','LHR'], ['DEL','JFK']];
@@ -176,7 +177,7 @@ What the cache costs, so you know it when you see it:
 
 ### Step 5: Read the HPA, and why it needs Stages 4 and 6
 
-An **HPA** (HorizontalPodAutoscaler) is a controller that changes a Deployment's replica count to keep a metric near a target. [`search-hpa.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage7/helm/apollo11/templates/autoscaling/search-hpa.yaml):
+An **HPA** (HorizontalPodAutoscaler) is a controller that changes a Deployment's replica count to keep a metric near a target. [`search-hpa.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/helm/apollo11/templates/autoscaling/search-hpa.yaml):
 
 ```yaml
 kind: HorizontalPodAutoscaler
@@ -220,7 +221,7 @@ watch -n3 "kubectl get hpa search-hpa -n apollo-airlines-apps; kubectl get pods 
 bash stages/stage7/scripts/scaling-lab.sh run
 ```
 
-[`scaling-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage7/scripts/scaling-lab.sh) does, in order:
+[`scaling-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/scripts/scaling-lab.sh) does, in order:
 
 1. Labels one worker `apollo11.io/search-pool=dedicated` and taints it `workload=search:NoSchedule`, then recreates the search Pods.
 2. Lowers the HPA target to 10% and the scale-down window to 30 s, so a laptop can show it quickly. It records the originals first.
@@ -239,12 +240,12 @@ affinity:
     preferredDuringSchedulingIgnoredDuringExecution:   # soft: raises the node's score
       - weight: 100
         preference: {matchExpressions: [{key: apollo11.io/search-pool, operator: In, values: [dedicated]}]}
-topologySpreadConstraints:           # from Stage 4: keep replicas balanced across nodes
-  - {maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: ScheduleAnyway}
+topologySpreadConstraints:           # Stage 7 strengthens Stage 4's soft spread
+  - {maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: DoNotSchedule, nodeTaintsPolicy: Honor}
 ```
 
 - **What you see:** `TARGETS` climbs above 10%, `REPLICAS` goes 1 → 3, the new Pods land on *both* workers, then it drops back to 1.
-- **Why both workers:** the taint keeps *other* workloads off the dedicated node. The toleration only *allows* search there. Preferred affinity makes that node score higher, and topology spread pushes replicas apart. All three are soft for search, so it keeps running if the dedicated node is full.
+- **Why both workers:** the taint keeps *other* workloads off the dedicated node. The toleration only *allows* search there. Preferred affinity makes that node score higher, and topology spread pushes replicas apart. Affinity remains a preference, but the spread is now a hard constraint. Search can remain Pending when eligible placement would exceed `maxSkew: 1`; inspect events rather than assuming spare capacity is usable.
 - **Why this placement matters only now:** with a fixed replica count, placement was decided once. With an HPA, the scheduler places new Pods during every spike.
 - **Watch out:** the HPA changes a number, it doesn't create capacity. If nodes are full, extra Pods stay `Pending` with `Insufficient cpu`, as in Stage 4.
 - **Priority:** search and booking run as `apollo-airlines-app-critical`, notification as `apollo-airlines-app-low`. When a scale-out has no room left, the scheduler can evict low-priority Pods to make room for critical ones.
@@ -279,6 +280,63 @@ spec:
 - **Why no admission webhook:** in `Off` mode the VPA never changes Pods, so the bundle installs only the recommender and updater.
 - **Why off in dev:** its controllers cost resources, and a short-lived local cluster has too little history for useful advice.
 - **Compared with Stage 4:** the 100m / 128Mi tiers were chosen by reasoning. The VPA is the first thing in the course that checks them against real usage.
+
+## Inherited alert delivery and correlation
+
+Stage 7 carries the Stage 6 Alertmanager, local webhook receiver, Blackbox
+Exporter and Grafana correlation configuration. On the installed Stage 7
+snapshot run:
+
+```bash
+bash stages/stage7/scripts/observability-lab.sh
+bash stages/stage7/scripts/trace-test.sh
+```
+
+See [alert delivery and trusted edge probes](./stage-6#alert-delivery-and-trusted-edge-probes)
+for manual inspection. Use Stage 7 paths throughout; do not apply another
+stage's chart to the running release.
+
+## Normal-policy capacity and cache correctness
+
+The cache benchmark fixes one replica to isolate cache impact. Capacity is a
+separate run through the Gateway, preserving the HPA's normal 70% target and
+stabilization windows. From the Apollo11 root, with trusted TLS/name resolution:
+
+```bash
+export KUBE_CONTEXT=kind-apollo11
+kubectl --context "$KUBE_CONTEXT" -n apollo-airlines-apps get secret apollo-edge-tls \
+  -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/apollo-capacity.crt
+SSL_CERT_FILE=/tmp/apollo-capacity.crt BASE_URL=https://search.apollo.local \
+  k6 run --summary-export capacity.json stages/stage7/k6/capacity.js
+```
+
+Watch `kubectl get hpa,pods -n apollo-airlines-apps -w` in another terminal.
+The 14-minute profile ramps 10→50→100→200 requests/s and returns to 10. Record
+p95, failures, dropped iterations, Pod CPU, desired/current replicas and Pending
+Pods. The October rerun scaled 1→2→3 with 2+1 worker placement and no Pending
+samples, but dropped iterations failed a threshold: do not call it an all-pass.
+
+Search now uses hard `DoNotSchedule` spread. `nodeTaintsPolicy: Honor` excludes
+the untolerated control-plane taint from spread domains; otherwise the third
+replica can remain Pending despite free worker capacity. Booking's earlier
+soft-spread example remains unchanged.
+
+For Redis outage/recovery, stale seat counts, concurrent misses, and the required
+staging VPA recommendation exercise, follow the pinned
+[PERFORMANCE.md](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/PERFORMANCE.md).
+Dev skips VPA. Tear dev down before installing staging; require nonempty lower,
+target and upper recommendations while update mode stays `Off`. These staging
+steps were not rerun in the October 22 verification pass.
+
+The Search handler tests use simulated Redis and HTTP upstreams:
+
+```bash
+(cd stages/stage7/code/search && go test -race ./...)
+```
+
+They cover MISS/HIT, expiry, stale values, concurrent cold misses, upstream and
+Redis errors, and recovery. Multiple cold requests may reach Flight: there is
+no distributed request coalescing guarantee.
 
 ## When something looks wrong
 

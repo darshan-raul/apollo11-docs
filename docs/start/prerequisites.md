@@ -31,7 +31,7 @@ cd Apollo11
 ./prep.sh              # install mise + the course toolchain
 exec $SHELL            # reload your shell
 ./prep.sh --verify     # every line should be ✅
-git checkout 69113dcc80f77e32301d8ee7b9e73a67c923de96
+git checkout f6211e679f8ed66a5a19033ac49a3bfc3a506eab
 git rev-parse HEAD     # must print the hash above
 ```
 

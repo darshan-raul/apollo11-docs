@@ -7,7 +7,7 @@ sidebar_label: "Stage 5: Payload (Delivery)"
 # Stage 5: Payload Integration
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage5`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root. Needs `helm` on your PATH.
+- Repo folder: [`stages/stage5`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root. Needs `helm` on your PATH.
 - Builds on: [Stage 4](./stage-4). The workloads are the same; only the way they are delivered changes. Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui` (Argo CD adds `-dev-`, `-staging-` and `-prod-` pairs).
 - Concepts behind this stage: [Rendering and Helm](./learn/delivery/rendering-and-helm) · [Promotion and rollback](./learn/delivery/promotion-and-rollback) · [Kustomize and overlays](./learn/delivery/kustomize-comparison) · [GitOps and ownership](./learn/delivery/gitops-and-ownership) · [CI and image delivery](./learn/delivery/ci-and-image-delivery)
 :::
@@ -57,7 +57,7 @@ Stage 5 does not change Apollo itself. It replaces the way Apollo is delivered, 
 
 ### Step 1: See one template replace six copies
 
-In Stage 4, every Deployment had its own copy of the probes and resources. In the chart, booking's template [`templates/apps/booking.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/helm/apollo11/templates/apps/booking.yaml) reads them from [`values.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/helm/apollo11/values.yaml):
+In Stage 4, every Deployment had its own copy of the probes and resources. In the chart, booking's template [`templates/apps/booking.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/helm/apollo11/templates/apps/booking.yaml) reads them from [`values.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/helm/apollo11/values.yaml):
 
 ```yaml
 # values.yaml (trimmed)
@@ -118,12 +118,12 @@ helm template apollo11 $C --set apps.booking.replicas=0 >/dev/null
 helm template apollo11 $C --set apps.booking.tier=huge  >/dev/null
 ```
 
-The environment files only hold what differs ([`values-prod.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/helm/apollo11/values-prod.yaml)):
+The environment files only hold what differs ([`values-prod.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/helm/apollo11/values-prod.yaml)):
 
 ```yaml
 # values-prod.yaml (trimmed)
 image:
-  repository: ghcr.io/darshan-raul/apollo11   # registry images, not local kind images
+  repository: ghcr.io/darshan-raul/apollo11/stage5   # registry images, not local kind images
   tag: v1.0.0                                 # pinned, not :latest
   pullPolicy: Always
 apps:
@@ -136,7 +136,7 @@ pdb:
 | | Dev | Staging | Prod |
 |---|---|---|---|
 | Replicas per app | 1 | 2 | 3 |
-| Image | `apollo11/*:latest` (local) | `apollo11/*:latest` | `ghcr.io/darshan-raul/apollo11/*:v1.0.0` |
+| Image | `apollo11/*:latest` (local) | `apollo11/*:latest` | `ghcr.io/darshan-raul/apollo11/stage5/*:v1.0.0` |
 | PDBs | Off | Off | On, `minAvailable: 2` |
 
 - **What you see:** the diff shows only replicas, image and pull policy. Names, ports, probes and resources are identical. The two bad `--set` commands fail with `values don't meet the specifications of the schema` and name the path.
@@ -156,7 +156,7 @@ kubectl get secret -n apollo-airlines-apps -l owner=helm
 kubectl get deploy booking -n apollo-airlines-apps --show-labels | tr ',' '\n' | grep managed-by
 ```
 
-[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/scripts/apply.sh) in Helm mode:
+[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/scripts/apply.sh) in Helm mode:
 
 1. Builds and loads the six images.
 2. Applies the Envoy Gateway and MetalLB bundles, and waits for their CRDs and the MetalLB webhook.
@@ -234,7 +234,7 @@ helm list -A                                                 # empty: no release
 kubectl get deploy booking -n apollo-airlines-apps --show-labels | tr ',' '\n' | grep -E 'managed-by|environment'
 ```
 
-- **Where the base comes from:** [`overlays/base/generated.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/overlays/base/generated.yaml) is a committed `helm template` of the chart. CI re-renders the chart and fails if the two differ, so the two paths can't quietly drift apart.
+- **Where the base comes from:** [`overlays/base/generated.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/overlays/base/generated.yaml) is a committed `helm template` of the chart. CI re-renders the chart and fails if the two differ, so the two paths can't quietly drift apart.
 - **What you see:** dev and prod differ only in replicas, images and the `environment` label; prod also adds `prod/pdb.yaml`. After apply, `helm list` is empty and the Deployment carries `managed-by=kustomize` and `environment=dev`.
 - **What Kustomize gives up:** there is no release record and no `rollback` command. The history is Git: to undo, you revert the commit and apply again.
 - **Why it's still here:** for differences between environments inside one repo, patches on real YAML are easier to review than templates. Helm suits a package that others install with their own values.
@@ -260,7 +260,7 @@ kubectl get application -n argocd \
   -o custom-columns=NAME:.metadata.name,AUTO:.spec.syncPolicy.automated,SYNC:.status.sync.status,HEALTH:.status.health.status
 ```
 
-One `Application` per environment, [`argocd/applications/dev.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/stage5/argocd/applications/dev.yaml):
+One `Application` per environment, [`argocd/applications/dev.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/applications/dev.yaml):
 
 ```yaml
 # applications/dev.yaml (trimmed)
@@ -275,7 +275,7 @@ spec:
       valueFiles: [values-dev.yaml]
       parameters:
         - {name: namespaces.apps, value: apollo-airlines-dev-apps}
-        - {name: image.repository, value: ghcr.io/darshan-raul/apollo11}
+        - {name: image.repository, value: ghcr.io/darshan-raul/apollo11/stage5}
   syncPolicy:
     automated:
       prune: true                          # delete objects removed from Git
@@ -295,8 +295,22 @@ kubectl get deploy booking -n apollo-airlines-dev-apps -o jsonpath='{.spec.repli
 - **Where to make a lasting change:** in Git. Edit `values-dev.yaml`, commit, and Argo applies it. `kubectl` changes are temporary by design.
 - **Prod is different on purpose:** `apollo11-prod` has no `automated` block. Argo shows the diff, and a person decides when to sync. It also ignores `/spec/replicas` on Deployments, so an on-call engineer can scale by hand during an incident without Argo undoing it.
 - **Argo is not a Helm release:** `helm list -A` shows nothing. Argo renders the chart itself and applies the result, so Argo's sync history replaces `helm history`.
-- **Images come from GHCR:** the Applications pull `ghcr.io/darshan-raul/apollo11/*`, built and pushed by the CI workflow. Promotion means moving the same image tag from dev to prod, not rebuilding ([CI and image delivery](./learn/delivery/ci-and-image-delivery)).
+- **Images come from GHCR:** the Applications pull `ghcr.io/darshan-raul/apollo11/stage5/*`, built and pushed by the CI workflow. Promotion means moving the same image tag from dev to prod, not rebuilding ([CI and image delivery](./learn/delivery/ci-and-image-delivery)).
 - **Compared with Step 3:** with Helm, the cluster changed when you ran `helm upgrade`. With Argo CD, it changes when Git changes, and changes from anywhere else are reported or undone.
+
+## Image gate and runtime versions
+
+CI builds Stages 5–7 independently and scans all 18 images before publishing
+stage-specific GHCR artifacts. See [CI and image delivery](./learn/delivery/ci-and-image-delivery)
+for the exact jobs and local validation command. Production examples require
+published images; the hosted run and first publication remain unverified.
+
+Stages 5–7 now use Go 1.27.3 builders (modules declare Go 1.26.0), Alpine
+3.24.2 runtimes, nginx 1.30.6, Node 22.23.4 and Python 3.12.15 base versions.
+Earlier snapshots retain their previous runtime versions. Stages 6–7 give
+Identity a dedicated Guaranteed `python` tier (200m CPU / 256Mi memory) after
+live booking/trace checks exposed timeouts at the old 128Mi limit. Teaching
+Secrets and mutable dev/staging tags remain open hardening work.
 
 ## When something looks wrong
 

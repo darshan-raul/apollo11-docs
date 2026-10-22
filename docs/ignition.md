@@ -7,7 +7,7 @@ sidebar_label: "Ignition (First Cluster)"
 # Ignition: your first cluster
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/ignition`](https://github.com/darshan-raul/Apollo11/tree/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/ignition) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/ignition`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/ignition) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: [Launchpad](./launchpad). Stop it first (`docker compose down` in `stages/launchpad`). You need Docker, `kind`, `kubectl` and `curl`.
 - Concepts behind this stage: [Why Kubernetes?](./learn/cluster/why-orchestration) · [Architecture and the basic flow](./learn/cluster/architecture) · [Pods](./learn/cluster/pods) · [The controller loop](./learn/cluster/controller-loop) · [ReplicaSets](./learn/cluster/replicasets) · [Deployments](./learn/cluster/deployments) · [Objects and the API server](./learn/cluster/objects-and-api)
 :::
@@ -48,7 +48,7 @@ Ignition does not move Apollo yet. It builds a **cluster** (a group of machines,
 
 ### Step 1: Create the cluster
 
-Read [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/ignition/kind-config.yaml) first:
+Read [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/ignition/kind-config.yaml) first:
 
 ```yaml
 # kind-config.yaml (trimmed)
@@ -147,7 +147,7 @@ kubectl delete pod apollo-shell
 
 ### Step 4: Move to a manifest
 
-[`pod.yaml`](https://github.com/darshan-raul/Apollo11/blob/69113dcc80f77e32301d8ee7b9e73a67c923de96/stages/ignition/pod.yaml) is the same Pod, written down:
+[`pod.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/ignition/pod.yaml) is the same Pod, written down:
 
 ```yaml
 apiVersion: v1

@@ -1,200 +1,141 @@
 ---
 title: "StatefulSets and headless DNS"
-description: "When a workload needs a stable Pod name, how Apollo's four StatefulSets and their headless Services fit together, and how to resolve one replica by name."
+description: "Understand stable database member names, replacement Pod identity, and why Apollo has both normal and headless Services."
 ---
 
 # StatefulSets and headless DNS
 
 *Stage 3 · Mission Data*
 
-**You will be able to:** decide between a Deployment and a StatefulSet, read Apollo's StatefulSet and its two Services, resolve one specific Pod by its stable DNS name, and predict what changes (and what does not) when that Pod is replaced.
+**You will be able to:** distinguish a stable member identity from a Pod object and explain the two Service names beside each Apollo database.
 
-Booking Pods are interchangeable: any ready copy can serve any request, so their random names do not matter. A database member is different. A replica may need to reconnect to *that particular* member, and the member needs to find its *own* storage again after replacement. That is an **identity** problem, not just a storage one.
+## The problem
 
-A Deployment cannot express this. Its Pods get a random suffix, and when one is replaced the new one has a different name, so nothing outside can say "I mean the same one as before".
+[Claims and provisioning](./claims-and-provisioning) gives a Pod storage that outlives it. A database workload also needs a predictable association with that storage across replacement, and a predictable network identity.
+
+A Deployment is designed for stateless, interchangeable replicas. It fails stateful database requirements in three ways:
+
+1. **Shared volume templates:** Every replica spawned by a Deployment inherits the exact same `volumes` block. If the template points to a PVC, all replicas attempt to mount that single claim. For a `ReadWriteOnce` volume, replicas on other nodes fail to start with `Multi-Attach` errors. If scheduled on the same node, multiple database processes concurrently writing to the same data directory cause immediate database corruption.
+2. **Random Pod names:** Deployment Pods receive random hash suffixes (e.g., `booking-db-69bc87df9b-v4q2x`). A replacement Pod gets a completely different name, making it impossible to identify "member zero".
+3. **No stable network identity:** Standard Services load-balance across all endpoints. They provide no mechanism to address a specific database instance (such as a primary for writes or a specific replica for replication streams).
 
 ## Stable identity for each member
 
-A Deployment is a pool of taxis: whichever arrives will do. A StatefulSet is a set of **numbered lockers** (`locker-0`, `locker-1`): if locker 0 is rebuilt, it is still locker 0 and gets its own key back.
+A **StatefulSet** is a workload controller designed for stateful applications. It provides three guarantees that Deployments do not:
 
-A **StatefulSet** creates Pods with predictable ordinal names (`identity-db-0`, `identity-db-1`). If `identity-db-0` is deleted, the replacement is again `identity-db-0` (a new Pod with a new UID and possibly a new IP, but the same name and the same claim).
+- **Stable member ordinals:** Members are assigned a zero-indexed integer ordinal (`0, 1, ..., N-1`). The Pod names are deterministic: `<statefulset-name>-<ordinal>` (e.g., `identity-db-0`).
+- **Dedicated per-member storage:** Combined with claim templates, each ordinal automatically receives and retains its own dedicated PVC (`<template>-<statefulset>-<ordinal>`).
+- **Stable network identity:** Paired with a governing headless Service, each member receives a deterministic DNS record that points directly to that specific member's IP address.
 
-| Question | Deployment | StatefulSet |
+| Property | Deployment | StatefulSet in Apollo |
 |---|---|---|
-| Are replicas interchangeable? | Usually yes | Not necessarily |
-| Pod names | Generated (`booking-7d6f5c8b-v2k8w`) | Ordinal (`identity-db-0`) |
-| Replacement name | New | **Same ordinal** |
-| Storage | One claim referenced by the template | One claim **per ordinal** |
-| Update behaviour | Surge: new Pod before the old is gone | One at a time, reverse order, **no surge** |
+| Member naming | Generated random hash suffix | Workload name plus ordinal index (`identity-db-0`) |
+| Replacement Pod UID | Brand-new UID | Brand-new UID (same member name, new Pod object) |
+| Storage references | Shared template references | Dedicated PVC generated per ordinal index |
+| Network addressing | Virtual ClusterIP load-balancing across replicas | Direct per-member DNS names via headless Service |
+| Typical workload | Stateless HTTP services (`booking`, `flight`) | Stateful databases and stores (`identity-db`, `redis`) |
 
-Kubernetes does not elect a database primary or copy data between members. A StatefulSet gives identity and storage; replication needs an operator or the database's own tooling. Use one because the workload needs those properties, not merely because it stores data.
+## How it works
 
-## Why a single-replica database still uses one
+A stable member name must resolve to the member's current Pod IP. A standard Service cannot do this because it allocates a virtual ClusterIP and relies on kube-proxy packet rewriting (iptables/IPVS) to distribute traffic across endpoints.
 
-Apollo's databases have `replicas: 1`. A reasonable question: why not a Deployment plus a PVC? Three traps:
+A **headless Service** is created by setting `spec.clusterIP: None`. It disables virtual IP allocation and kube-proxy packet routing. Instead, CoreDNS returns DNS A/AAAA records containing the actual IP addresses of the matching ready Pods directly.
 
-| Trap with Deployment + one PVC | StatefulSet behaviour |
-|---|---|
-| Rolling update starts the new Pod **before** stopping the old one; a `ReadWriteOnce` volume on another node cannot attach at once (a `Multi-Attach` stall) | Stops `-0`, releases the volume, then starts the replacement |
-| Scaling to 2 makes both Pods mount the **same** claim | Each ordinal gets its own PVC |
-| Random Pod names; reachable only through the ClusterIP | Stable `identity-db-0.identity-db-headless` |
+Apollo's [identity StatefulSet](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) defines its governing Service in `serviceName`:
 
-A fourth, more practical reason: the replacement logic is *the same code path* whether you run one member or three. Learning the single-replica shape is learning the shape that scales.
+```yaml
+# Excerpt from identity-db-sts.yaml
+spec:
+  serviceName: identity-db-headless
+  replicas: 1
+```
 
-## Headless DNS
+The matching [headless Service](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-svc-headless.yaml) selects that Pod:
 
-A normal Service gives callers one virtual address and load-balances. Sometimes a peer must reach one specific member. A **headless Service** sets `clusterIP: None`; DNS then returns the Pod IP(s) directly. For StatefulSet Pods that gives each one a stable name:
+```yaml
+# Excerpt from identity-db-svc-headless.yaml
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: identity-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+```
+
+When a StatefulSet specifies `serviceName`, CoreDNS creates an A record for the Service and a dedicated A record for each individual Pod:
 
 ```text
 identity-db-0.identity-db-headless.apollo-airlines-apps.svc.cluster.local
+│             │                    │                       │
+Pod name      governing Service    namespace               cluster domain
 ```
 
-If the replacement gets a new IP, that same name publishes the new address. Clients must still reconnect and tolerate the moment the old address expires.
+Within the `apollo-airlines-apps` namespace, the short name `identity-db-0.identity-db-headless` resolves directly to member zero's current Pod IP.
 
-```mermaid
-flowchart LR
-  STS[StatefulSet identity-db] --> P0[identity-db-0]
-  HS[Headless identity-db-headless] -->|DNS per Pod| P0
-```
+CoreDNS publishes addresses only for ready Pods by default. If `identity-db-0` is starting up or fails its readiness probe, the DNS name will temporarily return no records. A stable DNS name does not keep TCP connections alive: if a Pod is replaced, clients must reconnect to the new IP address.
 
-The name is built from three parts: **Pod name** (`identity-db-0`) + **governing Service** (`identity-db-headless`, from `serviceName` in the StatefulSet) + the usual namespace and cluster domain. The per-Pod record exists *only* when the Service named in `serviceName` is headless. This is why a StatefulSet nearly always ships with a headless Service next to it.
+## Apollo example: why two Services?
 
-## Apollo manifests
+Each database in Apollo is accompanied by two Services targeting the exact same Pod:
 
-*Source: `stages/stage3/k8s/apps/identity-db/`*
+| Name | Service Type | Resolves to | Used for |
+|---|---|---|---|
+| `identity-db` | Ordinary ClusterIP | Virtual ClusterIP (`10.96.x.x`) | The `identity` service application connection string |
+| `identity-db-headless` | Headless (`clusterIP: None`) | Pod IP list (`10.244.x.x`) | Endpoint discovery and StatefulSet governing contract |
+| `identity-db-0.identity-db-headless` | Per-pod record | Member zero's Pod IP (`10.244.x.x`) | Direct access to that specific member |
 
-Every stateful workload ships with the same trio. For `flight-db`:
+The same pattern applies to `flight-db`, `booking-db`, and `redis`. Apollo application microservices continue connecting to the ordinary ClusterIP Service (`DATABASE_URL=postgres://...@identity-db:5432/identity`). They do not need to know the database ordinal. The headless Service satisfies the StatefulSet requirement and provides the addressing foundation for multi-member clusters.
 
-```yaml
-# flight-db-sts.yaml (excerpt)
-kind: StatefulSet
-metadata:
-  name: flight-db
-spec:
-  serviceName: flight-db-headless
-  replicas: 1
-  selector:
-    matchLabels:
-      app: flight-db
-```
-
-```yaml
-# flight-db-svc-headless.yaml
-kind: Service
-metadata:
-  name: flight-db-headless
-spec:
-  type: ClusterIP
-  clusterIP: None        # the only difference
-  selector:
-    app: flight-db
-  ports:
-    - port: 5432
-      targetPort: 5432
-```
-
-```yaml
-# flight-db-svc.yaml
-kind: Service
-metadata:
-  name: flight-db
-spec:
-  type: ClusterIP        # gets a virtual ClusterIP
-  selector:
-    app: flight-db
-  ports:
-    - port: 5432
-      targetPort: 5432
-```
-
-| Field or object | Meaning |
-|---|---|
-| `serviceName: flight-db-headless` | Ties Pod DNS identity to the headless Service |
-| `selector` + template labels | Which Pods the StatefulSet owns |
-| `flight-db` (normal Service) | What the flight app uses to connect |
-| `flight-db-headless` | Per-Pod names for peers and operators |
-
-The two Services select the **same Pods** and differ in one field. The normal one is for *clients* who just want a database; the headless one is for anyone who needs to name a particular member. The flight Deployment connects to `flight-db`, never to the headless name, since a single-member database gives it nothing to choose between.
-
-Redis follows the identical pattern with `redis` (6379) and `redis-headless`.
-
-## Four workloads, one shape
-
-| StatefulSet | Headless Service | Normal Service | Port | ServiceAccount |
-|---|---|---|---|---|
-| `identity-db` | `identity-db-headless` | `identity-db` | 5432 | `identity-db` |
-| `flight-db` | `flight-db-headless` | `flight-db` | 5432 | `flight-db` |
-| `booking-db` | `booking-db-headless` | `booking-db` | 5432 | `booking-db` |
-| `redis` | `redis-headless` | `redis` | 6379 | `redis` |
-
-Each database has its own ServiceAccount with `automountServiceAccountToken: false`, and `verify.sh` checks it. A database never calls the Kubernetes API, so it is given no token to leak.
+Scaling `replicas: 2` on Apollo's StatefulSet does not create a PostgreSQL primary-replica cluster. The controller would launch `identity-db-1` with a separate, blank volume. Both databases would receive writes independently through the ordinary Service, corrupting data consistency. Database clustering requires database-aware clustering tools or operators (such as CloudNativePG or Patroni).
 
 ## Try it
 
+After installing Stage 3, compare how the two Services resolve from inside the `identity` application container:
+
 ```bash
-kubectl exec -n apollo-airlines-apps deploy/identity -- getent hosts identity-db                         # ClusterIP
-kubectl exec -n apollo-airlines-apps deploy/identity -- getent hosts identity-db-0.identity-db-headless  # Pod IP
+kubectl exec -n apollo-airlines-apps deploy/identity -- getent hosts identity-db
+kubectl exec -n apollo-airlines-apps deploy/identity -- \
+  getent hosts identity-db-0.identity-db-headless
+kubectl get svc identity-db -n apollo-airlines-apps
 kubectl get pod identity-db-0 -n apollo-airlines-apps -o wide
-kubectl get endpointslice -n apollo-airlines-apps -l kubernetes.io/service-name=identity-db-headless
 ```
 
-- The first returns a virtual ClusterIP. The second returns the Pod's own IP. Compare it with the `IP` column of the third command: they match.
-- `verify.sh` runs `getent hosts <db>-headless` and requires the answer to be a Pod-network address (`10.244.…`), which is the quickest proof that a Service is truly headless. It uses `getent` rather than `nslookup` because the identity image is minimal and has no `nslookup`.
+Expected:
+- The first lookup (`identity-db`) returns the virtual `CLUSTER-IP` of the standard Service.
+- The second lookup (`identity-db-0.identity-db-headless`) returns the Pod's direct IP (`10.244.x.x`), matching the `IP` column of `identity-db-0`.
 
-## Try breaking it
+This proves that Apollo provides both a stable virtual Service IP for application clients and a direct DNS path to the individual stateful Pod.
 
-Predict, then check each fact separately:
-
-```bash
-OLD_UID=$(kubectl get pod identity-db-0 -n apollo-airlines-apps -o jsonpath='{.metadata.uid}')
-OLD_IP=$(kubectl get pod identity-db-0 -n apollo-airlines-apps -o jsonpath='{.status.podIP}')
-kubectl delete pod identity-db-0 -n apollo-airlines-apps
-kubectl wait --for=condition=Ready pod/identity-db-0 -n apollo-airlines-apps --timeout=90s
-kubectl get pod identity-db-0 -n apollo-airlines-apps -o jsonpath='{.metadata.uid} {.status.podIP}{"\n"}'
-echo "before: $OLD_UID $OLD_IP"
-```
-
-You should see the **same name**, a **different UID**, and quite possibly a **different IP**. The name is stable; the object behind it is not. That is exactly why other things must find it by name through DNS and never by remembering an IP.
 
 ## Common misconceptions
 
-- **"A StatefulSet replicates my database."** It provides names and claims only.
-- **"The same ordinal means the same Pod."** It is a new Pod with the same name.
-- **"Same name proves the data survived."** Only the claim and the database prove that.
-- **"A headless Service is a different kind of Service."** It is a normal Service with `clusterIP: None`, so DNS returns Pod addresses instead of one virtual one.
-- **"The app should connect to the headless name."** It connects to `identity-db`; the headless name is for addressing individual members.
-- **"A StatefulSet is required for any database."** It is required when the workload needs stable identity or per-member storage.
+- **“The same name means the same Pod.”** Names can be reused; UIDs identify individual Pod objects.
+- **“Headless means no Service.”** The Service still supplies endpoint discovery, but has no virtual IP.
+- **“A stable name proves data survived.”** It proves identity. Read a record from the database to prove data survival.
 
 ## Check yourself
 
 <details>
-<summary>Deleting <code>identity-db-0</code> returns the same name. Does that prove the data survived?</summary>
+<summary>Why do the applications continue connecting to identity-db?</summary>
 
-No. It shows stable naming. Data survival depends on the claim and the database.
+The ordinary Service already supplies a stable client address. Per-member names are useful when a caller must select a specific member; Apollo's single-member database clients do not need that selection.
+
 </details>
 
 <details>
-<summary>Why does <code>identity-db-0.identity-db-headless</code> not resolve if <code>serviceName</code> points at a normal Service?</summary>
+<summary>Does replicas: 2 make the databases copies of each other?</summary>
 
-Per-Pod DNS records are published only for the Service named in <code>serviceName</code>, and only when that Service is headless. A normal Service gives one virtual address and no per-Pod names.
-</details>
+No. It creates two members with independent storage. Replication, primary selection, and client routing need database-aware configuration or an operator.
 
-<details>
-<summary>Which of the two Services does the identity application use to reach its database, and why?</summary>
-
-<code>identity-db</code>, the normal Service. The app wants a database, not a specific member, and a single stable ClusterIP is simpler and survives Pod IP changes.
-</details>
-
-<details>
-<summary>A replacement <code>identity-db-0</code> has a different IP. What must a client do?</summary>
-
-Reconnect by name. Any connection to the old address is gone, and DNS now publishes the new one. Clients should retry rather than cache an address.
 </details>
 
 ## Where this leads
 
-The name is stable; the next chapter follows the storage relationship per ordinal, and what ordering and retention settings guarantee.
+[StatefulSet storage and operations](./statefulset-storage-and-operations) follows the claim association through replacement, updates, and deletion.
 
 ## References
 
-- [StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/) · [Headless Services](https://kubernetes.io/docs/concepts/services-networking/service/#headless-services) · [DNS for Services and Pods](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
+- [StatefulSet identity](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#pod-identity)
+- [DNS for Services and Pods](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
