@@ -17,7 +17,7 @@ title: "Mission Status — Where Apollo Stands"
 | Stage 7 dev | Helm 227/227; Kustomize 216/216; trace/observability labs passed after spread fix | Follow [Stage 7](./stage-7) |
 | Stage 7 capacity | Normal 70% CPU policy scaled 1→2→3; zero failed requests, but dropped iterations failed the k6 threshold | Treat as a measured boundary, not a fully passing benchmark |
 | Stage 6/7 Argo CD; Helm/staging | Not rerun in the October 22 pass | Do not extend dev pass counts to these paths |
-| Hosted CI and GHCR | Local validation and all 18 image scans passed; hosted run and publication remain unobserved | Registry examples describe the configured contract, not proof images exist |
+| Hosted CI and GHCR | Local validation and all 18 image scans passed. Every hosted CI run so far has failed at the validation step, so no image or release tag is published (tracker G2a, G15) | Registry examples describe the configured contract; those images do not exist yet. Use the locally built images |
 | Stage 8 | Planned clean security rebuild | Read [Stage 8](./stage-8); no inherited trust |
 | Stage 9 / EKS | Planned capstone; EKS remains a prototype without a real-account lifecycle | Study [the boundary](./eks) |
 | Stage 10 | CloudNativePG and Falco have live evidence and teardown; other missions planned | Follow [the optional catalog](./stage-10) |
@@ -33,7 +33,8 @@ chapters stand alone, and runnable commands require the matching snapshot.
 | Stage | Mission / Area | Primary Tools Introduced & Taught | Runnable Today? |
 |---|---|---|---|
 | **Launchpad** | Containers & Local Compose | Docker, Docker Compose, PostgreSQL | ✅ Runnable |
-| **Stage 1** | Cluster Ignition & Workloads | kind, kubectl, k9s, Headlamp | ✅ Runnable |
+| **Ignition** | First Cluster | kind, kubectl | ✅ Runnable |
+| **Stage 1** | Liftoff (Workloads & Configuration) | kubectl, k9s, Headlamp | ✅ Runnable |
 | **Stage 2** | Guidance (Networking & Edge) | Envoy Gateway (Gateway API), MetalLB, Traefik (Ingress & TLS), CoreDNS | ✅ Runnable |
 | **Stage 3** | Mission Data (Stateful & Storage) | PostgreSQL StatefulSets, Redis, local-path provisioner | ✅ Runnable |
 | **Stage 4** | Flight Control (Reliability & Probes) | Liveness/Readiness/Startup Probes, Requests & Limits, PriorityClasses, PodDisruptionBudgets | ✅ Runnable |
@@ -41,7 +42,7 @@ chapters stand alone, and runnable commands require the matching snapshot.
 | **Stage 6** | Mission Operations (Observability) | Prometheus, OpenTelemetry SDK & Collector, Grafana, Grafana Tempo, Grafana Alloy, Grafana Loki, Alertmanager | ✅ Runnable (dev) |
 | **Stage 7** | Orbital Maneuvering (Scaling & Caching) | Horizontal Pod Autoscaler (HPA), Vertical Pod Autoscaler (VPA), Redis (Cache-aside), k6 | ✅ Runnable (dev) |
 | **Stage 8** | Command Module (Security Hardening) | HashiCorp Vault, External Secrets Operator (ESO), Reloader, Kyverno, Cosign / Sigstore, Trivy, Calico | ⏳ *Planned* |
-| **Stage 9** | Lunar Orbit (Cloud Infrastructure) | AWS EKS, AWS Load Balancer Controller, EBS CSI, IAM Roles for Service Accounts (IRSA) | ⏳ *Planned* |
-| **Stage 10** | Mission Extensions (Production Patterns) | CloudNativePG (PostgreSQL Operator), Falco (Runtime Security), Velero, Keycloak | 🔬 *Selective Labs* (CloudNativePG & Falco have live evidence) |
-| **Stage 11** | Deep Dives & Mars Architecture | Service mesh (Linkerd), Chaos Mesh, Karpenter, KEDA, OpenCost, Goldilocks | ⏳ *Planned* |
+| **Stage 9** | Lunar Orbit (Cloud Lifecycle & Capstone) | Terraform, Amazon EKS, ECR, EBS CSI driver, EKS Pod Identity, AWS Load Balancer Controller, cert-manager, Cluster Autoscaler, Velero | ⏳ *Planned* |
+| **Stage 10** | Mission Extensions (Optional Operations Missions) | CloudNativePG, Falco, Linkerd, Argo Rollouts, ephemeral containers, Kubeshark, Chaos Mesh, advanced disaster recovery | 🔬 *Selective Labs* (CloudNativePG & Falco have live evidence; the rest are planned) |
+| **Stage 11** | Towards Mars (Optional Specializations) | CRD and operator authoring, KEDA, k3s, Backstage, Kubecost, Cluster API | ⏳ *Planned* |
 
