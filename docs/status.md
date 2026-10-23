@@ -17,7 +17,7 @@ title: "Mission Status — Where Apollo Stands"
 | Stage 7 dev | Helm 227/227; Kustomize 216/216; trace/observability labs passed after spread fix | Follow [Stage 7](./stage-7) |
 | Stage 7 capacity | Normal 70% CPU policy scaled 1→2→3; zero failed requests, but dropped iterations failed the k6 threshold | Treat as a measured boundary, not a fully passing benchmark |
 | Stage 6/7 Argo CD; Helm/staging | Not rerun in the October 22 pass | Do not extend dev pass counts to these paths |
-| Hosted CI and GHCR | Local validation and all 18 image scans passed. Every hosted CI run so far has failed at the validation step, so no image or release tag is published (tracker G2a, G15) | Registry examples describe the configured contract; those images do not exist yet. Use the locally built images |
+| Hosted CI and GHCR | First green hosted run on 2026-10-24: validation, 18 Trivy-gated builds and 18 publishes. Images are public as `ghcr.io/darshan-raul/apollo11/stageN/<service>:sha-<commit>` and `:latest`. No `v1.0.0` release tag exists yet | Use the locally built images for the walkthroughs. Production values that pin `v1.0.0` will not pull until a release is tagged |
 | Stage 8 | Planned clean security rebuild | Read [Stage 8](./stage-8); no inherited trust |
 | Stage 9 / EKS | Planned capstone; EKS remains a prototype without a real-account lifecycle | Study [the boundary](./eks) |
 | Stage 10 | CloudNativePG and Falco have live evidence and teardown; other missions planned | Follow [the optional catalog](./stage-10) |
