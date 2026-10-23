@@ -144,6 +144,7 @@ export const zones: Zone[] = [
           {name: 'Kubescape', role: 'Benchmarking', href: 'https://kubescape.io/', logo: 'kubescape.svg'},
           {name: 'Vault', role: 'Secrets store', href: 'https://developer.hashicorp.com/vault', logo: 'vault.png'},
           {name: 'External Secrets', role: 'Secret operator', href: 'https://external-secrets.io/', badge: 'ESO'},
+          {name: 'Reloader', role: 'Rollout on config change', href: 'https://github.com/stakater/Reloader', badge: 'RLD'},
           {name: 'Kyverno', role: 'Policy engine', href: 'https://kyverno.io/', badge: 'KYV'},
           {name: 'TruffleHog', role: 'Secret scanning', href: 'https://trufflesecurity.com/trufflehog', logo: 'trufflehog.png', wide: true},
           {name: 'Falco', role: 'Runtime security', href: 'https://falco.org/', logo: 'falco.svg'},

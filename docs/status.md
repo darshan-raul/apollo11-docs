@@ -40,7 +40,7 @@ chapters stand alone, and runnable commands require the matching snapshot.
 | **Stage 5** | Payload Integration (Packaging & GitOps) | Helm, Kustomize, Argo CD, GitHub Actions | ✅ Runnable (dev/local) |
 | **Stage 6** | Mission Operations (Observability) | Prometheus, OpenTelemetry SDK & Collector, Grafana, Grafana Tempo, Grafana Alloy, Grafana Loki, Alertmanager | ✅ Runnable (dev) |
 | **Stage 7** | Orbital Maneuvering (Scaling & Caching) | Horizontal Pod Autoscaler (HPA), Vertical Pod Autoscaler (VPA), Redis (Cache-aside), k6 | ✅ Runnable (dev) |
-| **Stage 8** | Command Module (Security Hardening) | HashiCorp Vault, External Secrets Operator (ESO), Kyverno, Cosign / Sigstore, Trivy, Calico | ⏳ *Planned* |
+| **Stage 8** | Command Module (Security Hardening) | HashiCorp Vault, External Secrets Operator (ESO), Reloader, Kyverno, Cosign / Sigstore, Trivy, Calico | ⏳ *Planned* |
 | **Stage 9** | Lunar Orbit (Cloud Infrastructure) | AWS EKS, AWS Load Balancer Controller, EBS CSI, IAM Roles for Service Accounts (IRSA) | ⏳ *Planned* |
 | **Stage 10** | Mission Extensions (Production Patterns) | CloudNativePG (PostgreSQL Operator), Falco (Runtime Security), Velero, Keycloak | 🔬 *Selective Labs* (CloudNativePG & Falco have live evidence) |
 | **Stage 11** | Deep Dives & Mars Architecture | Service mesh (Linkerd), Chaos Mesh, Karpenter, KEDA, OpenCost, Goldilocks | ⏳ *Planned* |

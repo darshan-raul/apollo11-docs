@@ -31,6 +31,7 @@ Stage 7 runs, scales and can be observed, but it trusts everything:
 | What a container may do | Image defaults | `runAsNonRoot`, seccomp `RuntimeDefault`, dropped capabilities, read-only root filesystem | A compromised process can do far less |
 | Pod-to-Pod traffic | All allowed (kindnet doesn't enforce policy) | **Calico** CNI + default-deny **NetworkPolicies** with explicit allows | Only booking can reach `booking-db` |
 | Secrets | Kubernetes Secret from Helm values | **Vault** + **External Secrets Operator** | The source of truth is outside Git and can be rotated |
+| Rotated secret reaches the app | Never: Pods keep the `env` value from start-up | **Reloader** rolls opted-in Deployments | A rotation takes effect without a manual `rollout restart` |
 | What may be deployed | Anything | **Kyverno** admission policies (audit first, then enforce) | Bad manifests are rejected at the API server |
 | Image trust | Whatever tag is in values | **Trivy** scan in CI, **Cosign** signatures checked at admission | Only scanned, signed images run |
 
@@ -38,7 +39,7 @@ Stage 7 runs, scales and can be observed, but it trusts everything:
 
 1. **Workload identity and hardening first.** They need no new infrastructure, just chart fields. They also shrink what every later control has to defend.
 2. **Then the network.** NetworkPolicy objects do nothing until the CNI enforces them. So the CNI changes from kindnet to Calico *before* any policy is written.
-3. **Then secrets.** Vault and ESO add moving parts: bootstrap, sync, rotation, failure. Hardened, policy-limited Pods are a safer place to deliver real secrets to.
+3. **Then secrets.** Vault and ESO add moving parts: bootstrap, sync, rotation, failure. Hardened, policy-limited Pods are a safer place to deliver real secrets to. Reloader comes with them, because a rotation that no Pod picks up has not rotated anything ([Delivery is not restart](./learn/security/secrets-and-supply-chain#delivery-is-not-restart)).
 4. **Then admission and supply chain last.** Enforcement can block your own deploys. You turn it on only when the earlier controls are stable, and in *audit* mode before *enforce*.
 
 ## What the stage must prove before it counts
@@ -49,6 +50,7 @@ Stage 7 runs, scales and can be observed, but it trusts everything:
 | Hardening | `touch /x` fails inside a container; `id` shows a non-root UID |
 | NetworkPolicy | One allowed path works and one blocked path fails, both tested |
 | External secrets | Bootstrap, sync, rotation, a failure, and recovery |
+| Reloader | With the annotation removed, a rotated Secret leaves the old value inside a running Pod. With it restored, a new ReplicaSet rolls out and old tokens are rejected |
 | Admission + signing | An unsigned image is rejected, and a signed one is admitted |
 
 ## See where Stage 7 stands today
@@ -74,6 +76,7 @@ cat stages/stage8/README.md
 | Container privileges | image defaults | image defaults | **hardened `securityContext`** |
 | Network | flat | flat | **default-deny + allow-list** |
 | Secrets | Secret in Git | Secret from Helm values | **Vault + ESO** |
+| Secret rotation reaches Pods | manual restart | manual restart | **Reloader** |
 | Admission | none | none | **Kyverno, Cosign** |
 
 ## You should now be able to explain
@@ -81,6 +84,7 @@ cat stages/stage8/README.md
 - Which security gaps the Stage 7 platform has, and which control from Stage 1 survived.
 - Why NetworkPolicy needs an enforcing CNI before any policy means anything.
 - Why hardening comes before secrets, and admission comes last.
+- Why a rotated Secret needs Reloader, and when a Helm checksum annotation is enough.
 - Why a planned control can't be claimed until a stage shows its evidence.
 
 **Next:** [Stage 9](./stage-9) (planned) takes the platform to the cloud.

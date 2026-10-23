@@ -36,8 +36,11 @@ A Pod receives a ConfigMap or Secret in one of two ways, and the way decides whe
 |---|---|---|
 | Environment variable (`valueFrom`) | **Never.** Copied once at container start | Start new Pods: `kubectl rollout restart` |
 | Mounted file (volume) | Eventually, as the kubelet syncs | The app must reload the file itself |
+| Mounted file with `subPath` | **Never.** The file is fixed at container start | Start new Pods |
 
 Two consequences follow. A missing ConfigMap, Secret or key stops the container from starting at all (`CreateContainerConfigError`). And `rollout undo` does **not** revert a ConfigMap edit, because the data is not part of the Pod template: an undo restores the old template, but new Pods still read today's ConfigMap.
+
+Kubernetes delivers the new data; it never restarts a Pod because of it. Stage 8 plans to automate that restart for Secrets rotated outside Git (see [Secrets and supply chain](../security/secrets-and-supply-chain#delivery-is-not-restart)).
 
 ## Secrets: what they are and are not
 
