@@ -1,146 +1,167 @@
 ---
 title: "Recovery boundaries"
-description: "Understand claim deletion, node loss, and bad writes, then inspect recovery by restoring a logical backup into a separate database."
+description: "Persistence, availability, replication and backup protect against different failures. Map Apollo's failure domains, compare backup methods, define RPO and RTO, and rehearse a restore."
 ---
 
 # Recovery boundaries
 
 *Stage 3 · Mission Data*
 
-**You will be able to:** distinguish persistence, availability, and backup, predict deletion consequences, and describe what a restore test proves.
+**You will be able to:** name the failures Stage 3's storage survives and the ones it does not, tell persistence, availability, replication and backup apart, pick a backup method by what it captures, and say what a restore test proves.
 
-## The problem
+Stage 3 ends with a booking that survives its database Pod being replaced. That is a real result, and a narrow one. There is still exactly **one copy** of every booking, in **one directory**, on **one node**. This chapter is about everything that one copy cannot protect against.
 
-A row surviving database Pod replacement proves that the replacement reopened the existing data. It does not prove recovery after a lost volume, a destroyed node, or an accidental SQL deletion. Each event requires protection beyond the successful Pod replacement.
+## Failure domains
 
-[Initialization and seeding](./initialization-and-seeding) also showed why a working application can mislead: new tables and demo rows can appear after total data loss. Recovery must check data that matters, such as a booking created before the failure.
+A **failure domain** is the set of things that fail together. A copy of data protects you only from failures *outside* the domain it lives in.
 
-## Each recovery claim needs its own test
+```mermaid
+flowchart TB
+  subgraph Machine["your machine / Docker"]
+    subgraph Cluster["kind cluster"]
+      subgraph Node["node container apollo11-worker"]
+        subgraph Pod["Pod booking-db-0"]
+          proc["postgres process<br/>(memory)"]
+        end
+        dir[("PV directory<br/>the only copy")]
+      end
+      other["other nodes"]
+    end
+  end
+  proc --> dir
+```
 
-Engineers often say a system has "persistent storage" and assume it is safe from disaster. In production engineering, you must distinguish four separate operational concerns:
-
-| Concern | Scope | Mechanism | What failure it survives |
-|---|---|---|---|
-| **Persistence** | Data directory | Dedicated PV / PVC | Container crash, Pod deletion, node reboot |
-| **Availability** | Network service | Multiple replicas, health probes, failover | Member crash, single instance upgrade downtime |
-| **Replication** | Multi-node state | Streaming WAL, consensus (Raft/Paxos) | Physical host or availability zone hardware loss |
-| **Backup** | Point-in-time copy | Independent off-cluster dump or snapshot | Accidental `DROP TABLE`, corruption, catastrophic cluster loss |
-
-Replication improves availability during hardware failure, but it immediately replicates accidental deletions or corrupted writes across all replicas. A backup is the only defense against human error or data corruption, but only if the copy was taken before the corruption, was copied outside the failure domain, and can be successfully restored.
-
-Two metrics define your disaster recovery contract:
-- **Recovery Point Objective (RPO):** The maximum age of data that can be lost when unexpected disaster strikes. If database dumps are taken nightly at midnight and the disk fails at 23:00, the system loses 23 hours of business records (an RPO of 24 hours). For Redis with `--appendfsync everysec`, the crash RPO is approximately one second.
-- **Recovery Time Objective (RTO):** The maximum allowable duration to restore normal operation. If replaying a backup and testing application connectivity takes two hours, the RTO is two hours.
-
-## How it works: deletion policies and failure domains
-
-Apollo's StatefulSets retain claims on scale-down and StatefulSet deletion by default. Once a claim itself is deleted, the PV's **reclaim policy** determines what happens to the underlying storage:
-
-| Reclaim policy | After claim deletion |
-|---|---|
-| `Delete` | The provisioner removes the volume and backing storage |
-| `Retain` | Storage remains for an administrator to recover and rebind |
-
-kind uses `Delete`. `Retain` prevents automatic reclamation; it does not protect against node destruction or bad database writes.
-
-| Failure or event in Apollo | Consequence | Survives? |
+| Event | Domain lost | Stage 3 data |
 |---|---|---|
-| Delete a database Pod (`identity-db-0`) | Controller replaces the Pod; rebinds to same PVC | ✅ Yes (same node) |
-| Scale StatefulSet to zero | Claims retained by controller; data rests on disk | ✅ Yes |
-| Delete the StatefulSet object | Default retention retains PVCs; reapplying rebinds | ✅ Yes |
-| Delete an in-use PVC | `pvc-protection` finalizer delays deletion until Pod exits; then provisioner removes files | ❌ No |
-| Delete the application namespace | All PVCs deleted, triggering provisioner `Delete` | ❌ No |
-| Temporarily reboot the node | Database is unavailable until node returns; reattaches | ✅ Yes |
-| Permanently destroy kind worker container | Local node directory destroyed; PV cannot attach | ❌ No |
-| Run accidental SQL `DROP TABLE bookings;` | Change is written to WAL and disk immediately | ❌ No (PVC persists the deletion) |
+| Container crash, Pod deleted, rollout | Pod | ✅ the PV directory remains |
+| Node container restarted (`docker restart`) | Node, temporarily | ✅ once the node returns; the database is down meanwhile |
+| Node container deleted, `kind delete cluster` | Node or cluster | ❌ the directory was inside it |
+| Claim or namespace deleted | Kubernetes objects | ❌ reclaim policy `Delete` removes the directory |
+| `DELETE FROM bookings;` by mistake | None: the database did what it was told | ❌ the deletion is persisted faithfully |
+| Bug writes bad data for a week | None | ❌ |
 
-Do not delete a PV directly as a cleanup shortcut. Storage protection finalizers (`kubernetes.io/pv-protection`) and provisioner hooks will delay removal, and manual PV deletion bypasses controlled recovery procedures.
+The last two rows matter most. No storage design survives them, because the storage is working correctly. Only a copy taken **before** the mistake helps.
 
-## Apollo example: what the verifier proves
+## Four different protections
 
-[Stage 3's verifier](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/scripts/verify.sh) executes this test:
-1. Logs in as a passenger through the Envoy Gateway.
-2. Creates a booking for an upcoming flight.
-3. Deletes `booking-db-0` using `kubectl delete pod`.
-4. Waits for `booking-db-0` to report `Ready`.
-5. Queries the PostgreSQL database directly for the exact created booking ID.
+| Protection | Answers | Mechanism | Survives | Does not survive |
+|---|---|---|---|---|
+| **Persistence** | Do the files outlive the process? | PV/PVC | Pod replacement | Loss of the volume |
+| **Availability** | Is the service answering? | Several members, probes, failover | A member going down | Bad writes |
+| **Replication** | Is there a live second copy? | The database streams changes to replicas | Losing a node or disk | Bad writes: they are copied too, within milliseconds |
+| **Backup** | Can I go back to an earlier state? | A copy taken at a point in time, kept elsewhere | Bad writes, deletion, cluster loss | Changes made after the backup |
 
-**What this proves:** It proves that Kubernetes StatefulSets and local-path PVCs successfully re-mounted the existing node directory to the replacement Pod, and that PostgreSQL read its committed transaction from that volume on the same node.
+Stage 3 has the first one only. Replication and backup are different tools: replication protects against hardware, backup protects against time.
 
-**What this does NOT prove:** It does not prove that Apollo can survive worker node failure, cluster destruction, volume deletion, disk corruption, or accidental SQL drops. Stage 3 provides single-instance persistence, not disaster recovery.
+## How much can you lose, and for how long
 
+Two numbers describe any recovery plan:
 
-The snapshot contains no automated backup schedule. Cloud disks can improve node-failure handling, but their deletion policies, location, and backup arrangement still determine recovery boundaries.
+- **Recovery Point Objective (RPO):** how much recent data you can afford to lose, measured in time. Nightly backups mean an RPO of up to 24 hours.
+- **Recovery Time Objective (RTO):** how long it may take to be working again: notice, fetch the backup, restore, reconnect, verify.
 
-## Try it: restore into a separate database
+```mermaid
+flowchart LR
+  b["last good backup<br/>00:00"] -->|"RPO: data written here is lost"| f["failure<br/>23:00"]
+  f -->|"RTO: restore and verify"| ok["service working<br/>01:00"]
+```
 
-A **logical backup** exports database structure and rows using `pg_dump`. Restore compatibility depends on PostgreSQL versions, extensions, and roles; use the same server here to keep the example focused.
+Inside a single Redis Pod, `appendfsync everysec` gives a crash RPO of about one second. That says nothing about losing the volume, where Redis's RPO is "everything".
+
+## Backup methods
+
+| Method | What it captures | Point-in-time? | Kubernetes object | In Stage 3? |
+|---|---|---|---|---|
+| **Logical dump** (`pg_dump`) | SQL to rebuild one database's schema and rows | Only the moment of the dump | None; any Pod or Job can run it | No (manual rehearsal below) |
+| **Physical backup + WAL archive** | Database files plus the change log since | Yes, to any second covered by the WAL | Usually an operator (CloudNativePG) | No |
+| **Volume snapshot** | The disk's blocks at an instant | Only the snapshot moment | `VolumeSnapshot` (CSI drivers that support it) | No: local-path cannot snapshot |
+| **Cluster backup** (Velero) | Kubernetes objects plus volume data | Only the backup moment | Velero's own resources | No: [Stage 9](../../stage-9) (planned) |
+
+- A volume snapshot of a running database is **crash-consistent**: like pulling the power. PostgreSQL recovers from that using its WAL, but not every application can.
+- A backup in the same failure domain as the data is not a backup for that failure. A dump saved inside the node directory dies with the node.
+- A backup that has never been restored is a hope, not a plan.
+
+## What Stage 3's verifier proves
+
+[`verify.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/scripts/verify.sh) creates a booking through the Gateway, deletes `booking-db-0`, waits for it to be Ready, and looks for that booking ID in the database.
+
+- **Proves:** the replacement Pod reopened the same volume, and PostgreSQL had committed the booking to it.
+- **Does not prove:** survival of the node, the claim, the cluster, or a bad write. Those are the rows marked ❌ above.
+
+## Try it: rehearse a restore
 
 :::caution[Unverified]
-This optional recipe has been checked against PostgreSQL 15 command documentation, but has not been run on a live Apollo cluster in this documentation revision. It requires a running Stage 3. It creates a temporary database and leaves the application database intact.
+Checked against the PostgreSQL 15 documentation but not yet run on a live Apollo cluster for this revision. Requires a running Stage 3. Creates a temporary database next to `identity` and leaves `identity` untouched.
 :::
 
-Run the following in Bash. A temporary local directory holds the dump, so an unsuccessful export cannot overwrite an earlier backup. Each step runs only if its prerequisite succeeds:
+Dump `identity` to your machine, restore it into a new database, and compare:
 
 ```bash
 (
   set -euo pipefail
-  BACKUP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/apollo-identity-backup.XXXXXX")
-  printf 'Backup directory: %s\n' "$BACKUP_DIR"
-  kubectl exec -n apollo-airlines-apps identity-db-0 -- \
-    pg_dump -U postgres -d identity --no-owner --no-privileges \
-    > "$BACKUP_DIR/identity.sql"
-  test -s "$BACKUP_DIR/identity.sql"
+  NS=apollo-airlines-apps
+  DIR=$(mktemp -d)
+  kubectl exec -n $NS identity-db-0 -- \
+    pg_dump -U postgres -d identity --no-owner --no-privileges > "$DIR/identity.sql"
+  test -s "$DIR/identity.sql"
+  echo "dump: $DIR/identity.sql"
 
-  # Fails safely if this database already exists; do not drop an unknown database.
-  kubectl exec -n apollo-airlines-apps identity-db-0 -- \
-    createdb -U postgres identity_restore_check
-  kubectl exec -i -n apollo-airlines-apps identity-db-0 -- \
-    psql -U postgres -d identity_restore_check -v ON_ERROR_STOP=1 \
-    --single-transaction < "$BACKUP_DIR/identity.sql"
-  kubectl exec -n apollo-airlines-apps identity-db-0 -- \
-    psql -U postgres -d identity_restore_check \
-    -c 'SELECT id, email FROM users ORDER BY email;'
+  kubectl exec -n $NS identity-db-0 -- createdb -U postgres identity_restore_check
+  kubectl exec -i -n $NS identity-db-0 -- \
+    psql -U postgres -d identity_restore_check -v ON_ERROR_STOP=1 --single-transaction -q \
+    < "$DIR/identity.sql"
+
+  for db in identity identity_restore_check; do
+    printf '%s: ' "$db"
+    kubectl exec -n $NS identity-db-0 -- psql -U postgres -d "$db" -tAc \
+      "SELECT count(*), md5(string_agg(id::text || email, ',' ORDER BY id)) FROM users;"
+  done
 )
 ```
 
-Expected: the restored database contains the source database's users as of the dump. Compare IDs and emails with the source; do not assume there are exactly two rows if you have added users. Remove the temporary database after inspection:
+Expected: two identical lines (row count and checksum) for `identity` and `identity_restore_check`. Then remove the copy:
 
 ```bash
-kubectl exec -n apollo-airlines-apps identity-db-0 -- \
-  dropdb -U postgres identity_restore_check
+kubectl exec -n apollo-airlines-apps identity-db-0 -- dropdb -U postgres identity_restore_check
 ```
 
-The dump remains at the printed local path. It contains account data; keep or remove it deliberately. This rehearsal proves that this dump restores on this server. Both databases still share one node, so it does not test node-loss recovery or application reconnection. A full recovery test restores on independent infrastructure and validates the application against known records.
+- The dump on your machine contains account data and password hashes. Delete it when you are done.
+- This shows that the dump restores on the same server. A real rehearsal restores on separate infrastructure, points the application at it, and checks records only users could have created, while timing the whole process to measure the RTO.
 
 ## Common misconceptions
 
-- **“A successful dump command guarantees recovery.”** A restore also depends on readable storage, permissions, compatibility, and complete data.
-- **“Retain is a backup.”** It keeps the same copy, including corruption or mistaken changes.
-- **“Seeds recover bookings.”** Apollo's seeds recreate demo data; they contain no passenger booking history.
+- **"We have persistent volumes, so we have backups."** A PV is the one copy; it keeps mistakes as faithfully as data.
+- **"Replication is a backup."** It copies mistakes to every replica within moments.
+- **"`Retain` protects the data."** It stops automatic deletion after a claim is removed. It does not protect against node loss or bad writes.
+- **"The dump command succeeded, so we can recover."** Only a restore, checked against known data, shows that.
 
 ## Check yourself
 
 <details>
-<summary>Does a backup on the database node protect against destruction of that node?</summary>
+<summary>A dump is written into <code>/var/lib/postgresql/data/backup.sql</code> every night. Which failures does it protect against?</summary>
 
-No. One storage failure can remove both copies. Keep the backup outside the failure boundary you need it to survive.
-
+Bad writes, as long as you notice within a day. Not node loss, claim deletion or cluster deletion: the dump sits in the same directory as the data.
 </details>
 
 <details>
-<summary>What is missing after successfully restoring identity into a second database?</summary>
+<summary>Apollo adds two PostgreSQL replicas. Someone runs <code>DROP TABLE bookings</code>. What happens?</summary>
 
-A backup schedule, independent storage and retention, monitoring, measured recovery time and data loss, and a test that the application works against restored records.
+The primary drops the table and streams the change; both replicas drop it too. Only a backup from before the command can bring the bookings back.
+</details>
 
+<details>
+<summary>After a restore into a second database, what is still unproven?</summary>
+
+That the backup survives outside the node and cluster, that it runs on a schedule, how long a full recovery takes, and that the application works against the restored data.
 </details>
 
 ## Where this leads
 
-Use the [Stage 3 walkthrough](../../stage-3) to follow the running storage mechanism. [Stage 4](../../stage-4) then covers probes, shutdown, scheduling, and disruption; none of those replaces a backup.
+The [Stage 3 walkthrough](../../stage-3) runs the storage chain end to end. [Stage 4](../../stage-4) turns to keeping members healthy and placed sensibly; [Stage 9](../../stage-9) moves storage to cloud volumes and adds backups.
 
 ## References
 
-- [PersistentVolume reclamation and protection](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#reclaiming)
-- [PostgreSQL 15 SQL dump and restore](https://www.postgresql.org/docs/15/backup-dump.html)
-- [psql error handling and transactions](https://www.postgresql.org/docs/15/app-psql.html)
+- [Persistent Volumes: reclaiming](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#reclaiming)
+- [Volume snapshots](https://kubernetes.io/docs/concepts/storage/volume-snapshots/)
+- [PostgreSQL 15: SQL dump](https://www.postgresql.org/docs/15/backup-dump.html)
+- [PostgreSQL 15: continuous archiving and point-in-time recovery](https://www.postgresql.org/docs/15/continuous-archiving.html)

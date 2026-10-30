@@ -34,7 +34,7 @@ Storage is not simply "temporary" or "permanent". What matters is **which failur
 | Storage | Container restart | Pod deleted | Node lost | Cluster lost |
 |---|---|---|---|---|
 | Process memory | ❌ | ❌ | ❌ | ❌ |
-| Container writable layer | ✅ | ❌ | ❌ | ❌ |
+| Container writable layer | ❌ | ❌ | ❌ | ❌ |
 | `emptyDir` volume | ✅ | ❌ | ❌ | ❌ |
 | `hostPath` | ✅ | ✅ same node | ❌ | ❌ |
 | PVC on kind (`local-path`) | ✅ | ✅ | ❌ | ❌ |

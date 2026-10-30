@@ -9,7 +9,7 @@ sidebar_label: "Stage 3: Mission Data (Storage)"
 :::info[Page type · stage walkthrough]
 - Repo folder: [`stages/stage3`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the `kind-apollo11` cluster from [Ignition](./ignition) and the namespaces and edge from [Stage 2](./stage-2) (Envoy Gateway on MetalLB). Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui`.
-- Concepts behind this stage: [Volume lifetimes](./learn/storage/volume-lifetimes) · [Claims and provisioning](./learn/storage/claims-and-provisioning) · [StatefulSets and headless DNS](./learn/storage/statefulsets-and-headless-dns) · [StatefulSet storage and operations](./learn/storage/statefulset-storage-and-operations) · [Initialization and seeding](./learn/storage/initialization-and-seeding) · [Recovery boundaries](./learn/storage/recovery-boundaries)
+- Concepts behind this stage: [Volumes](./learn/storage/volume-lifetimes) · [Claims and provisioning](./learn/storage/claims-and-provisioning) · [StatefulSets and headless DNS](./learn/storage/statefulsets-and-headless-dns) · [StatefulSet storage and operations](./learn/storage/statefulset-storage-and-operations) · [Initialization and seeding](./learn/storage/initialization-and-seeding) · [Recovery boundaries](./learn/storage/recovery-boundaries)
 :::
 
 :::caution[Unverified]

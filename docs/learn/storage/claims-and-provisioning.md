@@ -1,137 +1,282 @@
 ---
 title: "Claims and provisioning"
-description: "Follow a storage request through PVC, PV and StorageClass, then diagnose Pending claims and node placement."
+description: "How a PersistentVolumeClaim, a PersistentVolume and a StorageClass split the request for storage from its supply, why provisioning waits for scheduling, and what access modes really promise."
 ---
 
 # Claims and provisioning
 
 *Stage 3 · Mission Data*
 
-**You will be able to:** trace a claim to its volume, explain delayed provisioning, and read `ReadWriteOnce` without mistaking it for a database lock.
+**You will be able to:** trace a claim to the storage behind it, describe each step of dynamic provisioning, explain why node-local storage waits for the scheduler, and read access modes and capacity correctly.
 
-## The problem
+[Volumes](./volume-lifetimes) showed that a database needs storage that outlives its Pod, without hard-coding a node directory. Kubernetes solves this the same way it solves compute: the workload says **what it needs**, and the cluster decides **how to supply it**. A Pod asks for CPU without naming a core; it asks for storage without naming a disk.
 
-[Volume lifetimes](./volume-lifetimes) established that database files need storage independent of the Pod. A manifest that directly names a node directory would make the application responsible for node placement and storage administration. The same manifest would also be unsuitable for a cluster using remote disks.
+## Three objects: request, supply, policy
 
-Kubernetes separates the application's storage request from the system that supplies it. This lets Apollo describe the capacity and access it needs while the cluster chooses how to provide them.
+| Object | Role | Scope | Written by |
+|---|---|---|---|
+| **PersistentVolumeClaim (PVC)** | The request: "1Gi, mountable read-write by one node" | Namespace | The application (you) |
+| **PersistentVolume (PV)** | The supply: one real piece of storage and how to reach it | Cluster | A provisioner, or an administrator |
+| **StorageClass** | The policy: which provisioner creates PVs, with which settings | Cluster | The cluster administrator |
 
-## Request storage, do not pick a disk
+```mermaid
+flowchart LR
+  subgraph NS["namespace apollo-airlines-apps"]
+    pod["Pod"] -->|"volumes:<br/>persistentVolumeClaim"| pvc["PVC<br/>1Gi, RWO"]
+  end
+  subgraph Cluster["cluster-scoped"]
+    pv["PV<br/>path, node, size"]
+    sc["StorageClass<br/>provisioner, binding mode,<br/>reclaim policy"]
+  end
+  pvc <-->|"bound 1:1"| pv
+  sc -.->|"provisioner creates"| pv
+  pv --> bytes[("the actual bytes:<br/>node directory or cloud disk")]
+```
 
-Three API objects connect the application's storage request to physical storage:
+- A Pod only ever names a **claim** in its own namespace. It never names a PV.
+- When a claim is **bound**, the PVC records its PV in `spec.volumeName` and the PV records its claim in `spec.claimRef`. One claim, one volume.
+- The bytes are not in any of these objects. The PV *describes* where they are.
 
-| Object | Meaning | Scope |
+This split is why the same manifest works on kind and on EKS: only the StorageClass differs.
+
+## Static and dynamic provisioning
+
+There are two ways for a PV to exist:
+
+- **Static provisioning:** an administrator creates PVs in advance. A new claim binds to any available PV that is big enough and has a matching access mode and class.
+- **Dynamic provisioning:** nobody creates PVs. A **provisioner**, a controller named in the StorageClass, watches for claims and creates a PV for each one.
+
+Almost every cluster today uses dynamic provisioning. kind ships one: `rancher.io/local-path`, which creates a directory on a node.
+
+## Dynamic provisioning, step by step
+
+With node-local storage the order matters, because the directory must be created on the node where the Pod will run. kind's StorageClass therefore uses `volumeBindingMode: WaitForFirstConsumer`:
+
+```mermaid
+sequenceDiagram
+  participant You
+  participant A as API server
+  participant S as Scheduler
+  participant P as local-path provisioner
+  participant K as kubelet (chosen node)
+  You->>A: create PVC data (1Gi, RWO)
+  Note over A: PVC Pending: no Pod uses it yet
+  You->>A: create Pod that mounts claim "data"
+  A-->>S: unscheduled Pod
+  S->>S: pick a node that fits CPU, memory, affinity
+  S->>A: annotate PVC: selected-node = worker2
+  A-->>P: watch: PVC wants a volume on worker2
+  P->>P: mkdir on worker2
+  P->>A: create PV (nodeAffinity: worker2)
+  A->>A: bind PVC ↔ PV, PVC Bound
+  S->>A: bind Pod to worker2
+  A-->>K: Pod for this node
+  K->>K: mount the directory, start containers
+```
+
+1. The claim sits in `Pending`. That is normal: nothing needs it yet.
+2. A Pod referencing the claim arrives. The scheduler chooses a node for the Pod first, then records that choice on the claim (`volume.kubernetes.io/selected-node`).
+3. The provisioner creates storage on that node and a PV whose `nodeAffinity` names the node.
+4. The claim and PV bind.
+5. The kubelet mounts the volume and only then starts the container.
+
+From then on the PV's `nodeAffinity` is a hard rule: every future Pod using this claim must run on that node.
+
+### Why wait for the first consumer
+
+The other mode, `Immediate`, provisions as soon as the claim appears. For storage that can be reached from anywhere that is fine. For node-local storage it is a trap:
+
+```mermaid
+flowchart LR
+  subgraph Imm["Immediate"]
+    direction TB
+    i1["PVC created"] --> i2["volume made on worker1<br/>(chosen blindly)"]
+    i2 --> i3["Pod needs a node with room<br/>worker1 is full"]
+    i3 --> i4["Pod Pending forever:<br/>volume node affinity conflict"]
+  end
+  subgraph WFC["WaitForFirstConsumer"]
+    direction TB
+    w1["PVC created, Pending"] --> w2["Pod created"]
+    w2 --> w3["scheduler picks worker2"]
+    w3 --> w4["volume made on worker2"]
+  end
+```
+
+Zonal cloud disks have the same problem at zone level, which is why most cloud StorageClasses also use `WaitForFirstConsumer`.
+
+## Claim and volume phases
+
+| Object | Phase | Meaning |
 |---|---|---|
-| **PersistentVolumeClaim (PVC)** | A user's or workload's request for storage (capacity, access mode, and class) | Namespace |
-| **PersistentVolume (PV)** | A piece of provisioned cluster storage describing backend details and node accessibility | Cluster |
-| **StorageClass** | A policy object defining which provisioner plugin handles requests and with which parameters | Cluster |
+| PVC | `Pending` | Not bound yet: waiting for a consumer, for a matching PV, or provisioning failed |
+| PVC | `Bound` | Has a PV |
+| PVC | `Lost` | Its PV disappeared; the data may be gone |
+| PV | `Available` | Static PV with no claim yet |
+| PV | `Bound` | Belongs to a claim |
+| PV | `Released` | Its claim was deleted; the data is still there but the PV cannot be reused automatically |
 
-The actual bytes live in the underlying storage described by the PV (such as a node directory or cloud block volume). They are not inside the Kubernetes API objects. A Pod references a PVC in its namespace; when bound, that PVC points to a specific PV (`spec.volumeName`), and the PV points back to the claim (`spec.claimRef`).
+When a claim is deleted, the PV's **reclaim policy** (set from the StorageClass) decides the rest: `Delete` removes the storage, `Retain` leaves it `Released` for an administrator. kind's class uses `Delete`. [StatefulSet storage](./statefulset-storage-and-operations) shows which operations actually delete claims.
 
-A **provisioner** is a volume plugin or controller that creates storage in response to a claim. Allocating storage automatically when a PVC is created is called **dynamic provisioning**. In contrast, **static provisioning** requires an administrator to manually create PVs before workloads claim them.
+## Access modes
 
-## Dynamic provisioning
+An **access mode** says how many *nodes* may mount the volume, and how:
 
-Dynamic provisioning involves a sequence of handoffs between the workload controller, the scheduler, the storage provisioner, and the node's kubelet:
-
-1. **Claim declaration:** A workload or user declares a PVC requesting capacity (e.g. `1Gi`) and access modes.
-2. **Scheduling evaluation:** If the StorageClass uses `volumeBindingMode: WaitForFirstConsumer`, the provisioner does not create a volume immediately. Instead, the Kubernetes scheduler evaluates the Pod that uses the claim. Once the scheduler chooses a node satisfying CPU, memory, and affinity rules, it annotates the PVC with `volume.kubernetes.io/selected-node`.
-3. **Volume creation:** The provisioner reads the selected node annotation, creates the storage directory or volume on that specific node, and creates a matching cluster-scoped PV with `spec.nodeAffinity` matching the node.
-4. **Binding:** The PV and PVC bind to each other in a mutually exclusive one-to-one relationship. The PVC transitions from `Pending` to `Bound`.
-5. **Mounting:** The kubelet on the scheduled node attaches the volume, creates the filesystem mount at the container's `mountPath`, and starts the container.
-
-### Why delayed provisioning matters
-
-Under `volumeBindingMode: Immediate`, the provisioner creates a volume as soon as the PVC appears, choosing a node or zone arbitrarily. If the Pod later cannot schedule on that node (due to resource exhaustion, taints, or anti-affinity), the Pod becomes unschedulable. `WaitForFirstConsumer` prevents this by postponing volume creation until the scheduler has found a feasible node for the consuming Pod.
-
-| Observation | Interpretation | Next inspection |
+| Mode | Short | Who may mount it |
 |---|---|---|
-| Claim `Pending`, no consuming Pod | Normal behavior with `WaitForFirstConsumer` | Claim events and StorageClass binding mode |
-| Claim and Pod both `Pending` | Scheduling or provisioning has not completed | `kubectl describe pod <name>` (Events), then claim events |
-| `ProvisioningFailed` event | The storage provisioner failed to create storage | Provisioner controller logs and claim events |
-| Missing class or no default | Claim has no provisioner to process the request | `kubectl get sc` |
+| `ReadWriteOnce` | RWO | Read-write, from **one node** at a time |
+| `ReadWriteOncePod` | RWOP | Read-write, from **one Pod** (CSI drivers only) |
+| `ReadOnlyMany` | ROX | Read-only, from many nodes |
+| `ReadWriteMany` | RWX | Read-write, from many nodes (needs network file storage such as NFS or EFS) |
 
-### What access modes mean
+Two things access modes are not:
 
-An **access mode** describes how the storage can be mounted:
+- **Not a lock.** RWO is node-scoped: two Pods on the same node can both mount it read-write. If both run PostgreSQL against one data directory, the database can be corrupted. Preventing that is the controller's job ([next chapter](./statefulsets-and-headless-dns)).
+- **Not a feature menu.** A claim lists the modes it needs; the provisioner must support them. local-path supports RWO only.
 
-| Access mode | CLI short | Meaning |
-|---|---|---|
-| `ReadWriteOnce` | `RWO` | Can be mounted read-write by Pods on a **single node** |
-| `ReadWriteOncePod` | `RWOP` | Can be mounted read-write by a **single Pod** (CSI driver dependent) |
-| `ReadOnlyMany` | `ROX` | Can be mounted read-only by Pods on **many nodes** simultaneously |
-| `ReadWriteMany` | `RWX` | Can be mounted read-write by Pods on **many nodes** simultaneously |
+## Capacity
 
-`ReadWriteOnce` is node-scoped, not Pod-scoped: multiple Pods on the same node could mount the same RWO volume. It does not provide database concurrency control or record locking.
+`resources.requests.storage: 1Gi` is a request. What happens with it depends on the provisioner:
+
+- A cloud disk provisioner creates a 1Gi disk. Writes fail when it is full.
+- **local-path ignores it.** It creates a plain directory with no quota. The database can grow until the node's own filesystem fills, and then *everything* on that node runs out of space.
+- Growing a claim later requires a StorageClass with `allowVolumeExpansion: true`. kind's does not set it.
+
+## The default StorageClass
+
+A claim names its class in `spec.storageClassName`:
+
+| Claim says | Result |
+|---|---|
+| Field omitted | The cluster's **default** StorageClass is used (kind: `standard`; EKS: usually `gp2` or `gp3`) |
+| `storageClassName: ""` | No class: only a pre-created PV with no class can bind. No dynamic provisioning |
+| `storageClassName: fast` | That class; `Pending` if it does not exist |
+
+Apollo omits the field, so its manifests stay portable between clusters.
 
 ## Apollo example
 
-Apollo's [identity database manifest](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) defines this claim template:
+Apollo does not write PVCs directly. Its StatefulSets generate them from a template, covered in [StatefulSet storage](./statefulset-storage-and-operations). The class they land on is kind's default:
 
 ```yaml
-# Under spec in identity-db-sts.yaml
-volumeClaimTemplates:
-  - metadata:
-      name: pg-data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 1Gi
+# kubectl get storageclass standard -o yaml (trimmed)
+metadata:
+  name: standard
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
 ```
 
-Key configuration details:
-- **`requests.storage: 1Gi`**: Requests 1 gibibyte. On kind, the `local-path` provisioner allocates a directory on the node container rather than a partitioned block disk with hard quota enforcement. The `1Gi` value is used for scheduling checks; writes will continue past 1Gi if the node filesystem has room, and can fail if the node runs out of space.
-- **`storageClassName` omitted**: Leaving `storageClassName` unset makes Kubernetes use the default StorageClass (`standard`, powered by `rancher.io/local-path`). Setting `storageClassName: ""` would explicitly request storage without a class, disabling dynamic provisioning.
-- **Access mode `ReadWriteOnce`**: Appropriate for single-member databases where one PostgreSQL instance manages the directory.
+After installing Stage 3 you can follow one claim all the way down:
+
+```bash
+kubectl get pvc pg-data-identity-db-0 -n apollo-airlines-apps
+PV=$(kubectl get pvc pg-data-identity-db-0 -n apollo-airlines-apps -o jsonpath='{.spec.volumeName}')
+kubectl get pv "$PV" -o jsonpath='{.spec.claimRef.name}{"\n"}{.spec.nodeAffinity}{"\n"}{.spec.persistentVolumeReclaimPolicy}{"\n"}'
+```
+
+Expected: the PVC is `Bound`, RWO, 1Gi; the PV points back to `pg-data-identity-db-0`, names one node in its `nodeAffinity`, and has reclaim policy `Delete`. The [walkthrough](../../stage-3#step-3-follow-the-chain-down-to-the-bytes) follows it into the node's directory.
 
 ## Try it
 
-After installing Stage 3, trace the identity database claim to its PV and StorageClass:
+:::caution[Unverified]
+Not yet run on a live cluster for this documentation revision. Uses a throwaway claim and Pod in the `default` namespace of any kind cluster.
+:::
+
+Watch a claim wait, bind, keep data across Pods, and disappear with its storage:
 
 ```bash
-kubectl get pvc pg-data-identity-db-0 -n apollo-airlines-apps -o wide
-PV=$(kubectl get pvc pg-data-identity-db-0 -n apollo-airlines-apps \
-  -o jsonpath='{.spec.volumeName}')
-kubectl get pv "$PV" -o yaml
-kubectl get sc standard -o yaml
+kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: demo-data}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 100Mi}}
+YAML
+kubectl get pvc demo-data                     # Pending
+kubectl describe pvc demo-data | tail -3      # "waiting for first consumer to be created before binding"
+
+cat > demo-pod.yaml <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata: {name: demo}
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+      volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+    - name: data
+      persistentVolumeClaim: {claimName: demo-data}
+YAML
+kubectl apply -f demo-pod.yaml
+kubectl wait --for=condition=Ready pod/demo
+kubectl get pvc demo-data                     # Bound, with a pvc-… VOLUME
+PV=$(kubectl get pvc demo-data -o jsonpath='{.spec.volumeName}')
+kubectl get pv "$PV" -o jsonpath='{.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]}{"\n"}'
+kubectl get pod demo -o jsonpath='{.spec.nodeName}{"\n"}'   # same node
+
+# Data outlives the Pod
+kubectl exec demo -- sh -c 'echo kept > /data/note'
+kubectl delete pod demo
+kubectl apply -f demo-pod.yaml
+kubectl wait --for=condition=Ready pod/demo
+kubectl exec demo -- cat /data/note           # kept
+
+# Deleting the claim deletes the storage (reclaim policy Delete)
+kubectl delete pod demo
+kubectl delete pvc demo-data
+kubectl get pv "$PV"                          # NotFound, after a few seconds
+rm demo-pod.yaml
 ```
 
-Expected:
-- The PVC reports `STATUS` as `Bound` with `VOLUME` naming the generated PV and `ACCESS MODES` as `RWO`.
-- The PV's `spec.claimRef.name` points back to `pg-data-identity-db-0`, and `spec.nodeAffinity` pins it to the worker node where the directory was created.
-- The `standard` StorageClass displays `volumeBindingMode: WaitForFirstConsumer` and `reclaimPolicy: Delete`.
+## When a claim is stuck
 
-This proves that Kubernetes dynamically created dedicated node-local storage matched to `identity-db-0`'s scheduled location.
+| You see | Meaning | Look at |
+|---|---|---|
+| PVC `Pending`, no Pod uses it | Normal under `WaitForFirstConsumer` | Nothing to fix |
+| PVC and Pod both `Pending` | Scheduling or provisioning has not finished | `kubectl describe pod`, then `kubectl describe pvc` |
+| Event `ProvisioningFailed` | The provisioner could not create storage | Claim events; provisioner logs (`kubectl logs -n local-path-storage deploy/local-path-provisioner`) |
+| `storageclass … not found`, or no default class | Nothing will provision this claim | `kubectl get storageclass` |
+| Pod `Pending`, `volume node affinity conflict` | The PV's node cannot take the Pod (cordoned, full, gone) | `kubectl get nodes`; Pod events |
 
 ## Common misconceptions
 
-- **“Bound means backed up.”** A `Bound` PVC means storage was allocated and attached. It provides no second copy or snapshot.
-- **“A Pending claim indicates an error.”** Under `WaitForFirstConsumer`, a PVC remains `Pending` until a consuming Pod is created and evaluated by the scheduler.
-- **“ReadWriteOnce means only one Pod can access the volume.”** RWO permits access from one *node*. Multiple Pods scheduled on that same node can mount the volume. Use `ReadWriteOncePod` if single-Pod exclusivity is required.
+- **"`Bound` means the data is safe."** It means storage was assigned. Nothing about copies or backups.
+- **"`Pending` means broken."** Under `WaitForFirstConsumer`, a claim waits for its Pod.
+- **"RWO means one Pod."** It means one node. Use RWOP, or a controller that guarantees one Pod, for single-writer safety.
+- **"1Gi is a limit."** On local-path it is only a label.
 
 ## Check yourself
 
 <details>
-<summary>Does omitting storageClassName make the claim use local-path on every Kubernetes cluster?</summary>
+<summary>Who chooses the node a local-path volume is created on?</summary>
 
-No. Omitting `storageClassName` requests the cluster's default StorageClass. On kind, the default is `standard` (`rancher.io/local-path`), but on EKS it might be `gp2` or `gp3` (AWS EBS), and on GKE it might be `standard-rwo` (Persistent Disk). Clusters without a default StorageClass will leave the PVC `Pending`.
-
+The scheduler, while placing the first Pod that uses the claim. The provisioner then creates the directory on that node.
 </details>
 
 <details>
-<summary>Why does kind's default StorageClass use WaitForFirstConsumer instead of Immediate?</summary>
+<summary>The same manifest is applied on kind and on EKS. What changes, and where?</summary>
 
-Because kind's storage is created as a local directory on a specific node. If it were provisioned immediately before scheduling, the volume might be placed on Node 1 while the database Pod was subsequently scheduled on Node 2, causing scheduling failure.
+Only the default StorageClass: local-path directories on kind, EBS disks on EKS. The claim and the Pod are unchanged.
+</details>
 
+<details>
+<summary>A claim is deleted. Is the data gone?</summary>
+
+It depends on the PV's reclaim policy. With `Delete` (kind's default) the provisioner removes it. With `Retain` the PV becomes `Released` and the bytes stay until an administrator deals with them.
 </details>
 
 ## Where this leads
 
-[StatefulSets and headless DNS](./statefulsets-and-headless-dns) explains why standard Deployments cannot assign separate claims to individual database replicas, and how StatefulSets provide stable member identities.
-
+A database Pod can now mount a claim. [StatefulSets and headless DNS](./statefulsets-and-headless-dns) explains why a Deployment is still the wrong controller to run it, and what replaces it.
 
 ## References
 
-- [PersistentVolume claims and access modes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
-- [StorageClass binding modes](https://kubernetes.io/docs/concepts/storage/storage-classes/#volume-binding-mode)
-- [Local-path provisioner capacity limits](https://github.com/rancher/local-path-provisioner#cons)
+- [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
+- [Storage Classes: volume binding mode](https://kubernetes.io/docs/concepts/storage/storage-classes/#volume-binding-mode)
+- [Dynamic provisioning](https://kubernetes.io/docs/concepts/storage/dynamic-provisioning/)
+- [local-path-provisioner](https://github.com/rancher/local-path-provisioner)

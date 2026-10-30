@@ -1,110 +1,226 @@
 ---
-title: "Volume lifetimes"
-description: "Distinguish container restarts from Pod replacement and understand which storage survives each event in Apollo."
+title: "Volumes: where a container's files live"
+description: "How a container's filesystem is built, what a volume adds, the three volume lifetimes, and why a node directory is not the answer for a database."
 ---
 
-# Volume lifetimes
+# Volumes: where a container's files live
 
 *Stage 3 · Mission Data*
 
-**You will be able to:** explain why `emptyDir` loses database files on Pod replacement and state the protection provided by kind's persistent storage.
+**You will be able to:** explain where a container writes its files, declare and mount a volume, sort volume types by how long they live, and say why a database needs storage that Kubernetes tracks separately from the Pod.
 
-## The problem
+[Ephemeral state](../workloads/ephemeral-state) ended Stage 1 with a database that comes back empty after every Pod replacement. Stage 2 made the database easy to *find* again; it did nothing for its *files*. Before fixing that, it helps to know exactly where a container's files go, and what "mounting a volume" changes.
 
-In [Stage 2](../../stage-2), the database Service keeps its name when a database Pod is replaced. The replacement still loses the old rows because the database writes into `emptyDir`, a volume tied to one Pod. Service discovery restores a route to the database; it cannot restore database files.
+## A container's own filesystem
 
-A container crash can hide this problem. The kubelet can restart the container inside the existing Pod, keeping that Pod's volumes. Replacing the Pod crosses a different storage boundary.
+A container does not get a disk. It gets a **root filesystem** assembled from layers:
 
-## Ask which event the data survives
+```mermaid
+flowchart TB
+  subgraph C["What the container sees at /"]
+    direction TB
+    w["writable layer<br/>(created for this container, deleted with it)"]
+    l3["image layer: app code"]
+    l2["image layer: packages"]
+    l1["image layer: base OS"]
+  end
+  w --- l3 --- l2 --- l1
+  note["read-only, shared by every<br/>container from this image"] -.- l2
+```
 
-A **volume** is storage mounted at a directory path inside a container. The application reads and writes that path using regular filesystem calls without needing to know how Kubernetes supplies the underlying storage. The volume's lifetime determines whether a replacement container or Pod can read the old files.
+- The **image layers** are read-only and shared.
+- The **writable layer** is created when the container is created. Every file the process writes lands there, unless the path is a mount.
+- When the kubelet restarts a crashed container, it creates a *new* container from the image. The new one gets a new, empty writable layer. Anything written outside a volume is gone, even though the Pod is the same.
 
-Keep three events and their physical boundaries separate:
+So "the container restarted" already loses files. What survives depends on volumes.
 
-- **Process restart:** a process exits and restarts within the existing container. The container's writable layer and all mounts remain completely untouched.
-- **Container restart:** the process crashes or fails a liveness probe. The kubelet preserves the Pod sandbox (its network namespace, cgroups, and local volume directories), discards the container's ephemeral writable layer, starts a new container instance, and re-attaches the Pod's existing mounts. Files in `emptyDir` survive this restart.
-- **Pod replacement:** the controller (such as a ReplicaSet or StatefulSet) deletes the old Pod object and schedules a new one. The kubelet on the old node dismantles the entire Pod sandbox and deletes all Pod-scoped directories (including `emptyDir`). The replacement Pod receives a brand-new object UID, and the kubelet initializes a brand-new, empty directory for any `emptyDir` volume.
+## A volume is a directory mounted into the container
 
-The Pod's UID uniquely identifies the API object. Even if a replacement Pod is assigned the exact same member name by a StatefulSet, it is a new object with a new UID. The [Pod lifecycle](../cluster/pods) explains that distinction.
+A **volume** is a directory, prepared by the kubelet, that appears at a chosen path inside the container. The process reads and writes it with normal file calls and cannot tell where the bytes really live.
 
-## How it works
-
-PostgreSQL writes database files to its configured data directory (`PGDATA`). Whether those files survive across operational events depends on what backs that path:
-
-| Where the files live | Kubelet restarts container | Pod is replaced | Underlying node storage is destroyed |
-|---|---|---|---|
-| Container writable layer | Files are lost | Files are lost | Files are lost |
-| `emptyDir` | Files remain | Files are lost | Files are lost |
-| `hostPath`, a directory on a specified node | Files remain | Remain on the original node; placement must be managed | Files are lost |
-| kind's local-path persistent volume | Files remain | Replacement reuses the directory on its original node | Files are lost |
-
-A **persistent volume** has a lifetime independent of an individual Pod. That property alone says nothing about copies, backups, or survival of the underlying storage hardware. A remote cloud disk offers different failure protection from a directory on a kind Docker container; the word “persistent” specifies only that the storage outlives the Pod object.
-
-In Stages 1 and 2, every database was a Deployment with an `emptyDir` volume:
+A volume is declared in two places, linked by name:
 
 ```yaml
-# Stage 1 and 2 (ephemeral database volume)
+apiVersion: v1
+kind: Pod
+metadata: {name: shared}
+spec:
+  volumes:                         # 1. Pod level: WHAT the storage is
+    - name: work
+      emptyDir: {}
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["sh", "-c", "date > /out/now; sleep 3600"]
+      volumeMounts:                # 2. Container level: WHERE it appears
+        - {name: work, mountPath: /out}
+    - name: reader
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 5; cat /in/now; sleep 3600"]
+      volumeMounts:
+        - {name: work, mountPath: /in, readOnly: true}
+```
+
+```mermaid
+flowchart LR
+  subgraph Pod["Pod 'shared'"]
+    v[("volume 'work'<br/>emptyDir")]
+    w["container writer<br/>/out"] --> v
+    r["container reader<br/>/in (read-only)"] --> v
+  end
+```
+
+- **`spec.volumes`** belongs to the Pod. It says what kind of storage backs the volume.
+- **`volumeMounts`** belongs to each container. It places that volume at a path. Two containers can mount the same volume at different paths; that is how sidecars share files.
+- The mount *hides* whatever the image had at that path. The container sees the volume's contents instead.
+
+## Three lifetimes
+
+Volume types differ mainly in **what their lifetime is tied to**. That is the question to ask of any storage: *which event does it survive?*
+
+| Lifetime tied to | Examples | Created | Deleted |
+|---|---|---|---|
+| **The Pod** | `emptyDir`; `configMap`, `secret` and `downwardAPI` projections | When the Pod starts on a node | When the Pod is removed from that node |
+| **A node** | `hostPath` | Already exists on the node | When someone deletes it from the node |
+| **Its own object** | `persistentVolumeClaim` | When the claim is provisioned | When the claim (and its volume) is deleted |
+
+Read against the events from [ReplicaSets](../cluster/replicasets#restart-versus-replacement):
+
+| Where the file is | Container restart | Pod replaced | Pod's node lost |
+|---|---|---|---|
+| Writable layer | ❌ | ❌ | ❌ |
+| `emptyDir` | ✅ | ❌ | ❌ |
+| `hostPath` | ✅ | Only if the new Pod lands on the same node | ❌ |
+| PersistentVolumeClaim | ✅ | ✅ | Depends on what backs it |
+
+`configMap` and `secret` volumes are Pod-scoped too, but losing them does not matter: the kubelet regenerates their files from the API objects. They carry configuration *in*; they are not a place to keep data.
+
+## Why a node directory is not the answer
+
+`hostPath` mounts a directory of the node into the Pod. It does survive Pod replacement, so it looks like a fix. It is not a good one:
+
+- **Placement becomes your problem.** A replacement Pod may be scheduled on another node and find an empty directory there, or someone else's. You would have to pin the Pod to the node by hand.
+- **Kubernetes does not track it.** There is no object saying "this directory belongs to that database", no capacity request, and nothing to clean up.
+- **It reaches into the host.** A Pod with `hostPath` can read or overwrite node files. Restricted Pod Security settings forbid it for exactly that reason.
+- **It cannot move.** The same manifest cannot ask for a cloud disk on EKS.
+
+What a database needs is storage that is **requested** by the application, **supplied** by the cluster, **tracked** as its own API object, and **placed** by the scheduler. That is a PersistentVolumeClaim, the subject of the [next chapter](./claims-and-provisioning).
+
+## "Persistent" is a lifetime, not a promise
+
+A **persistent volume** outlives any Pod that uses it. That is all the word promises. How well the bytes are protected depends on what backs the volume:
+
+```mermaid
+flowchart LR
+  subgraph Laptop["Your machine"]
+    subgraph Docker["Docker"]
+      subgraph Node["kind node = a container"]
+        dir[("/var/local-path-provisioner/<br/>pvc-…_apollo-airlines-apps_pg-data-identity-db-0")]
+      end
+    end
+  end
+  pod["Pod identity-db-0<br/>/var/lib/postgresql/data"] --> dir
+```
+
+On kind, a persistent volume is a directory inside a node, and that node is itself a Docker container. It survives the database Pod being replaced. It does not survive that node container being deleted. There is one copy, on one node. A cloud disk survives node loss but not deletion of the disk. [Recovery boundaries](./recovery-boundaries) returns to this.
+
+## Apollo example
+
+Stages 1 and 2 ran each database as a Deployment with:
+
+```yaml
 volumes:
   - name: pg-data
     emptyDir: {}
 ```
 
-An `emptyDir` volume is appropriate for scratch files, build caches, or sharing intermediate files between containers in the same Pod. It fails Apollo's database requirement: passengers expect flight bookings to outlive the ephemeral Pod that accepted them.
+Stage 3 gives each data workload a claim instead:
 
-## Apollo example
-
-Stage 3 mounts persistent storage for each data workload. A **PersistentVolumeClaim (PVC)** is the Kubernetes request through which the Pod obtains that storage.
-
-| Workload | Persistent mount | Claim |
+| Workload | Mounted at | Claim |
 |---|---|---|
 | `identity-db` | `/var/lib/postgresql/data` | `pg-data-identity-db-0` |
 | `flight-db` | `/var/lib/postgresql/data` | `pg-data-flight-db-0` |
 | `booking-db` | `/var/lib/postgresql/data` | `pg-data-booking-db-0` |
 | `redis` | `/data` | `redis-data-redis-0` |
 
-In [the identity database manifest](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml), `PGDATA` is configured as `/var/lib/postgresql/data/pgdata`, a subdirectory of the persistent mount. Using a subdirectory keeps the database files isolated and avoids initializing PostgreSQL in a volume root that may contain lost+found or filesystem metadata entries.
-
-
-On kind, the local-path provisioner creates a directory inside a node container. Replacing `identity-db-0` leaves that directory intact. Losing contact with the node makes the data unavailable; permanently deleting its storage loses the files. Those are different outcomes, and neither is repaired by giving the Pod a new name.
+The [identity database manifest](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) also sets `PGDATA=/var/lib/postgresql/data/pgdata`. PostgreSQL refuses to initialize a data directory that is not empty, and a freshly formatted disk usually contains a `lost+found` directory at its root. Pointing `PGDATA` at a subdirectory of the mount works on every kind of volume.
 
 ## Try it
 
-After installing Stage 3, inspect the mount without changing the database:
+:::caution[Unverified]
+Not yet run on a live cluster for this documentation revision. Uses only a throwaway Pod in the `default` namespace.
+:::
+
+Write one file to the writable layer and one to an `emptyDir`, restart the container, then replace the Pod:
 
 ```bash
-kubectl get pod identity-db-0 -n apollo-airlines-apps \
-  -o jsonpath='{.spec.volumes[?(@.name=="pg-data")].persistentVolumeClaim.claimName}{"\n"}'
+cat > lifetimes.yaml <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata: {name: lifetimes}
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      # exits when /tmp/stop appears, so we can trigger a container restart
+      command: ["sh", "-c", "while [ ! -f /tmp/stop ]; do sleep 1; done"]
+      volumeMounts: [{name: scratch, mountPath: /scratch}]
+  volumes:
+    - {name: scratch, emptyDir: {}}
+YAML
+kubectl apply -f lifetimes.yaml
+kubectl wait --for=condition=Ready pod/lifetimes
+kubectl exec lifetimes -- sh -c 'echo layer > /tmp/a; echo volume > /scratch/b'
+
+# 1. Container restart
+kubectl exec lifetimes -- touch /tmp/stop
+kubectl wait --for=jsonpath='{.status.containerStatuses[0].restartCount}'=1 pod/lifetimes
+kubectl wait --for=condition=Ready pod/lifetimes
+kubectl exec lifetimes -- ls /tmp /scratch        # /tmp: empty   /scratch: b
+
+# 2. Pod replacement (a bare Pod, so we recreate it ourselves)
+kubectl delete pod lifetimes
+kubectl apply -f lifetimes.yaml
+kubectl wait --for=condition=Ready pod/lifetimes
+kubectl exec lifetimes -- ls /scratch             # empty
+
+kubectl delete pod lifetimes; rm lifetimes.yaml
 ```
 
-Expected: `pg-data-identity-db-0`. This proves that the Pod uses a claim for `pg-data`. It does not prove which records are stored there. The [walkthrough](../../stage-3#step-5-see-the-data-survive-a-pod-replacement) shows a distinct row surviving replacement; seed rows alone are weak evidence because setup can recreate them.
+- After the restart, `/tmp/a` is gone (new writable layer) but `/scratch/b` is still there (same Pod, same `emptyDir`).
+- After replacement, `/scratch` is empty: a new Pod gets a new `emptyDir`.
 
 ## Common misconceptions
 
-- **“The Pod restarted successfully, so storage is durable.”** A container restart can preserve `emptyDir`. Check whether a new Pod object was created before drawing a conclusion.
-- **“The Service name is stable, so the database is unchanged.”** A Service selects endpoints. It does not inspect their files.
-- **“A persistent volume is a backup.”** It may be the only copy, including any accidental deletions written by the database.
+- **"A container restart keeps everything."** It keeps the Pod's volumes. The writable layer is new.
+- **"`hostPath` is persistent storage."** It outlives the Pod only on one node, untracked, with access to the host.
+- **"A persistent volume is a backup."** It is usually the only copy, and it faithfully keeps mistakes too.
 
 ## Check yourself
 
 <details>
-<summary>Why can a container restart keep rows that a Pod replacement loses?</summary>
+<summary>A process writes to <code>/var/cache/app</code>, which is not a mount. The container crashes and is restarted. Is the cache still there?</summary>
 
-The original Pod's <code>emptyDir</code> survives replacement of a container inside that Pod. A new Pod gets a new, empty volume.
-
+No. A restarted container gets a new writable layer. Only volume mounts carry over within the Pod.
 </details>
 
 <details>
-<summary>The kind node is temporarily offline. Are its database files necessarily destroyed?</summary>
+<summary>Two containers in one Pod must exchange files. Which volume type, and why does its short lifetime not matter?</summary>
 
-No. They may still exist on the node's storage but be unavailable. Permanent destruction of that storage is data loss; a PVC cannot recreate those bytes.
+`emptyDir`. Both containers live and die with the Pod, so storage tied to the Pod is exactly long enough.
+</details>
 
+<details>
+<summary>Why not just use <code>hostPath</code> for a database and pin the Pod to a node?</summary>
+
+It works until that node is replaced, and it leaves placement, tracking, capacity and cleanup to you, while giving the Pod access to the host filesystem. A PVC lets the cluster do those jobs.
 </details>
 
 ## Where this leads
 
-[Claims and provisioning](./claims-and-provisioning) follows the request from a Pod to the volume that supplies its storage.
+[Claims and provisioning](./claims-and-provisioning) separates the database's request for storage from the system that supplies it.
 
 ## References
 
-- [Kubernetes volumes and container restarts](https://kubernetes.io/docs/concepts/storage/volumes/#why-volumes-are-important)
-- [The lifetime of emptyDir](https://kubernetes.io/docs/concepts/storage/volumes/#emptydir)
+- [Kubernetes volumes](https://kubernetes.io/docs/concepts/storage/volumes/)
+- [Ephemeral volumes](https://kubernetes.io/docs/concepts/storage/ephemeral-volumes/)

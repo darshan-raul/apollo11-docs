@@ -1,52 +1,43 @@
 ---
 title: "Stage 3 — Mission Data: Keep the Reservation"
-description: "Understand how Apollo keeps database files across Pod replacement, gives each database a stable identity, and separates persistence from recovery."
+description: "Give Apollo's databases storage that outlives their Pods: volumes, claims, StatefulSets, first-start initialization, and where persistence stops protecting you."
 sidebar_label: "Mission briefing"
 ---
 
-# Stage 3 · Mission Data
+# Stage 3 · Mission Data: storage
 
-**You will be able to:** explain why a replacement database Pod can recover its files, trace those files through Kubernetes storage objects, and identify the failures that still require a backup.
+**Problem:** delete `booking-db`'s Pod and every booking disappears. The Service name still works, and the new Pod is `Ready`, with an empty database.
 
-## The problem carried from Stage 2
+Stage 3 makes the data outlive the Pod. By the end you can follow one booking from a SQL row down to a directory on a node, and say which failures it survives:
 
-Stage 2 gives Apollo stable Service names and an HTTPS entry point. Those names keep working when a Pod changes, but they do not preserve its data. The three PostgreSQL databases and Redis still use `emptyDir`: replacing a database Pod removes its files. A replacement can answer at the same Service name while holding none of the previous bookings.
+```mermaid
+flowchart LR
+  row["booking row"] --> pod["Pod booking-db-0"]
+  pod --> pvc["PVC pg-data-booking-db-0"]
+  pvc --> pv["PV (pinned to one node)"]
+  pv --> dir[("directory on that node")]
+```
 
-Stage 3 separates the lifetime of those files from the lifetime of a Pod. It also separates three responsibilities that are easy to confuse:
+## Chapters
 
-| Responsibility | Stage 3 mechanism | What it provides |
-|---|---|---|
-| Keep database files | PersistentVolumeClaim (PVC), a request for storage that outlives a Pod | A replacement can mount the existing volume |
-| Reconnect a member to its files | StatefulSet, a controller with stable member names | `booking-db-0` returns using its own claim |
-| Prepare a fresh database | PostgreSQL initialization scripts and separate seed Jobs | Tables and demo rows on a new volume |
+1. [Volumes](../learn/storage/volume-lifetimes): where a container writes, what a mount changes, and which events each volume type survives.
+2. [Claims and provisioning](../learn/storage/claims-and-provisioning): PVC, PV and StorageClass; why provisioning waits for the scheduler; access modes.
+3. [StatefulSets and headless DNS](../learn/storage/statefulsets-and-headless-dns): why a Deployment mishandles a database; stable member names; per-member DNS.
+4. [StatefulSet storage and operations](../learn/storage/statefulset-storage-and-operations): one claim per member; what updates, scale-down and deletion do to data; Redis persistence.
+5. [Initialization and seeding](../learn/storage/initialization-and-seeding): schema on an empty volume, re-runnable seed Jobs, why migrations are separate.
+6. [Recovery boundaries](../learn/storage/recovery-boundaries): persistence vs replication vs backup; RPO and RTO; a restore rehearsal.
 
-These changes cover all four data workloads: `identity-db`, `flight-db`, `booking-db`, and `redis`. Application clients continue using the existing database Service names.
+First pass: chapters 1–4 are enough to follow the walkthrough. Read 5 and 6 before you trust the data.
 
-## Read in this order
+## Ready for the walkthrough when you can answer
 
-| Chapter | Required prior knowledge | New concept | What the learner can explain afterwards |
-|---|---|---|---|
-| 1. [Volume lifetimes](../learn/storage/volume-lifetimes) | Pod lifecycle and `emptyDir` from Stage 1 | Storage lifetimes across process restart, container restart, and Pod replacement | Why a container restart preserves `emptyDir` while Pod replacement wipes it, and what kind's local storage survives |
-| 2. [Claims and provisioning](../learn/storage/claims-and-provisioning) | Container volume mounts and Stage 2 Services | PVC, PV, StorageClass, dynamic provisioning, `WaitForFirstConsumer`, access modes | How a claim binds to a PV, why provisioning waits for scheduling, and why `ReadWriteOnce` means single-node access rather than database locking |
-| 3. [StatefulSets and headless DNS](../learn/storage/statefulsets-and-headless-dns) | Deployments, ClusterIP Services, and CoreDNS from Stage 2 | StatefulSet ordinals, headless Services (`clusterIP: None`), per-member DNS | Why Deployments cannot manage dedicated per-member storage, how member DNS resolves, and why Apollo provides two Services per database |
-| 4. [StatefulSet storage and operations](../learn/storage/statefulset-storage-and-operations) | StatefulSet member identity and PVC basics | `volumeClaimTemplates`, claim retention vs PV reclamation, Redis persistence | How ordinals reconnect to dedicated claims, the difference between retaining claims and deleting storage, and why Redis requires AOF config |
-| 5. [Initialization and seeding](../learn/storage/initialization-and-seeding) | Kubernetes Jobs and ConfigMaps from Stage 1 | Database bootstrap vs seeding vs migrations, entrypoint hooks, idempotent SQL | Why init containers deadlock on database bootstrap, when entrypoint scripts run, and why neither script nor Job handles migrations |
-| 6. [Recovery boundaries](../learn/storage/recovery-boundaries) | Claim lifecycle and database persistence | Persistence, availability, replication, backups, and recovery boundaries (RPO/RTO) | Which operations destroy data, why replication cannot substitute for backups, and what a restore rehearsal proves |
+- A container restarts, then later its Pod is replaced. What happens to a file in `emptyDir` each time?
+- A PVC has been `Pending` for ten minutes and no Pod uses it. Is anything wrong?
+- Why does `booking-db-0` come back with the same claim but a new UID?
+- The node running `redis-0` loses network. Why does no new `redis-0` start elsewhere?
+- You delete the StatefulSet, then the PVC. Which step loses the data?
+- After a volume is lost, the tables and demo users are back. Why is that not a recovery?
 
-The chapters can be read without a cluster. Their optional inspection commands assume Stage 3 is already installed. Use the [Stage 3 walkthrough](../stage-3) to install the pinned snapshot and follow the running system.
+## Walkthrough
 
-## What this stage establishes
-
-On kind, the volume is a directory inside one node container. It survives replacement of the database Pod while that directory and claim remain available. It does not provide another copy of the data, automatic database replication, or recovery after the node's storage is destroyed.
-
-The walkthrough follows the objects down to that directory, then shows a record surviving Pod replacement. A `Bound` claim proves that storage was assigned; finding the same record afterwards proves that the database retained it.
-
-## Ready for the walkthrough when you can explain
-
-- Why `emptyDir` survives a container restart but disappears with its Pod.
-- How a PVC, a PersistentVolume, and a StorageClass work together.
-- Why `booking-db-0` can have a new Pod UID while using the same claim.
-- Why a fresh database with tables and demo users is not evidence that bookings were recovered.
-- Why deleting a Pod, deleting a claim, and destroying a kind node have different consequences.
-
-**Continue:** [Volume lifetimes](../learn/storage/volume-lifetimes).
+- [Stage 3 walkthrough](../stage-3)
