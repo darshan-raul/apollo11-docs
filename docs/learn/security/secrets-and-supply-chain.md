@@ -38,7 +38,7 @@ The Kubernetes Secret still exists inside the cluster, so you still need RBAC an
 
 ### Delivery is not restart
 
-Rotation stops at the Kubernetes Secret. Every Apollo backend reads `apollo-airlines-secrets` through `env` (`secretKeyRef`), and an environment variable is copied once, at container start ([Delivery and timing](../workloads/configuration-and-identity#delivery-and-timing)). After ESO writes a new `JWT_SECRET`, the Secret is current and every running Pod still holds the old one. Kubernetes does not connect "this Secret changed" to "restart the Pods that read it".
+Rotation stops at the Kubernetes Secret. Every Apollo backend reads `apollo-airlines-secrets` through `env` (`secretKeyRef`), and an environment variable is copied once, at container start ([Two ways in](../workloads/configuration-and-identity#two-ways-in-environment-or-files)). After ESO writes a new `JWT_SECRET`, the Secret is current and every running Pod still holds the old one. Kubernetes does not connect "this Secret changed" to "restart the Pods that read it".
 
 A rollout happens only when the Deployment's Pod template changes. Two tools can cause that change:
 

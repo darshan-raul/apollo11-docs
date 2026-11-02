@@ -12,8 +12,8 @@ sidebar_label: "Mission briefing"
 Builds on Ignition's [ReplicaSets](../learn/cluster/replicasets) and [Deployments](../learn/cluster/deployments).
 
 1. [Services and readiness, briefly](../learn/workloads/services-and-readiness): a stable name in front of replaceable Pods, ready Pods only. The mechanism is Stage 2.
-2. [Configuration and identity](../learn/workloads/configuration-and-identity): ConfigMap, Secret, ServiceAccount.
-3. [Jobs and initialization](../learn/workloads/jobs-and-initialization): finite work.
+2. [Configuration and identity](../learn/workloads/configuration-and-identity): ConfigMap, Secret, ServiceAccount; env versus files.
+3. [Jobs and initialization](../learn/workloads/jobs-and-initialization): finite work, retries, ordering.
 4. [Rollouts and rollback](../learn/workloads/rollouts-and-rollback): change versions safely.
 5. [Ephemeral state](../learn/workloads/ephemeral-state): what a Pod replacement loses.
 
@@ -23,6 +23,8 @@ Builds on Ignition's [ReplicaSets](../learn/cluster/replicasets) and [Deployment
 - Replacement Pod: new name? new IP? same Service address?
 - Why is seed work a Job and not a Deployment?
 - Rollback restores what? What can it not undo?
+- A container restarts, then later its Pod is replaced: what does an `emptyDir` keep in each case?
+- You edit a ConfigMap. Which running Pods see it, and when?
 
 ## Walkthrough
 
