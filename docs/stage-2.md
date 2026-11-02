@@ -10,7 +10,7 @@ sidebar_label: "Stage 2: Guidance (Networking)"
 - Repo folder: [`stages/stage2`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the `kind-apollo11` cluster from [Ignition](./ignition) and the workloads from [Stage 1](./stage-1). Stage 1 must be torn down first.
 - **Namespaces change here:** `apollo-airlines-apps` (APIs, databases, Redis) and `apollo-airlines-ui` (frontend). Stage 1's `apollo-airlines` is not reused.
-- Concepts behind this stage: [Pod networks and CNI](./learn/networking/pod-network-and-cni) · [DNS and namespaces](./learn/networking/dns-and-namespaces) · [Service control and data paths](./learn/networking/service-control-and-data-paths) · [NodePort and LoadBalancer](./learn/networking/nodeport-and-loadbalancer) · [Ingress and TLS](./learn/networking/ingress-and-tls) · [Gateway API](./learn/networking/gateway-api)
+- Concepts behind this stage: [Pod networks and CNI](./learn/networking/pod-network-and-cni) · [DNS and namespaces](./learn/networking/dns-and-namespaces) · [Service control and data paths](./learn/networking/service-control-and-data-paths) · [Endpoints and EndpointSlices](./learn/networking/endpoints-and-endpointslices) · [NodePort and LoadBalancer](./learn/networking/nodeport-and-loadbalancer) · [Ingress and TLS](./learn/networking/ingress-and-tls) · [Gateway API](./learn/networking/gateway-api)
 :::
 
 ## Where we left off

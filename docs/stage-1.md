@@ -9,7 +9,7 @@ sidebar_label: "Stage 1: Liftoff (Workloads)"
 :::info[Page type · stage walkthrough]
 - Repo folder: [`stages/stage1`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the `kind-apollo11` cluster from [Ignition](./ignition). Namespace: `apollo-airlines`.
-- Concepts behind this stage: [ReplicaSets](./learn/cluster/replicasets) · [Deployments](./learn/cluster/deployments) · [Services and readiness](./learn/workloads/services-and-readiness) · [Configuration and identity](./learn/workloads/configuration-and-identity) · [Jobs and initialization](./learn/workloads/jobs-and-initialization) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback) · [Ephemeral state](./learn/workloads/ephemeral-state)
+- Concepts behind this stage: [ReplicaSets](./learn/cluster/replicasets) · [Deployments](./learn/cluster/deployments) · [Services and readiness, briefly](./learn/workloads/services-and-readiness) · [Configuration and identity](./learn/workloads/configuration-and-identity) · [Jobs and initialization](./learn/workloads/jobs-and-initialization) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback) · [Ephemeral state](./learn/workloads/ephemeral-state)
 :::
 
 ## Where we left off
@@ -138,9 +138,9 @@ kubectl get pods -n apollo-airlines -l app=booking -o wide
 ```
 
 - **What you see:** the Service has one ClusterIP that never changes. The EndpointSlice lists the two Pod IPs, which match the Pod list.
-- **What it means:** the EndpointSlice controller keeps watching for Pods that match the selector **and are Ready**, and updates the list. kube-proxy on every node turns that list into forwarding rules. Callers only ever use the Service name.
+- **What it means:** the Service keeps track of the Pods that match its selector **and are Ready**, and callers only ever use its name. That is all Stage 1 needs. How the list is kept and how packets reach a Pod is [Stage 2](./learn/networking/service-control-and-data-paths).
 - **Why readiness is involved:** booking's `/readyz` checks its database and dependencies. A booking Pod that is running but can't reach its database is removed from the list, so it gets no traffic. A failing Pod stops receiving requests without anyone touching the Service.
-- **Why NodePort here:** `type: NodePort` also opens port 30082 on every node. kind maps that to `localhost:30082`, so you can reach booking from your laptop. It is a direct, crude door. Stage 2 replaces it with a proper entry point.
+- **Why NodePort here:** `type: NodePort` also opens port 30082 on every node. kind maps that to `localhost:30082`, so you can reach booking from your laptop. It is a direct, crude door. Stage 2 [explains it](./learn/networking/nodeport-and-loadbalancer) and replaces it with a proper entry point.
 - **Why `notification` has no NodePort:** only booking calls it. A service that nobody outside needs should not have a door to the outside.
 
 ### Step 5: See configuration and identity arrive in the Pod
