@@ -254,8 +254,8 @@ discovery.relabel "pod_logs" {
 loki.write "local" { endpoint { url = "http://loki.apollo-observability.svc.cluster.local:3100/loki/api/v1/push" } }
 ```
 
-- **What happens:** each Alloy Pod reads container logs for Pods on its own node, attaches `namespace`, `service`, `pod` and `container` labels, and pushes them to Loki. Loki keeps them on a PVC (`retention: 168h` in values).
-- **Why a DaemonSet:** logs live on the node that ran the container. One collector per node covers every Pod, including ones scheduled later.
+- **What happens:** each Alloy Pod streams the logs of the Pods on its own node through the Kubernetes API (`loki.source.kubernetes`, the same route `kubectl logs` uses; nothing is mounted from the node), attaches `namespace`, `service`, `pod` and `container` labels, and pushes them to Loki. Loki keeps them on a PVC (`retention: 168h` in values).
+- **Why a DaemonSet:** to divide the work. Each Alloy follows only its own node's Pods, so every Pod is followed exactly once and a new node gets its own Alloy. Lines from a deleted Pod survive only if Alloy shipped them before the kubelet removed its logs.
 - **Why Loki indexes only labels:** labels pick the streams; `|= "text"` then searches inside them. That keeps the index small. As with metrics, don't make IDs into labels.
 - **What's in a line:** the apps write JSON with `timestamp`, `level`, `service`, `trace_id`, `span_id`, `message`. In Stage 6, `trace_id` is filled from the request's span, so log lines can be joined to traces (Step 7).
 - **Compared with Stage 5:** `kubectl logs` read one Pod's current container. Here you query every service at once, and lines from deleted Pods are still there.
@@ -302,7 +302,7 @@ curl -s localhost:13200/api/traces/$TRACE_ID \
 
 - **What happens:** [`trace-test.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/scripts/trace-test.sh) logs in as the seeded passenger, books with a generated `traceparent`, waits until Tempo holds one trace containing booking, identity, flight and notification, then cancels the booking and checks the seat comes back.
 - **Why every service must forward `traceparent`:** each hop only knows the trace it was handed. If one service builds its outbound request from a fresh context, the next service starts a new trace and the chain breaks. The README lists this as a lesson from building the stage.
-- **Why a Collector in between:** apps send to one nearby endpoint and don't need to know about Tempo. Batching, memory limits and the backend choice live in one config.
+- **Why a Collector in between:** apps send to one address and don't need to know about Tempo. Batching, memory limits and the backend choice live in one config. The Collector is a DaemonSet, but apps reach it through a normal Service, so a span may go to any node's Collector. The Go SDK's OTLP metrics also reach it and are dropped by its `debug` exporter: Prometheus's scrape is the only metrics path.
 - **Tracing is out of band:** if the Collector can't reach Tempo, bookings keep working and traces are silently lost. That is good for passengers, and a reason to check traces as their own pipeline.
 - **Compared with Steps 2 and 5:** a p95 says "some bookings were slow". A trace says "*this* booking spent its time in the flight seat update".
 
