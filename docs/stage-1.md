@@ -153,6 +153,7 @@ kubectl auth can-i get pods --as=system:serviceaccount:apollo-airlines:booking -
 ```
 
 - **ConfigMap vs Secret:** both become environment variables in the container. The split is about *who may read them*: later stages can let people read the ConfigMap but not the Secret. A Secret is only base64-encoded, not encrypted. Stage 8 introduces an external secret store.
+- **One secret leaks past the Secret:** identity, flight and booking build `DATABASE_URL` as a literal `postgresql://postgres:postgres@…` value in their Deployments. The databases and Jobs read `POSTGRES_PASSWORD` from the Secret, the apps do not. Rotating the Secret would lock the apps out, and anyone who can read a Deployment can read the password. [Configuration and identity](./learn/workloads/configuration-and-identity#apollo-example) explains the fix Stage 5 uses.
 - **Env vars are read at start-up:** if you change the ConfigMap, running Pods keep the old values until they restart. This is why config changes in later stages go with a rollout.
 - **ServiceAccounts:** each workload runs as its own identity (`booking`, `booking-db`, `init-booking-db`, …). None of them need to talk to the Kubernetes API, so `automountServiceAccountToken: false` keeps a usable token out of the container. Stage 8 grants real permissions with RBAC where they are needed.
 - **Compared with Launchpad:** Compose mixed config and secrets into one `environment:` block, and every container ran with the same (no) identity.
@@ -232,6 +233,7 @@ The [troubleshooting page](./troubleshooting) has more.
 | Probes are basic; Pods have no resource requests | The scheduler and kubelet are guessing | [Stage 4](./stage-4): probes, requests/limits, PDBs |
 | Thirty YAML files applied by a script | Repeating values; no environments; no release history | [Stage 5](./stage-5): Helm, Kustomize, Argo CD |
 | Secret is base64 in Git; no RBAC in use | Anyone with repo access has the password | Stage 8 (planned): Vault, RBAC |
+| App `DATABASE_URL`s repeat the database password as a literal | The Secret is not the only copy; rotating it breaks the apps | [Stage 5](./stage-5): `$(POSTGRES_PASSWORD)` expansion from the Secret |
 
 ## The journey so far
 

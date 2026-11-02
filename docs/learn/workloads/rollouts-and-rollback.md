@@ -46,6 +46,19 @@ If the new Pod cannot pull its image, crashes on start, or keeps failing its rea
 
 The safety net is only as good as the **readiness check**. If booking's `/readyz` returns 200 while it cannot reach its database, a broken release becomes Ready, old Pods are retired, and the outage arrives on schedule. Stage 4's [probes](../reliability/probes) chapter covers what readiness should test.
 
+## Knobs that shape a rollout
+
+| Field or command | Default | What it changes |
+|---|---|---|
+| `maxSurge` / `maxUnavailable` | 25% / 25% | How many Pods may be added or missing at once (above) |
+| `minReadySeconds` | 0 | How long a new Pod must stay Ready before it counts as available. Catches versions that pass readiness, then crash a few seconds later |
+| `progressDeadlineSeconds` | 600 | How long without progress before the Deployment reports `Progressing=False` (reason `ProgressDeadlineExceeded`). It reports; it does not roll back |
+| `revisionHistoryLimit` | 10 | How many old ReplicaSets are kept, and so how far back `rollout undo` can go |
+| `kubectl rollout pause` / `resume` | | Stop acting on template changes, make several edits, then roll them out as one revision |
+| `kubectl rollout status --timeout` | | Waits for the rollout and exits non-zero if it fails or times out: the check a script or CI job should use |
+
+Nothing in Kubernetes rolls back by itself. A stalled rollout stays stalled until a person or a tool runs `undo` or ships a fix. The planned Stage 10 Argo Rollouts mission adds automated analysis and rollback.
+
 ## What starts a rollout, and what does not
 
 A rollout starts only when the **Pod template** changes. That catches people out with configuration:
@@ -116,6 +129,43 @@ kubectl rollout undo deploy/booking -n apollo-airlines
 | `Running`, `0/1` Ready | Readiness failing: bad config or a dependency it cannot reach |
 | `Pending` | Scheduling or quota: no room for the surge Pod |
 
+## Try it
+
+:::caution[Unverified]
+Not yet run on a live cluster for this documentation revision. Uses a throwaway namespace on any cluster.
+:::
+
+See which changes start a rollout, and what `undo` leaves behind:
+
+```bash
+kubectl create namespace roll-demo
+kubectl -n roll-demo create configmap app-config --from-literal=COLOR=blue
+kubectl -n roll-demo create deployment web --image=nginx:1.27-alpine --replicas=2
+kubectl -n roll-demo set env deploy/web --from=configmap/app-config
+kubectl -n roll-demo rollout status deploy/web
+kubectl -n roll-demo rollout history deploy/web             # 2 revisions: create, then set env
+
+# Scaling does not create a revision
+kubectl -n roll-demo scale deploy/web --replicas=3
+kubectl -n roll-demo get rs                                 # still one ReplicaSet with Pods
+
+# Editing the ConfigMap does not start a rollout, and Pods keep the old value
+kubectl -n roll-demo patch configmap app-config -p '{"data":{"COLOR":"green"}}'
+kubectl -n roll-demo exec deploy/web -- printenv COLOR      # blue
+kubectl -n roll-demo rollout restart deploy/web             # adds a restartedAt annotation
+kubectl -n roll-demo rollout status deploy/web
+kubectl -n roll-demo exec deploy/web -- printenv COLOR      # green
+
+# Undo restores the template, not the ConfigMap
+kubectl -n roll-demo rollout undo deploy/web
+kubectl -n roll-demo rollout status deploy/web
+kubectl -n roll-demo exec deploy/web -- printenv COLOR      # still green
+kubectl delete namespace roll-demo
+```
+
+- `scale` resized the current ReplicaSet; only template changes made new revisions.
+- The ConfigMap edit reached running Pods only after a restart, and `undo` could not take it back.
+
 ## Common misconceptions
 
 - **"A stalled rollout means an outage."** The old Pods usually keep serving.
@@ -145,4 +195,9 @@ No. Rollback restores the Pod template only; data and external effects stay.
 
 ## Where this leads
 
-Rollback cannot restore data that lived in a Pod that no longer exists. The last Liftoff chapter names exactly what a replacement Pod loses.
+Rollback cannot restore data that lived in a Pod that no longer exists. The last Liftoff chapter, [Ephemeral state](./ephemeral-state), names exactly what a replacement Pod loses.
+
+## References
+
+- [Deployments: rolling update, progress deadline, history](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
+- [`kubectl rollout`](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/)

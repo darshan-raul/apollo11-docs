@@ -159,9 +159,9 @@ sleep 12; kill %1
 
 - **What happens, in order:** the Pod is marked `Terminating`. Two things then start at the same time: the endpoint controller removes it from the Service, and the kubelet runs `preStop`. After the 5 s sleep the app gets SIGTERM, logs `Received SIGTERM, shutting down gracefully`, finishes open requests and closes its database connection.
 - **Why the 5 s sleep:** removing a Pod from the Service has to reach kube-proxy and Envoy on every node. That takes a moment. Without the sleep the app could stop listening while traffic is still being routed to it. The sleep gives routing a head start. It narrows the gap; it can't prove zero failures.
-- **Why the grace period:** if the app ignores SIGTERM, the kubelet waits the whole grace period and then kills it (exit code 137). Apps get 30 s, the same as their own drain timeout. Postgres and Redis get 60 s to checkpoint and flush to disk.
+- **Why the grace period:** if the app ignores SIGTERM, the kubelet waits the whole grace period and then kills it (exit code 137). Apps get 30 s, counted from deletion, so the 5 s `preStop` leaves about 25 s for the drain. Booking's own drain timeout is 30 s, so a request still running at about 25 s ends by SIGKILL rather than by the app; booking's requests take milliseconds, so this does not bite today. Postgres and Redis get 60 s to checkpoint and flush to disk. [Termination and draining](./learn/reliability/termination-and-draining#one-budget-shared) explains the arithmetic.
 - **Compared with Stage 3:** SIGTERM ended the process at once, and nothing delayed it. Each rolling update and each drain could drop a few requests.
-- **identity** is Python: uvicorn runs with `timeout_graceful_shutdown=30` and logs the same SIGTERM message.
+- **identity** is Python. At the pinned revision it logs the same SIGTERM message, but its custom signal handler replaced uvicorn's, so the server never starts draining: every identity Pod waits the full 30 s and is SIGKILLed. Apollo fixed this after the pin (tracker G21, commit [`90b5120`](https://github.com/darshan-raul/Apollo11/commit/90b5120005a44e6af31025309b59cdcbdbbb86ab)). Time an identity Pod's deletion to see it: a log line is not proof of a clean shutdown.
 
 ### Step 5: See requests, limits and QoS
 
@@ -255,7 +255,7 @@ kubectl get pdb booking-pdb -n $NS      # ALLOWED DISRUPTIONS back to 1
 | Restarts during start-up, `Startup probe failed` | Start-up took longer than 30 s | `kubectl describe pod <pod>`; compare with `periodSeconds × failureThreshold` |
 | `Pending`, `FailedScheduling … Insufficient cpu/memory` | Requests don't fit on any node | `kubectl describe node <node>` → Allocated resources |
 | `OOMKilled`, exit code 137 | Container used more than its memory limit | `kubectl get pod <pod> -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}'` |
-| Pod takes exactly its grace period to stop | App ignores SIGTERM, killed by SIGKILL | `kubectl logs <pod>` for the SIGTERM line |
+| Pod takes exactly its grace period to stop | App ignores SIGTERM, or its handler logs but never shuts the server down (identity at the pinned revision) | `time kubectl delete pod <pod>`; then `kubectl logs <pod>` for the SIGTERM line |
 | `kubectl drain` hangs | A PDB allows 0 disruptions (too few ready replicas) | `kubectl get pdb -A` |
 | Pod rejected: PriorityClass not found | `config/` not applied first | `kubectl get priorityclass` |
 
