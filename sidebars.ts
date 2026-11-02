@@ -65,6 +65,7 @@ const sidebars: SidebarsConfig = {
         'missions/guidance',
         'learn/networking/pod-network-and-cni',
         'learn/networking/service-control-and-data-paths',
+        'learn/networking/endpoints-and-endpointslices',
         'learn/networking/dns-and-namespaces',
         'learn/networking/nodeport-and-loadbalancer',
         'learn/networking/ingress-and-tls',
