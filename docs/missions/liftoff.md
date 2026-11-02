@@ -11,7 +11,7 @@ sidebar_label: "Mission briefing"
 
 Builds on Ignition's [ReplicaSets](../learn/cluster/replicasets) and [Deployments](../learn/cluster/deployments).
 
-1. [Services and readiness](../learn/workloads/services-and-readiness): stable name, ready endpoints only.
+1. [Services and readiness, briefly](../learn/workloads/services-and-readiness): a stable name in front of replaceable Pods, ready Pods only. The mechanism is Stage 2.
 2. [Configuration and identity](../learn/workloads/configuration-and-identity): ConfigMap, Secret, ServiceAccount.
 3. [Jobs and initialization](../learn/workloads/jobs-and-initialization): finite work.
 4. [Rollouts and rollback](../learn/workloads/rollouts-and-rollback): change versions safely.

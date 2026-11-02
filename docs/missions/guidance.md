@@ -21,6 +21,7 @@ First pass: stop after chapter 6. You are done when you can trace **DNS → addr
 
 ## Ready for the walkthrough when you can answer
 
+- A Service is data, not a process: what turns it into forwarded packets?
 - What decides whether a Pod is an endpoint of a Service, and what do `ready`, `serving` and `terminating` mean in its EndpointSlice?
 - What name does booking use to reach flight in another namespace?
 - NodePort vs LoadBalancer: who allocates the address, and why does booking see the node's IP instead of the client's?

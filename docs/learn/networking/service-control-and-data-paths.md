@@ -1,17 +1,34 @@
 ---
-title: Service control path and packet path
-description: "How a Service's virtual IP is allocated, how kube-proxy turns Services and EndpointSlices into iptables rules, what happens to one packet, and the Service variants and traffic policies that change the picture."
+title: "Services: control path and packet path"
+description: "What a Service is and why Pods need one, how its virtual IP is allocated, how kube-proxy turns Services and EndpointSlices into iptables rules, what happens to one packet, and the Service variants and traffic policies that change the picture."
 ---
 
-# Service control path and packet path
+# Services: control path and packet path
 
 *Stage 2 · Guidance*
 
-**You will be able to:** draw a Service's control path and packet path separately, read the iptables chains kube-proxy writes for a Service, explain why load balancing is per connection and not per request, and choose between the Service variants (headless, selector-less, ExternalName) and traffic policies.
+**You will be able to:** explain what a Service is and what it is not, draw its control path and packet path separately, read the iptables chains kube-proxy writes for it, explain why load balancing is per connection and not per request, debug a Service that resolves but never answers, and choose between the Service variants and traffic policies.
 
-[Services and readiness](../workloads/services-and-readiness) (Stage 1) introduced the Service as a stable name and virtual IP in front of ready Pods. That model is enough to use a Service. It is not enough to debug one. When `booking` cannot reach `flight`, you need to know which actor failed: the selector, the EndpointSlice, kube-proxy, the kernel rules, or the Pod. Each leaves different evidence.
+The [Pod network](./pod-network-and-cni) makes every Pod reachable by IP, but those IPs do not last. A Deployment replaces Pods whenever they fail, are rescheduled or are rolled out, and every replacement gets a new IP. booking cannot be reconfigured each time flight's Pods change, and it should not send requests to a flight Pod that is still starting. Stage 1 [used Services](../workloads/services-and-readiness) without explaining them. This chapter explains how they work, because debugging needs it: when `booking` cannot reach `flight`, you need to know which actor failed (the selector, the EndpointSlice, kube-proxy, the kernel rules or the Pod), and each leaves different evidence.
 
-Diagrams often draw "client → Service → Pod" as if the Service were a small proxy program. That picture causes real mistakes: people look for a Service process to restart, or expect the Service's logs to show requests. There is no such process. There are two separate stories.
+## What a Service is
+
+A **Service** is an API object that stands for "whichever Pods currently do this job". It records three things:
+
+| Field | Meaning | Apollo `flight` |
+|---|---|---|
+| `selector` | Labels a Pod must carry to belong. Only Pods in the Service's own namespace are considered | `app: flight` |
+| `ports` | What callers connect to (`port`) and where the container listens (`targetPort`) | `8081` → `8081` |
+| `clusterIP` | A virtual IP, allocated by the API server and fixed for the Service's life | e.g. `10.96.41.7` |
+
+Cluster DNS then gives the Service a name (`flight`, or `flight.apollo-airlines-apps` from other namespaces; [DNS and namespaces](./dns-and-namespaces)). Callers use the name, the name gives the ClusterIP, and the ClusterIP leads to one of the matching Pods.
+
+Two properties matter more than the rest:
+
+- **Membership is by label, not by name.** The Service never lists Pods. A replacement Pod carries the same labels from the Deployment's template, so it belongs automatically.
+- **Only ready Pods receive traffic.** A Pod whose readiness probe fails stays running but is taken out of rotation, and put back when it passes again. Restarts are a separate matter, decided by liveness ([Probes](../reliability/probes)).
+
+What a Service is **not** matters just as much. Diagrams often draw "client → Service → Pod" as if the Service were a small proxy program. That picture causes real mistakes: people look for a Service process to restart, or expect the Service's logs to show requests. There is no such process. A Service is data, and two separate stories turn it into traffic.
 
 ## Two paths
 
@@ -118,6 +135,21 @@ These fields change *which* endpoints the packet path may choose.
 | `sessionAffinity` | `None` | `ClientIP` | All connections from one source IP go to the same Pod, for `timeoutSeconds` (default 3 hours) |
 
 `internalTrafficPolicy: Local` suits node-local agents (a log collector DaemonSet). On a normal Deployment it creates nodes from which the Service silently does not work.
+
+## When a Service resolves but does not answer
+
+Most Service failures are silent: the API accepts the objects, DNS answers, and nothing reports an error. Work through the actors in order:
+
+| Check | Command | What a bad result means |
+|---|---|---|
+| 1. Does the selector match? | `kubectl get pods -n <ns> -l <selector> --show-labels` | No Pods: a label or selector typo. **No event is emitted** for this |
+| 2. Are those Pods ready? | `kubectl get pods -n <ns> -l <selector>` (READY column) | `0/1`: readiness is failing; `kubectl describe pod` shows why |
+| 3. Did they become endpoints? | `kubectl get endpointslice -n <ns> -l kubernetes.io/service-name=<svc>` | Empty, or `ready=false`: see [EndpointSlices](./endpoints-and-endpointslices) |
+| 4. Is the port right? | Compare the slice's port with the container's listen port | A wrong `targetPort`: endpoints exist, every connection is refused |
+| 5. Are the rules there? | `docker exec <node> iptables-save \| grep <ns>/<svc>` | Missing rules: look at kube-proxy's Pod and logs on that node |
+| 6. Does the live path work? | `curl` the Service name from a Pod in the caller's namespace | Fails only from one namespace: a DNS name problem |
+
+Two timing effects also produce brief errors without anything being misconfigured. A Pod that becomes ready, or is deleted, reaches every node's rules a moment later, because each kube-proxy updates on its own. During fast rollouts a few requests can land on a Pod that is already shutting down; Stage 4's [termination and draining](../reliability/termination-and-draining) addresses this with a `preStop` delay.
 
 ## Apollo example
 
