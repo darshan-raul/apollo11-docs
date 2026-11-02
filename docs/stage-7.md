@@ -131,7 +131,7 @@ scenarios: { search: { executor: 'constant-arrival-rate', rate: 50, timeUnit: '1
 thresholds: {
   checks: ['rate==1'],                    // every response must contain real flights
   http_req_duration: ['p(95)<200'],       // lab acceptance criteria, not an SLO
-  dropped_iterations: ['count==0'],       // k6 itself must keep up
+  dropped_iterations: ['count==0'],       // every planned request started: no VU shortage from slow responses
   cache_hit_rate: EXPECT_CACHE === 'off' ? ['rate==0'] : ['rate>0.9'],
 },
 // setup() warms the six keys first; that traffic is not measured
@@ -210,7 +210,8 @@ kubectl get deploy search -n $NS -o jsonpath='{.spec.template.spec.containers[0]
 - **Why it needs Stage 4's probes too:** new replicas get traffic only once their readiness probe passes. Without that, scaling out would send requests to Pods still starting.
 - **Why it comes after Stage 6:** you can't tune a target you can't see. The Stage 6 dashboards show whether more replicas actually lowered latency, or whether the bottleneck is elsewhere (flight, the database).
 - **Why scale up fast and down slow:** a spike hurts passengers now; extra Pods for five minutes only cost a little. Removing Pods on every dip would cause churn.
-- **Compared with Stage 5:** `apps.search.replicas` in values is now just the starting point. The HPA owns the replica count at runtime.
+- **Compared with Stage 5:** `apps.search.replicas` in values is now just the starting point. The HPA owns the replica count at runtime. The chart still renders `replicas` on search's Deployment, so `helm upgrade` resets it, and Argo CD's self-heal in dev and staging would revert every HPA change (prod ignores `/spec/replicas`). See [who owns `spec.replicas`](./learn/scaling/hpa#who-owns-specreplicas).
+- **Why scale-up is a staircase:** search's limit equals its request, so throttling caps measured utilization at 100%. Against 70%, each HPA step can multiply replicas by at most about 1.43: 1 → 2 → 3 → 5.
 
 ### Step 6: Watch it scale under real load, and where the new Pods land
 
@@ -276,7 +277,7 @@ spec:
 
 - **Where the advice appears (staging/prod):** `kubectl describe vpa search-vpa -n apollo-airlines-apps` → `Recommendation` with `Target`, `Lower Bound`, `Upper Bound`. It stays empty until the recommender has collected samples.
 - **Why `Off`:** the HPA scales on *usage ÷ request*. If the VPA also changed the request, every change would move the HPA's ratio, the HPA would add or remove Pods, which changes per-Pod usage, and the two controllers would chase each other.
-- **How advice is used:** a person reads the recommendation and edits the tier in `values.yaml`, then rolls it out through Helm or Argo CD (Stage 5). The change stays reviewed and in Git.
+- **How advice is used:** a person reads the recommendation and edits the resources in `values.yaml`, then rolls it out through Helm or Argo CD (Stage 5). The change stays reviewed and in Git. Search shares the `default` tier with flight, so changing `tiers.default` (as the template comment suggests) resizes flight too; give search its own tier first.
 - **Why no admission webhook:** in `Off` mode the VPA never changes Pods, so the bundle installs only the recommender and updater.
 - **Why off in dev:** its controllers cost resources, and a short-lived local cluster has too little history for useful advice.
 - **Compared with Stage 4:** the 100m / 128Mi tiers were chosen by reasoning. The VPA is the first thing in the course that checks them against real usage.
@@ -364,6 +365,8 @@ The [troubleshooting page](./troubleshooting) has more.
 | Only search autoscales, and only on CPU | Work driven by queues or events doesn't show up as CPU | [Stage 11](./stage-11) (planned): KEDA track |
 | Search results can be up to 5 minutes stale | A sold-out flight may still show seats in search | A deliberate trade-off; booking checks flight directly |
 | VPA advice must be applied by hand, and dev has none | Requests drift from reality unless someone reads it | — (by design in `Off` mode) |
+| The chart sets search's `replicas` while the HPA manages it | `helm upgrade` resets the count; Argo CD self-heal in dev and staging fights the HPA | Omit `replicas` when autoscaling is on, or ignore the field as prod does |
+| Search's cache key uses raw query values, and its Redis also holds notification's queue, with persistence on | Keys grow with distinct inputs; no safe eviction policy can cap memory | A normalized key and a separate cache instance ([Cache-aside](./learn/scaling/cache-aside#keys-define-the-cache)) |
 | Secrets are base64 in Git, no RBAC, NetworkPolicies not enforced, Grafana open | This deployment is not hardened. Do not describe it as such | [Stage 8](./stage-8) (planned): Command Module (security) |
 | No view of what all these replicas cost | Scaling decisions are made without cost data | [Stage 11](./stage-11) (planned): Kubecost track |
 | Everything still runs on a local kind cluster | No real load balancer, disks or node failures | [Stage 9](./stage-9) (planned): Lunar Orbit (AWS lifecycle) |
