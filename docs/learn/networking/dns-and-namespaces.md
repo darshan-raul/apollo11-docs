@@ -136,7 +136,7 @@ The last row is the one people get wrong. Splitting the frontend into its own na
 
 ## Apollo example
 
-From [`configmap.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/config/configmap.yaml):
+From [`configmap.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/config/configmap.yaml):
 
 ```yaml
 # namespace: apollo-airlines-apps (callers and targets in the same namespace)

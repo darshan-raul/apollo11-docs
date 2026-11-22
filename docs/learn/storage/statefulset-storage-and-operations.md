@@ -126,18 +126,23 @@ A volume keeps whatever the process writes to it. It cannot make the process wri
 - **PostgreSQL** is built around its data directory. Before it confirms a commit, it flushes the change to its write-ahead log (WAL) on that volume. A committed transaction is on the volume.
 - **Redis** keeps data in memory and writes to disk only according to its configuration. With no options, the `redis:7` image takes occasional snapshots (`dump.rdb`, by default after 1 change in an hour, 100 in five minutes, or 10,000 in a minute). Everything since the last snapshot lives only in memory and is lost when the Pod is replaced.
 
-Apollo's [Redis StatefulSet](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/redis/redis-sts.yaml) turns on the append-only file:
+Apollo's [Redis StatefulSet](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/apps/redis/redis-sts.yaml) turns on the append-only file:
 
 ```yaml
 command:
   - redis-server
-  - --appendonly yes        # log every write command to disk
-  - --appendfsync everysec  # flush that log to disk once a second
-  - --save 60 100           # also snapshot if 100 changes in 60s (replaces the defaults)
+  - --appendonly            # log every write command to disk
+  - "yes"
+  - --appendfsync           # flush that log to disk once a second
+  - everysec
+  - --save                  # also snapshot if 100 changes in 60s (replaces the defaults)
+  - "60"
+  - "100"
 volumeMounts:
   - {name: redis-data, mountPath: /data}
 ```
 
+- Each list item is one `argv` element: Kubernetes runs `command` directly, with no shell to split words. Writing `- --appendonly yes` as one item would pass the flag and its value as a single argument. `"yes"` and the numbers are quoted so YAML keeps them as strings, not a boolean and integers.
 - With AOF on, Redis 7 writes to `/data/appendonlydir/` (a base file, an incremental log and a manifest). On start it replays that log to rebuild memory.
 - `everysec` means a write is acknowledged before it is on disk. A crash can lose about the last second of writes; a clean shutdown flushes first.
 - When AOF is on, Redis loads from AOF rather than `dump.rdb` at startup.

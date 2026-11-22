@@ -120,7 +120,7 @@ Labels are not identity. `app: booking` is mutable metadata anyone with edit rig
 
 ## Apollo example
 
-From [Stage 1's manifests](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s):
+From [Stage 1's manifests](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1/k8s):
 
 | What | How it is delivered | Note |
 |---|---|---|
@@ -128,11 +128,11 @@ From [Stage 1's manifests](https://github.com/darshan-raul/Apollo11/tree/f6211e6
 | Frontend settings | `envFrom` the whole ConfigMap | Simple, but the frontend also receives every other service's keys |
 | `JWT_SECRET` | `secretKeyRef` | Same key for identity (signs tokens) and flight and booking (verify them) |
 | `POSTGRES_PASSWORD` in databases and init Jobs | `secretKeyRef` | |
-| Password in each app's `DATABASE_URL` | **A literal `value`**: `postgresql://postgres:postgres@…` | A gap: see below |
+| Password in each app's `DATABASE_URL` | `secretKeyRef` for `POSTGRES_PASSWORD`, then `$(POSTGRES_PASSWORD)` inside the URL | Order matters: see below |
 | `init.sql` for each database | `configMap` volume at `/init` | A file, because `psql -f` wants one |
 | 13 ServiceAccounts | `serviceAccountName` per workload | All with `automountServiceAccountToken: false` |
 
-The `DATABASE_URL` row is worth noticing. In Stages 1 to 4 the identity, flight and booking Deployments repeat the database password inside a plain URL. Changing `POSTGRES_PASSWORD` in the Secret would change the databases and the init Jobs but not the apps, and anyone who can read a Deployment can read the password. Stage 5 fixes it with the `$(POSTGRES_PASSWORD)` expansion shown above, so the Secret is the only copy.
+The `DATABASE_URL` row is worth noticing. The identity, flight and booking Deployments first declare `POSTGRES_PASSWORD` from the Secret, then build the URL with the `$(POSTGRES_PASSWORD)` expansion shown above. The Secret is the only copy of the password, and anyone who can read a Deployment sees only the placeholder. Swap the two entries and the app receives the literal text `$(POSTGRES_PASSWORD)` as its password. (Earlier revisions of Stages 1 to 4 wrote `postgres:postgres` into the URL; every stage now uses the expansion.)
 
 ## Try it
 
@@ -217,9 +217,9 @@ It is bound to one file at container start, bypassing the `..data` symlink that 
 </details>
 
 <details>
-<summary>You rotate <code>POSTGRES_PASSWORD</code> in Stage 1's Secret and restart everything. Why can booking still not reach its database?</summary>
+<summary>Someone moves booking's <code>DATABASE_URL</code> entry above <code>POSTGRES_PASSWORD</code>. The Pod starts, but cannot log in to its database. Why?</summary>
 
-Booking's `DATABASE_URL` hard-codes the old password as a literal value. The Secret is not its only source. Stage 5 builds the URL from the Secret with `$(POSTGRES_PASSWORD)`.
+`$(NAME)` expands only variables declared earlier in the same list. With the order swapped, the reference is unresolved and stays as the literal text `$(POSTGRES_PASSWORD)`, which is then sent as the password. There is no error at apply time.
 </details>
 
 ## Where this leads

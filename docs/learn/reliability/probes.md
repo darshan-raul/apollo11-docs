@@ -99,7 +99,7 @@ Put a database check in liveness and a database outage restarts every replica, r
 
 ## Apollo example
 
-From [Stage 4's booking Deployment](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/k8s/apps/booking/booking-dep.yaml); the other five apps use the same numbers:
+From [Stage 4's booking Deployment](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4/k8s/apps/booking/booking-dep.yaml); the other five apps use the same numbers:
 
 ```yaml
 startupProbe:

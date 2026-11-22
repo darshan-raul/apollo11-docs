@@ -116,7 +116,7 @@ Apollo's metric name also breaks a convention worth knowing: Prometheus recommen
 
 ## Apollo example
 
-From [booking's `main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/code/booking/main.go), trimmed:
+From [booking's `main.go`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/code/booking/main.go), trimmed:
 
 ```go
 httpRequestsTotal = prometheus.NewCounterVec(

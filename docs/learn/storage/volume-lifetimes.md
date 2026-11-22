@@ -143,7 +143,7 @@ Stage 3 gives each data workload a claim instead:
 | `booking-db` | `/var/lib/postgresql/data` | `pg-data-booking-db-0` |
 | `redis` | `/data` | `redis-data-redis-0` |
 
-The [identity database manifest](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) also sets `PGDATA=/var/lib/postgresql/data/pgdata`. PostgreSQL refuses to initialize a data directory that is not empty, and a freshly formatted disk usually contains a `lost+found` directory at its root. Pointing `PGDATA` at a subdirectory of the mount works on every kind of volume.
+The [identity database manifest](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) also sets `PGDATA=/var/lib/postgresql/data/pgdata`. PostgreSQL refuses to initialize a data directory that is not empty, and a freshly formatted disk usually contains a `lost+found` directory at its root. Pointing `PGDATA` at a subdirectory of the mount works on every kind of volume.
 
 ## Try it
 

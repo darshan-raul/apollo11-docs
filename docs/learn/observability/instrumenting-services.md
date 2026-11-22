@@ -9,7 +9,7 @@ description: "Which code in Apollo produces each signal, and the three different
 
 **You will be able to:** name the code that produces each of Apollo's three signals, trace how each one leaves the Pod and reaches its store, explain why the three paths differ, and say which component to check when one signal goes quiet.
 
-Stage 5 delivered Apollo reliably, but its services were nearly mute. Booking's `/metrics` returned a small JSON object that no tool could read, the log field called `trace_id` actually held the `X-Request-ID`, and nothing recorded how a request moved between services. No dashboard installed *around* the app can fix that. **Observability starts in the code**: the app has to produce the data. Then the data has to leave the Pod, and each signal leaves a different way.
+Stage 5 delivered Apollo reliably, but its services were nearly mute. Booking's `/metrics` printed fixed placeholder zeros, the log field called `trace_id` actually held the `X-Request-ID`, and nothing recorded how a request moved between services. No dashboard installed *around* the app can fix that. **Observability starts in the code**: the app has to produce the data. Then the data has to leave the Pod, and each signal leaves a different way.
 
 ## Three paths out of a Pod
 
@@ -80,16 +80,23 @@ Each signal answers its own question ([Signals and metrics](./signals-and-metric
 |---|---|---|
 | Time | All three | A metric spike says *when* to look |
 | `trace_id` | Spans and log lines | From a slow span to that request's log lines, and back |
+| `request_id` | Log lines and the `X-Request-ID` header | A caller-supplied marker you can search for, even for a request that was never traced |
 | `service`, `namespace` | Prometheus target labels and Loki stream labels | Narrowing to the same service in both |
 
-Booking's request handlers read the current trace ID from the request's context and pass it to `logJSON`:
+Booking's request handlers pass the request's context and request ID to `logContext`, which reads the trace and span IDs from the span otelgin started:
 
 ```go
-traceID := traceIDFromContext(c.Request.Context())   // the span otelgin started
-logJSON("INFO", "booking-service", "Booking created", traceID, "", map[string]interface{}{"ref": ref})
+func logContext(ctx context.Context, requestID, level, service, message string, extra ...map[string]interface{}) {
+    traceID, spanID := traceAndSpanFromContext(ctx)   // from the active span in this request's context
+    entry := map[string]interface{}{ ..., "request_id": requestID, "trace_id": traceID, "span_id": spanID, ... }
+    ...
+}
+
+logContext(c.Request.Context(), requestID, "INFO", "booking-service", "Booking created",
+    map[string]interface{}{"ref": bk.BookingReference})
 ```
 
-Lines logged outside a request (start-up, shutdown) have an empty `trace_id`. A comment in `logJSON` claims a fallback fills it from "the active span", but the fallback reads `context.Background()`, which never holds a span: trace context lives in the request's `context.Context` and has to be passed down explicitly. And because handlers pass an empty span ID, `span_id` is always empty in Stage 6 logs. Both are harmless today; both are typical of how correlation quietly degrades.
+Lines logged outside a request (start-up, DB connection, shutdown) go through the plain `logJSON` and have empty `request_id`, `trace_id` and `span_id`. That is the important detail: trace context lives in the request's `context.Context` and has to be passed down explicitly. A helper that reads `context.Background()` finds no span, and correlation quietly degrades to empty fields. Earlier revisions did exactly that and left `span_id` always empty; the pinned code passes the context in every handler.
 
 Per-request IDs must never become metric labels ([the cardinality rule](./signals-and-metrics#labels-decide-the-cost)). They travel in spans and in log *content*, not in labels.
 
@@ -99,9 +106,9 @@ If Tempo is down, booking keeps taking bookings and the spans are dropped. If Pr
 
 ## Apollo example
 
-- [`code/booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/code/booking/main.go): metric definitions and middleware, `logJSON`, `callService`, OpenTelemetry set-up with `AlwaysSample` (every request is traced).
-- [`helm/apollo11/templates/apps/booking.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/apps/booking.yaml): sets `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` on the Deployment.
-- [`otel-collector/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/otel-collector/config.yaml) and [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml): the two collectors.
+- [`code/booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/code/booking/main.go): metric definitions and middleware, `logJSON`, `callService`, OpenTelemetry set-up with `AlwaysSample` (every request is traced).
+- [`helm/apollo11/templates/apps/booking.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/apps/booking.yaml): sets `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` on the Deployment.
+- [`otel-collector/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/otel-collector/config.yaml) and [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml): the two collectors.
 
 ## Try it
 

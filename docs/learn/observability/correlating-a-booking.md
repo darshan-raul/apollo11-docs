@@ -51,7 +51,7 @@ A complaint about a booking from four days ago can be checked against metrics an
 
 ## Grafana does the joins for you
 
-Apollo's Grafana datasources are provisioned with links in both directions, from [`grafana/datasources.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/grafana/datasources.yaml):
+Apollo's Grafana datasources are provisioned with links in both directions, from [`grafana/datasources.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/grafana/datasources.yaml):
 
 ```yaml
 # Loki → Tempo: a "View trace" link on every log line that contains a trace ID

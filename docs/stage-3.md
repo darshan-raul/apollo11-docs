@@ -7,7 +7,7 @@ sidebar_label: "Stage 3: Mission Data (Storage)"
 # Stage 3: Mission Data
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage3`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage3`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the `kind-apollo11` cluster from [Ignition](./ignition) and the namespaces and edge from [Stage 2](./stage-2) (Envoy Gateway on MetalLB). Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui`.
 - Concepts behind this stage: [Volumes](./learn/storage/volume-lifetimes) · [Claims and provisioning](./learn/storage/claims-and-provisioning) · [StatefulSets and headless DNS](./learn/storage/statefulsets-and-headless-dns) · [StatefulSet storage and operations](./learn/storage/statefulset-storage-and-operations) · [Initialization and seeding](./learn/storage/initialization-and-seeding) · [Recovery boundaries](./learn/storage/recovery-boundaries)
 :::
@@ -51,7 +51,7 @@ The manifests and script descriptions below have been checked against the pinned
 | `k8s/jobs/seed-*-db.yaml` + `*-db-seed.yaml` | Seed Jobs and their SQL ConfigMaps | Replaces `init-*-db` Jobs |
 | `k8s/apps/<service>/` | The six app Deployments and Services | Same as Stage 2 (values inlined) |
 | `k8s/gateway/`, `k8s/metallb/` | Envoy Gateway and MetalLB | Copied from Stage 2 substages 4–5 |
-| `scripts/apply.sh` | Seven phases: config → apps and StatefulSets → wait → seed → MetalLB → Envoy Gateway → routes | Replaces Stage 2's `--substage` script |
+| `scripts/apply.sh` | Seven phases: config → StatefulSets and wait → seed → app Deployments → MetalLB → Envoy Gateway → routes | Replaces Stage 2's `--substage` script |
 | `scripts/generate-certs.sh`, `verify.sh`, `verify-tls.sh`, `teardown.sh` | Certificate, checks, clean removal | Moved out of the Traefik folder |
 
 ## Walkthrough
@@ -64,23 +64,23 @@ bash stages/stage2/scripts/teardown.sh        # Stage 3 is a snapshot, not a pat
 bash stages/stage3/scripts/apply.sh           # add --skip-build to reuse loaded images
 ```
 
-[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/scripts/apply.sh) runs seven phases:
+[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/scripts/apply.sh) runs seven phases:
 
 1. Namespaces, config, Secrets, ServiceAccounts.
-2. Everything under `k8s/apps/`: four StatefulSets, their Services and schema ConfigMaps, and the six app Deployments.
-3. Wait for each StatefulSet and its `-0` Pod to be Ready, then for the app Deployments.
-4. Run the three `seed-*-db` Jobs and wait for `Complete`.
+2. The four StatefulSets with their Services and schema ConfigMaps. Wait for each StatefulSet and its `-0` Pod to be Ready.
+3. Run the three `seed-*-db` Jobs and wait for `Complete`.
+4. The six app Deployments and their Services. Wait for each rollout.
 5. MetalLB and its IP pool.
 6. Envoy Gateway (server-side apply).
-7. GatewayClass, EnvoyProxy, the TLS Secret if missing, Gateway, ReferenceGrant, six HTTPRoutes. Then wait for `Programmed`.
+7. GatewayClass, EnvoyProxy, the TLS Secret if missing, Gateway, ReferenceGrant, six HTTPRoutes. Then wait for `Programmed` and the MetalLB IP.
 
 - **Why tear down Stage 2:** its `identity-db` Deployment and the new `identity-db` StatefulSet would both carry `app: identity-db`. The `identity-db` Service would send traffic to both an empty-dir database and the persistent one.
-- **Why the order:** on a successful first initialization, the Postgres entrypoint creates the schema before starting its normal network server. The script waits for workloads before launching seed Jobs. The `pg_isready` probe checks connection status, not tables: partial initialization or an incompatible existing schema can still make a seed fail. Inspect Job logs rather than treating Ready as schema validation.
+- **Why the order:** on a successful first initialization, the Postgres entrypoint creates the schema before starting its normal network server. The script waits for the databases before launching seed Jobs, and starts the apps only after the seeds complete, so the first app Pods meet populated databases. Each seed Job also gives up after 30 `pg_isready` attempts (about a minute) instead of waiting forever. The `pg_isready` probe checks connection status, not tables: partial initialization or an incompatible existing schema can still make a seed fail. Inspect Job logs rather than treating Ready as schema validation.
 - **Compared with Stage 2:** the edge isn't "kept running" from Stage 2; this stage installs the same MetalLB and Envoy Gateway files again. The frontend is always built with `https://<svc>.apollo.local` URLs.
 
 ### Step 2: Read one StatefulSet
 
-Open [`identity-db-sts.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) and [`identity-db-svc-headless.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-svc-headless.yaml):
+Open [`identity-db-sts.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) and [`identity-db-svc-headless.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/apps/identity-db/identity-db-svc-headless.yaml):
 
 ```yaml
 # identity-db-sts.yaml (trimmed)
@@ -158,7 +158,7 @@ kubectl get jobs -n apollo-airlines-apps                                        
 kubectl exec -n apollo-airlines-apps identity-db-0 -- psql -U postgres -d identity -tAc "SELECT count(*) FROM users;"   # 2
 ```
 
-From [`identity-db-init-script.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-init-script.yaml), [`seed-identity-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/jobs/seed-identity-db.yaml) and [`identity-db-seed.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/jobs/identity-db-seed.yaml):
+From [`identity-db-init-script.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/apps/identity-db/identity-db-init-script.yaml), [`seed-identity-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/jobs/seed-identity-db.yaml) and [`identity-db-seed.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/jobs/identity-db-seed.yaml):
 
 The schema ConfigMap contains the initial table definitions. The Job runs the following command inside a separate PostgreSQL client container; this excerpt is copied from `seed-identity-db.yaml`:
 
@@ -168,8 +168,17 @@ command:
   - sh
   - -c
   - |
-    set -e
-    until pg_isready -h identity-db -U postgres; do echo "Waiting for identity-db..."; sleep 2; done
+    set -eu
+    attempt=0
+    until pg_isready -h identity-db -U postgres; do
+      attempt=$((attempt + 1))
+      if [ "${attempt}" -ge 30 ]; then
+        echo "identity-db did not become ready" >&2
+        exit 1
+      fi
+      echo "Waiting for identity-db... (${attempt}/30)"
+      sleep 2
+    done
     psql -h identity-db -U postgres -d identity -v ON_ERROR_STOP=1 -f /init/seed.sql
     echo "identity DB seeded"
 ```
@@ -177,9 +186,10 @@ command:
 - The Job mounts the `identity-db-seed` ConfigMap at `/init`, making its `seed.sql` available at the path above.
 - `PGPASSWORD` comes from `apollo-airlines-secrets`. The SQL ends with `ON CONFLICT (id) DO NOTHING`, leaving an existing matching user unchanged.
 - `ON_ERROR_STOP=1` makes a SQL error fail the command instead of being mistaken for a completed seed.
+- The wait loop is bounded: after 30 attempts the container exits non-zero, so the Job records a failure you can read with `kubectl logs job/seed-identity-db` instead of hanging until someone notices.
 
 - **Schema, via the entrypoint hook:** the official Postgres image runs every file in `/docker-entrypoint-initdb.d` **only when the data directory is empty**. A fresh volume gets the tables. Every later start logs "Skipping initialization" and leaves the data alone.
-- **Seed data, via a Job:** on a fresh install, two users, six airports, and 31 days of flights (186 rows). Later seed runs can add future departures as the date advances. `ON CONFLICT DO NOTHING` makes the Job safe to rerun. The booking seed is just `SELECT 1`: bookings are created at runtime.
+- **Seed data, via a Job:** on a fresh install, two users, six airports, and 31 days of flights (186 rows). Later seed runs can add future departures as the date advances. Every insert ends in `ON CONFLICT … DO NOTHING` (`id` for users, `code` for airports, `(flight_number, departure_time)` for flights, matching the table's unique constraint), so rerunning the Job never duplicates a row. The booking seed is just `SELECT 1`: bookings are created at runtime.
 - **Why not an init container for the schema:** an init container must *finish* before the Postgres container starts. One that waits for `pg_isready` on `127.0.0.1` waits for a server that can't start until it exits. Neither moves. The comment at the top of the StatefulSet file records this.
 - **Why split schema from data:** the structure belongs to every copy of the database, so it travels with the Pod's first start. The data load is an operation you choose to run, so it stays a Job.
 - **Compared with Stage 2:** one `init-*-db` Job did both, once, with `restartPolicy: Never`. If its database came back empty, nothing recreated even the tables.
@@ -283,7 +293,7 @@ bash stages/stage3/scripts/verify-tls.sh
 bash stages/stage3/scripts/verify.sh
 ```
 
-- **What you see:** `identity readyz=200` for a successful HTTPS request. `verify-tls.sh` checks trusted HTTPS, hostname rejection, login, populated search, booking, and cancellation. `verify.sh` also checks StatefulSets, PVCs, headless DNS, seed counts, and a booking surviving database Pod replacement.
+- **What you see:** `identity readyz=200` for a successful HTTPS request. `verify-tls.sh` checks trusted HTTPS, hostname rejection, login, populated search, booking, and cancellation. `verify.sh` also checks StatefulSets, PVCs, headless DNS, seed counts, a booking surviving `booking-db-0` replacement, and a Redis key surviving `redis-0` replacement (the AOF check). It reports 70 checks on a passing run.
 - **Why this way:** `--resolve` directs the hostname to MetalLB's current IP while preserving TLS hostname verification. (On Docker Desktop for macOS/Windows where MetalLB IPs are not host-routable, refer to [Local Gateway and browser access](./labs/local-access) for port-forwarding or containerized verification.) The certificate is read from this installation's Secret, since teardown and reapply can replace it. An HTTP redirect alone would not prove the HTTPS route works.
 - **Compared with Stage 2:** the access mechanism is the same, but the verifier now checks storage and a record surviving replacement. The built-in readiness endpoint alone does not prove data survival.
 - **Verification scope:** the verifier replaces `booking-db-0`, causing another brief database outage. Its booking check covers Pod replacement with the original volume; it does not prove backup restoration. See [Recovery boundaries](./learn/storage/recovery-boundaries).

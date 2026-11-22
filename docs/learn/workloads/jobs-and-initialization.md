@@ -120,7 +120,7 @@ Retries and reruns mean init work **will** run more than once: after a Pod faile
 
 ## Apollo example
 
-Trimmed from [`init-booking-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/jobs/init-booking-db.yaml):
+Trimmed from [`init-booking-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1/k8s/jobs/init-booking-db.yaml):
 
 ```yaml
 spec:

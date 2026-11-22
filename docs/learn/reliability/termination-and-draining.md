@@ -97,11 +97,24 @@ Three common ways the signal goes missing:
 | Shell form `CMD app --flag` | A shell becomes PID 1 and may not pass the signal on | Exec form: `CMD ["app", "--flag"]`, or `exec app` in a wrapper script |
 | A custom handler replaces the framework's | The custom handler runs, but the server's own shutdown never starts | Extend the framework's handler instead of replacing it |
 
-The third row happened in Apollo. At the pinned revision, identity registered a module-level `signal.signal(SIGTERM, …)` that logged "Received SIGTERM, shutting down gracefully" and returned. That replaced uvicorn's own handler, so the drain never began: every identity Pod logged the message, kept running and was killed at 30 s. Apollo fixed it later (tracker item G21, commit [`90b5120`](https://github.com/darshan-raul/Apollo11/commit/90b5120005a44e6af31025309b59cdcbdbbb86ab)) by subclassing `uvicorn.Server` so the log line is added and the original drain still runs. The lesson: **a "shutting down" log line proves the signal arrived, not that shutdown happened.** The proof is how long termination took and which exit code it ended with.
+The third row happened in Apollo. Earlier revisions of identity registered a module-level `signal.signal(SIGTERM, …)` that logged "Received SIGTERM, shutting down gracefully" and returned. That replaced uvicorn's own handler, so the drain never began: every identity Pod logged the message, kept running and was killed at 30 s. Apollo fixed it (tracker item G21, commit [`90b5120`](https://github.com/darshan-raul/Apollo11/commit/90b5120005a44e6af31025309b59cdcbdbbb86ab)), and the pinned revision has the fix: identity subclasses `uvicorn.Server`, so the log line is added and the original drain still runs.
+
+```python
+# code/identity/main.py (Stages 4–7, trimmed); the image runs CMD ["python", "main.py"]
+class LoggingServer(uvicorn.Server):
+    def handle_exit(self, sig, frame):
+        log_json("INFO", "identity-service", "Received SIGTERM, shutting down gracefully", trace_id="")
+        super().handle_exit(sig, frame)      # keep uvicorn's drain
+
+LoggingServer(uvicorn.Config(app, host="0.0.0.0", port=port,
+                             timeout_graceful_shutdown=30)).run()
+```
+
+Starting with `python main.py` rather than the `uvicorn main:app` command line matters: only then does this `__main__` block, with its handler and `timeout_graceful_shutdown`, run. The lesson: **a "shutting down" log line proves the signal arrived, not that shutdown happened.** The proof is how long termination took and which exit code it ended with.
 
 ## Apollo example
 
-From [booking's Deployment](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/k8s/apps/booking/booking-dep.yaml) and [`main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/code/booking/main.go), trimmed:
+From [booking's Deployment](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4/k8s/apps/booking/booking-dep.yaml) and [`main.go`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4/code/booking/main.go), trimmed:
 
 ```yaml
 terminationGracePeriodSeconds: 30
@@ -121,7 +134,7 @@ db.Close()
 
 | Workload | `preStop` | Grace | Drain |
 |---|---|---|---|
-| Six apps | `sleep 5` | 30 s | Go `srv.Shutdown`; the nginx image's `STOPSIGNAL SIGQUIT`, its graceful stop; identity via uvicorn (fixed after the pin, see above) |
+| Six apps | `sleep 5` | 30 s | Go `srv.Shutdown`; the nginx image's `STOPSIGNAL SIGQUIT`, its graceful stop; identity via uvicorn's drain, `timeout_graceful_shutdown=30` (see above) |
 | Postgres, Redis | None | 60 s | The servers' own handling of their stop signal: Postgres's fast shutdown with a checkpoint, Redis's final save |
 
 ## Try it

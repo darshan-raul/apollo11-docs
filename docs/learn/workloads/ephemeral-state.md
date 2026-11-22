@@ -67,7 +67,7 @@ Without `sizeLimit`, an `emptyDir` on disk shares the node's disk with images, l
 
 ## Why Stage 1's databases forget
 
-Each Stage 1 database is a Deployment with its data directory on an `emptyDir`. Trimmed from [`booking-db-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/infra/booking-db/booking-db-dep.yaml):
+Each Stage 1 database is a Deployment with its data directory on an `emptyDir`. Trimmed from [`booking-db-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1/k8s/infra/booking-db/booking-db-dep.yaml):
 
 ```yaml
 containers:

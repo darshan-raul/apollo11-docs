@@ -83,7 +83,7 @@ Inside a single Redis Pod, `appendfsync everysec` gives a crash RPO of about one
 
 ## What Stage 3's verifier proves
 
-[`verify.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/scripts/verify.sh) creates a booking through the Gateway, deletes `booking-db-0`, waits for it to be Ready, and looks for that booking ID in the database.
+[`verify.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/scripts/verify.sh) creates a booking through the Gateway, deletes `booking-db-0`, waits for it to be Ready, and looks for that booking ID in the database.
 
 - **Proves:** the replacement Pod reopened the same volume, and PostgreSQL had committed the booking to it.
 - **Does not prove:** survival of the node, the claim, the cluster, or a bad write. Those are the rows marked ❌ above.

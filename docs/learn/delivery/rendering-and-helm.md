@@ -94,11 +94,11 @@ So for prod the image tag is decided like this:
 Two details matter in practice:
 
 - **Maps merge, lists replace.** Setting `apps.booking.replicas` in `values-prod.yaml` leaves `apps.booking.port` and `apps.booking.tier` from `values.yaml` intact. A *list*, however, is replaced as a whole: an environment file that sets `serviceAccounts.apps: [identity]` would drop the other four.
-- **Environment files list only differences.** [`values-prod.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/helm/apollo11/values-prod.yaml) is about 40 lines, while `values.yaml` is several hundred. You can read the whole difference between dev and prod in a minute. That readability is the point of the layering.
+- **Environment files list only differences.** [`values-prod.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/helm/apollo11/values-prod.yaml) is about 40 lines, while `values.yaml` is several hundred. You can read the whole difference between dev and prod in a minute. That readability is the point of the layering.
 
 ### Step 2: the schema rejects bad values early
 
-Before any template runs, Helm checks the combined values against [`values.schema.json`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/helm/apollo11/values.schema.json). Apollo's schema requires, for example, an integer `replicas` of at least 1 and a `pullPolicy` that is one of `Always`, `IfNotPresent` or `Never`:
+Before any template runs, Helm checks the combined values against [`values.schema.json`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/helm/apollo11/values.schema.json). Apollo's schema requires, for example, an integer `replicas` of at least 1 and a `pullPolicy` that is one of `Always`, `IfNotPresent` or `Never`:
 
 ```bash
 helm template apollo11 stages/stage5/helm/apollo11 --set apps.booking.replicas=0
@@ -114,7 +114,7 @@ Without the schema, `replicas: 0` would render perfectly valid YAML and silently
 
 ### Step 3: templates fill the blanks
 
-Templates use Go template syntax between `{{ }}`. Everything outside the braces is copied through as-is. Here is the top of [`templates/apps/booking.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/helm/apollo11/templates/apps/booking.yaml), annotated:
+Templates use Go template syntax between `{{ }}`. Everything outside the braces is copied through as-is. Here is the top of [`templates/apps/booking.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/helm/apollo11/templates/apps/booking.yaml), annotated:
 
 ```yaml
 {{- $name := "booking" -}}                          # a local variable
@@ -157,7 +157,7 @@ The pieces you will meet in every chart:
 
 **Why `nindent` matters so much.** YAML structure *is* indentation. `include` returns the label block as text starting at column 0; `nindent 4` adds a newline and indents every line by four spaces so it sits under `labels:`. Get the number wrong and the YAML either fails to parse or, worse, parses with the labels attached to the wrong parent.
 
-**Why selector labels are kept separate.** [`_helpers.tpl`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/helm/apollo11/templates/_helpers.tpl) defines `apollo11.labels`, which includes `app.kubernetes.io/version`, and a separate, smaller selector set. A Deployment's `spec.selector` cannot be changed after creation. If the chart version were in the selector, the next upgrade would try to change it and the API server would reject the whole upgrade. So the templates use the full label set on metadata and only the stable `app: booking` in `matchLabels`.
+**Why selector labels are kept separate.** [`_helpers.tpl`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/helm/apollo11/templates/_helpers.tpl) defines `apollo11.labels`, which includes `app.kubernetes.io/version`, and a separate, smaller selector set. A Deployment's `spec.selector` cannot be changed after creation. If the chart version were in the selector, the next upgrade would try to change it and the API server would reject the whole upgrade. So the templates use the full label set on metadata and only the stable `app: booking` in `matchLabels`.
 
 The same template, rendered for two environments:
 
@@ -203,7 +203,7 @@ A rollback does not rewind the counter: it creates a *new* revision whose conten
 
 ### Chart version versus app version
 
-[`Chart.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/helm/apollo11/Chart.yaml) carries two numbers that mean different things:
+[`Chart.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/helm/apollo11/Chart.yaml) carries two numbers that mean different things:
 
 | Field | Apollo | Versions what | Bump it when |
 |---|---|---|---|

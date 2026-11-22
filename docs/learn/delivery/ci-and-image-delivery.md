@@ -56,7 +56,7 @@ flowchart LR
 
 ### Step 1: what Apollo's CI does
 
-[`.github/workflows/main.yml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/.github/workflows/main.yml) runs on every pull request to `main`, every push to `main`, and every tag that starts with `v`. It also supports manual dispatch. Jobs run in dependency order:
+[`.github/workflows/main.yml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/.github/workflows/main.yml) runs on every pull request to `main`, every push to `main`, and every tag that starts with `v`. It also supports manual dispatch. Jobs run in dependency order:
 
 | Job | Runs on | What it does | Why |
 |---|---|---|---|
@@ -67,7 +67,7 @@ flowchart LR
 Fixable HIGH or CRITICAL OS/library vulnerabilities fail the image gate.
 Unfixed findings are excluded (`ignore-unfixed: true`), so a passing scan does
 not mean an image has no vulnerabilities. The Trivy action is pinned by commit;
-the scanner version in CI is v0.70.0. PR builds cannot publish. Only the
+the scanner version in CI is v0.75.0, the same release used for the local scan evidence. PR builds cannot publish. Only the
 publication job has `packages: write`.
 
 Images use `ghcr.io/darshan-raul/apollo11/stageN/SERVICE:TAG`. Stage 5 images
@@ -80,10 +80,17 @@ Run local validation from the Apollo11 root:
 bash test/ci.sh
 ```
 
-Install Python/PyYAML, Go, Helm, kubectl and shellcheck first. This command does
-not run the Docker build/scan matrix or publish images. Local validation and
-18 local scans have evidence; a hosted workflow run and first GHCR publication
-remain unverified. Check registry availability before using production examples.
+Install Python/PyYAML, Go, **Helm 4**, kubectl and shellcheck first. CI pins
+Helm v4.3.1 and kubectl v1.37.1. The script prints the versions it used and
+refuses Helm 3: the committed `generated.yaml` files are Helm 4 renders, and
+Helm 3 emits different whitespace, so the drift check would fail on a change
+nobody made. It also runs Stage 5's render-only `compare-lab.sh`. This command
+does not run the Docker build/scan matrix or publish images.
+
+The hosted workflow first passed on 2026-10-24: validation, 18 Trivy-gated
+builds and 18 publishes. Every push to `main` publishes `sha-<commit>` and
+`latest` tags. No `v1.0.0` release tag exists yet, so production examples that
+pin it cannot pull until one is pushed.
 
 Notice what CI does **not** do: it never runs `helm upgrade` or `kubectl apply`. CI has no credentials for any cluster. Getting the new image into a cluster is the job of [GitOps](./gitops-and-ownership), which pulls from Git and the registry. That keeps cluster credentials out of CI entirely.
 

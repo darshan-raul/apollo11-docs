@@ -148,7 +148,7 @@ The base goes one step further with `includeTemplates: true`, which also stamps 
 
 ## Apollo example: a base that is a Helm render
 
-Apollo's [`overlays/base/kustomization.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/overlays/base/kustomization.yaml) has one resource, `generated.yaml`. That file is a committed render of the Helm chart: ConfigMaps, Secrets, 13 ServiceAccounts, 4 StatefulSets, 6 Deployments, Services, seed Jobs, Gateway resources and the MetalLB pool. That makes the two Stage 5 paths deploy identical objects; only the method differs.
+Apollo's [`overlays/base/kustomization.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/overlays/base/kustomization.yaml) has one resource, `generated.yaml`. That file is a committed render of the Helm chart: ConfigMaps, Secrets, 13 ServiceAccounts, 4 StatefulSets, 6 Deployments, Services, seed Jobs, Gateway resources and the MetalLB pool. That makes the two Stage 5 paths deploy identical objects; only the method differs.
 
 The CI workflow's `lint` job includes a step meant to keep that snapshot honest. It re-renders the chart with the base's settings and runs `diff` against `generated.yaml`, so a template change that is not re-rendered into the base should fail the build. This is a common real-world pattern: render a third-party chart once, commit the output, and manage the environment differences with Kustomize, so reviewers see plain YAML diffs.
 

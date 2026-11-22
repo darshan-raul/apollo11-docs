@@ -65,7 +65,7 @@ cat stages/stage8/README.md
 ```
 
 - Automount is off: that control carried forward from Stage 1.
-- The hardening `grep` finds nothing. That control never existed.
+- The hardening `grep` finds nothing in the Pod specs. Since Stage 5 the images themselves run as a non-root user (`USER 10001:10001`; the frontend as NGINX's UID 101), so `id` inside a container already shows a non-root UID. Nothing *enforces* it, though: no `runAsNonRoot` (a root image would start just the same), no read-only root filesystem (the process can still write anywhere the image's file permissions allow), no seccomp profile, no dropped capabilities. Stage 8 adds the enforcement.
 - With a cluster up, `kubectl get pods -n kube-system` shows `kindnet` and no Calico, so no NetworkPolicy would be enforced.
 
 ## The journey so far
