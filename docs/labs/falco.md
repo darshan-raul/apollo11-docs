@@ -5,7 +5,7 @@ title: "Falco — Runtime Detection"
 # Falco: observe a harmless runtime event
 
 :::info[Optional standalone mission]
-Source: [`stages/stage10/missions/falco`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage10/missions/falco). Start in the pinned Apollo11 repository root. Later commands run from the mission directory. Each mission creates its own disposable cluster and private kubeconfig; this is independent of the untrusted legacy Stage 10 tree.
+Source: [`stages/stage10/missions/falco`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage10/missions/falco). Start in the pinned Apollo11 repository root. Later commands run from the mission directory. Each mission creates its own disposable cluster and private kubeconfig; this is independent of the untrusted legacy Stage 10 tree.
 :::
 
 Optional Stage 10 security mission after the Stage 8 security concepts.

@@ -7,7 +7,7 @@ sidebar_label: "Stage 2: Guidance (Networking)"
 # Stage 2: Guidance
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage2`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage2`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the `kind-apollo11` cluster from [Ignition](./ignition) and the workloads from [Stage 1](./stage-1). Stage 1 must be torn down first.
 - **Namespaces change here:** `apollo-airlines-apps` (APIs, databases, Redis) and `apollo-airlines-ui` (frontend). Stage 1's `apollo-airlines` is not reused.
 - Concepts behind this stage: [Pod networks and CNI](./learn/networking/pod-network-and-cni) · [DNS and namespaces](./learn/networking/dns-and-namespaces) · [Service control and data paths](./learn/networking/service-control-and-data-paths) · [Endpoints and EndpointSlices](./learn/networking/endpoints-and-endpointslices) · [NodePort and LoadBalancer](./learn/networking/nodeport-and-loadbalancer) · [Ingress and TLS](./learn/networking/ingress-and-tls) · [Gateway API](./learn/networking/gateway-api)
@@ -79,11 +79,12 @@ bash stages/stage2/scripts/apply.sh --substage 1
 
 - **What happens:** `apply.sh` builds and loads the six images, then applies in five phases: namespaces and config, databases, seed Jobs, apps, then the chosen substage. Later substages can reuse the images with `--skip-build`.
 - **Why tear down Stage 1:** each stage is a snapshot, not a patch. Stage 1's NodePorts would still hold ports 30080–30084, and Stage 2 needs them.
-- **Watch out:** the frontend bakes its API URLs in at build time. [`build-images.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/scripts/build-images.sh) uses `http://<svc>.apollo.local` for substages 1–4 and `https://<svc>.apollo.local` for substage 5. If you reuse images with `--skip-build`, you keep whichever scheme you built last.
+- **Watch out:** the frontend bakes its API URLs in at build time. [`build-images.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/scripts/build-images.sh) uses `http://<svc>.apollo.local` for substages 1–4 and `https://<svc>.apollo.local` for substage 5 (`apply.sh` picks the scheme; by hand, pass `--scheme http` or `--scheme https`). If you reuse images with `--skip-build`, you keep whichever scheme you built last.
+- **Browser boundary:** those baked URLs have no port, so the browser calls ports 80/443. In substages 1–3 nothing listens there yet: test with `curl` (from `curl-client`, NodePorts or Traefik's 30080/30443) rather than logging in through the UI. The browser UI works from substage 4 (MetalLB, over HTTP, once the `EXTERNAL-IP` is in `/etc/hosts`) and over HTTPS in substage 5.
 
 ### Step 2: See the namespace split
 
-Open [`00-namespaces.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/config/00-namespaces.yaml), [`configmap.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/config/configmap.yaml) and [`secrets.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/config/secrets.yaml):
+Open [`00-namespaces.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/config/00-namespaces.yaml), [`configmap.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/config/configmap.yaml) and [`secrets.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/config/secrets.yaml):
 
 ```yaml
 # secrets.yaml (trimmed): the same Secret name, twice
@@ -122,7 +123,7 @@ $C curl -s http://identity.apollo-airlines-apps.svc.cluster.local:8080/healthz
 kubectl get endpointslices -n apollo-airlines-apps
 ```
 
-[`curl-client.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/01-internal-dns/curl-client.yaml) is a plain Pod (`curlimages/curl`, `sleep 3600`) placed in the UI namespace on purpose, so it calls the backends from the *other* side of the boundary.
+[`curl-client.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/01-internal-dns/curl-client.yaml) is a plain Pod (`curlimages/curl`, `sleep 3600`, `automountServiceAccountToken: false`) placed in the UI namespace on purpose, so it calls the backends from the *other* side of the boundary. Like every Apollo workload, it gets no Kubernetes API token it would never use.
 
 - **What you see:**
   - `resolv.conf` has `search apollo-airlines-ui.svc.cluster.local svc.cluster.local cluster.local` and `options ndots:5`.
@@ -143,7 +144,7 @@ curl -s localhost:30081/healthz
 curl -s localhost:30083/healthz
 ```
 
-[`nodeport-services.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/02-nodeport/nodeport-services.yaml) re-declares five Services with the same names:
+[`nodeport-services.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/02-nodeport/nodeport-services.yaml) re-declares five Services with the same names:
 
 ```yaml
 kind: Service
@@ -158,7 +159,7 @@ spec:
 ```
 
 - **What happens:** every node now listens on 30081 and forwards to a ready flight Pod, on any node.
-- **Why it works on your laptop:** kind's [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/ignition/kind-config.yaml) maps host ports 30080–30084 and 30443 to the control-plane container. A NodePort outside that list is open on the nodes but not on `localhost`.
+- **Why it works on your laptop:** kind's [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/ignition/kind-config.yaml) maps host ports 30080–30084 and 30443 to the control-plane container. A NodePort outside that list is open on the nodes but not on `localhost`.
 - **Three port numbers, three jobs:** `port` is what other Pods call. `targetPort` is what the container listens on. `nodePort` is what the outside calls. A wrong `targetPort` gives "connection refused" even though the Pod is healthy.
 - **Compared with Stage 1:** this *is* Stage 1's edge, now isolated as one rung so you can see its limits.
 - **The wall:**
@@ -179,7 +180,7 @@ done
 curl -kv --resolve identity.apollo.local:30443:127.0.0.1 https://identity.apollo.local:30443/healthz 2>&1 | grep -E 'subject:|issuer:'
 ```
 
-From [`01-traefik-daemonset.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/03-traefik-ingress-tls/01-traefik-daemonset.yaml), [`01b-traefik-service.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/03-traefik-ingress-tls/01b-traefik-service.yaml) and [`03-ingress-apps.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/03-traefik-ingress-tls/03-ingress-apps.yaml):
+From [`01-traefik-daemonset.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/03-traefik-ingress-tls/01-traefik-daemonset.yaml), [`01b-traefik-service.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/03-traefik-ingress-tls/01b-traefik-service.yaml) and [`03-ingress-apps.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/03-traefik-ingress-tls/03-ingress-apps.yaml):
 
 ```yaml
 # Traefik DaemonSet (trimmed), in kube-system
@@ -212,8 +213,10 @@ spec:
 
 - **What happens:** every request arrives at the same port. Traefik reads the `Host` header and picks the Service. `identity/flight/booking/search` return `200`. `nonexistent` returns `404`.
 - **Reading a 404 vs a 503:** the 404 is Traefik's own reply: no rule matched, no backend was contacted. If a rule matches but its Service has no ready Pods, you get `503` instead. 404 means "routing", 5xx means "routing worked, backend didn't".
-- **TLS:** [`generate-certs.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/03-traefik-ingress-tls/generate-certs.sh) makes one self-signed `*.apollo.local` certificate and stores it as `apollo-tls-secret` in **both** namespaces, because each Ingress can only reference a Secret in its own namespace. Traefik decrypts at the edge and talks plain HTTP to the Pods. This is **TLS termination**.
+- **TLS:** [`generate-certs.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/03-traefik-ingress-tls/generate-certs.sh) makes one self-signed `*.apollo.local` certificate and stores it as `apollo-tls-secret` in **both** namespaces, because each Ingress can only reference a Secret in its own namespace. Traefik decrypts at the edge and talks plain HTTP to the Pods. This is **TLS termination**.
 - **Default certificate fallback:** if `apollo-tls-secret` is missing, Traefik doesn't refuse the connection. It serves `TRAEFIK DEFAULT CERT` instead. The app stays healthy; only the certificate changed. `curl -k` hides this, so check the issuer.
+- **To see the fallback, delete both copies:** Traefik pools certificates from every Ingress it serves, across namespaces. Delete `apollo-tls-secret` only in `apollo-airlines-apps` and the copy in `apollo-airlines-ui` still matches `*.apollo.local`, so nothing changes. Delete it in both namespaces, check the issuer, then rerun `generate-certs.sh` to recover.
+- **What `apply.sh` cleaned up first:** it switched the five substage 2 Services back to `ClusterIP` and released their NodePorts. Otherwise `frontend` would still hold 30080, the port Traefik's `web` entry point needs. If you move from substage 2 to 3 by hand, do the same before applying Traefik.
 - **Compared with substage 2:** five ports became one pair. Routing moved from Layer 4 (port numbers) to Layer 7 (hostnames). TLS appeared.
 - **The wall:** the front door is still a NodePort on 30080 / 30443. Real clients expect ports 80 and 443 on a real address.
 
@@ -230,7 +233,7 @@ curl -s -H "Host: identity.apollo.local" http://$LB_IP/healthz
 curl -k -s --resolve identity.apollo.local:443:$LB_IP https://identity.apollo.local/healthz
 ```
 
-From [`01-ip-pool.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/04-metallb/01-ip-pool.yaml) and [`traefik-loadbalancer-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/04-metallb/traefik-loadbalancer-svc.yaml):
+From [`01-ip-pool.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/04-metallb/01-ip-pool.yaml) and [`traefik-loadbalancer-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/04-metallb/traefik-loadbalancer-svc.yaml):
 
 ```yaml
 kind: IPAddressPool
@@ -253,7 +256,7 @@ spec:
 - **What happens:** MetalLB's controller picks an IP from `apollo-pool` and writes it to the Service's status. Its speaker Pods answer ARP for that IP, so packets for it reach a node, and kube-proxy forwards them to Traefik.
 - **Why this way:** `type: LoadBalancer` is the portable request. The same Service YAML works on AWS or GCP; only the controller that fulfils it changes. MetalLB lets you learn that model on a laptop.
 - **What `<pending>` means:** no controller, no free address in the pool, or an address requested outside it. The API accepts the Service either way; the controller's events say why.
-- **Compared with substage 3:** same Traefik, same Ingresses. Only the Service type changed, and the high ports disappeared.
+- **Compared with substage 3:** same Traefik, same Ingresses. Only the Service type changed, and the high ports disappeared. This is also the first substage where the browser UI works: add the MetalLB IP to `/etc/hosts` for `frontend`, `identity`, `flight`, `booking` and `search.apollo.local` (Linux; see the caution below for Docker Desktop).
 - **The wall:** the Ingress API itself.
   - One object mixes the platform's concerns (ports, certificates) with the app team's (hostname → Service).
   - Anything beyond host and path (redirects, header rules, timeouts) needs controller-specific annotations.
@@ -294,7 +297,7 @@ curl -s -o /dev/null -w 'frontend %{http_code}\n' -H "Host: frontend.apollo.loca
 # docker exec apollo11-control-plane curl -s -H "Host: identity.apollo.local" http://$GW/healthz
 ```
 
-From [`01-gateway.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/05-envoy-gateway/01-gateway.yaml), [`00b-envoyproxy.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/05-envoy-gateway/00b-envoyproxy.yaml), [`07-httproute-frontend.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/05-envoy-gateway/07-httproute-frontend.yaml) and [`01a-referencegrant.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/05-envoy-gateway/01a-referencegrant.yaml):
+From [`01-gateway.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/05-envoy-gateway/01-gateway.yaml), [`00b-envoyproxy.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/05-envoy-gateway/00b-envoyproxy.yaml), [`07-httproute-frontend.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/05-envoy-gateway/07-httproute-frontend.yaml) and [`01a-referencegrant.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/05-envoy-gateway/01a-referencegrant.yaml):
 
 ```yaml
 kind: Gateway
@@ -334,7 +337,7 @@ spec:
 ```
 
 - **What happens:**
-  - `apply.sh` first deletes Traefik and the Ingresses. MetalLB stays.
+  - `apply.sh` first deletes Traefik and the Ingresses, including Traefik's cluster-scoped `IngressClass`, `ClusterRole` and `ClusterRoleBinding` and its ServiceAccount, so no orphaned Ingress controller identity is left behind. MetalLB stays. Doing the switch by hand? The [substage README](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/05-envoy-gateway/README.md) lists every delete, plus the `generate-certs.sh` run the HTTPS listener needs.
   - It installs Envoy Gateway (server-side apply, because the Gateway API CRDs are too large for client-side apply).
   - The controller sees the Gateway, creates an Envoy Deployment and a `LoadBalancer` Service in `envoy-gateway-system`, and MetalLB gives it an IP.
   - Each HTTPRoute becomes Envoy config, pushed live without restarting the proxy.
@@ -366,7 +369,7 @@ bash stages/stage2/scripts/verify-tls.sh
 ```
 
 - **What you see:** the HTTPS listener's conditions are all `True`. Booking answers with verification on. The foreign hostname fails with exit code 60: the certificate is only valid for `*.apollo.local`.
-- **What [`verify-tls.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/scripts/verify-tls.sh) does:** trusted HTTPS health on each API, the frontend, a passenger login, a populated search, a booking and its cancellation, and the hostname rejection. Its last line is `Trusted HTTPS login, populated search, booking, cancellation, and hostname rejection passed.`
+- **What [`verify-tls.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/scripts/verify-tls.sh) does:** trusted HTTPS health on each API, the frontend, a passenger login, a populated search, a booking and its cancellation, and the hostname rejection. Its last line is `Trusted HTTPS login, populated search, booking, cancellation, and hostname rejection passed.`
 - **Listeners are independent:** if `apollo-tls-secret` is deleted, the HTTPS listener goes `ResolvedRefs=False` (`InvalidCertificateRef`) and HTTPS fails, while plain HTTP on port 80 keeps returning 200. Check the *listener* before suspecting the app.
 - **Using the browser:** follow the [Linux hostname, certificate-trust and cleanup steps](./labs/local-access#browser-on-a-routable-linux-host). Direct Gateway browser access on Docker Desktop is not a verified course path; use the documented API route there.
 

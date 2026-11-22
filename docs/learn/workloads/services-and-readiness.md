@@ -15,7 +15,7 @@ This stage is about workloads: Deployments keep Pods running and replace them wh
 
 A **Service** gives a group of Pods one stable name and one stable virtual IP (its **ClusterIP**). It picks its Pods by **label selector**, not by name, so replacements are included automatically. It sends traffic only to Pods that report **ready**. Callers use the name; Pods come and go behind it.
 
-Each Apollo app has a Deployment and a Service that share one label. Trimmed from [Stage 1's booking manifests](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/apps/booking):
+Each Apollo app has a Deployment and a Service that share one label. Trimmed from [Stage 1's booking manifests](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1/k8s/apps/booking):
 
 ```yaml
 # Deployment: the Pod template carries the label

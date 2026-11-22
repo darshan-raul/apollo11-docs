@@ -85,7 +85,7 @@ flowchart LR
 
 ### The Application: one environment, one object
 
-An **Application** is a custom resource that says *what* to deploy (source), *where* (destination) and *how* to keep it in sync (policy). Apollo has one per environment. Here is [`applications/dev.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/applications/dev.yaml), trimmed and annotated:
+An **Application** is a custom resource that says *what* to deploy (source), *where* (destination) and *how* to keep it in sync (policy). Apollo has one per environment. Here is [`applications/dev.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/argocd/applications/dev.yaml), trimmed and annotated:
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -132,7 +132,7 @@ Things to notice:
 
 ### The AppProject: guard rails
 
-An **AppProject** limits what its Applications may do. Apollo's [`projects/project.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/projects/project.yaml):
+An **AppProject** limits what its Applications may do. Apollo's [`projects/project.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/argocd/projects/project.yaml):
 
 ```yaml
 kind: AppProject
@@ -148,7 +148,7 @@ spec:
   namespaceResourceWhitelist: [{group: '*', kind: '*'}]
 ```
 
-`clusterResourceWhitelist: []` means no Application in this project can create a Namespace, CRD, ClusterRole, PriorityClass or GatewayClass. A mistake in one environment's values cannot change something every environment shares. Those shared, cluster-scoped objects live in [`platform/platform.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage5/argocd/platform/platform.yaml), which `bootstrap.sh` applies once. That is why each Application sets `priorityClasses.enabled=false` and `gateway.createClass=false`: otherwise dev, staging and prod would all try to own the same PriorityClass, and the project would refuse it anyway.
+`clusterResourceWhitelist: []` means no Application in this project can create a Namespace, CRD, ClusterRole, PriorityClass or GatewayClass. A mistake in one environment's values cannot change something every environment shares. Those shared, cluster-scoped objects live in [`platform/platform.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage5/argocd/platform/platform.yaml), which `bootstrap.sh` applies once. That is why each Application sets `priorityClasses.enabled=false` and `gateway.createClass=false`: otherwise dev, staging and prod would all try to own the same PriorityClass, and the project would refuse it anyway.
 
 ### Detecting change: polling, watching, refreshing
 

@@ -7,7 +7,7 @@ sidebar_label: "Stage 7: Orbital (Scaling)"
 # Stage 7: Orbital Maneuvering
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage7`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage7`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the Stage 6 chart, including its observability stack, on the `kind-apollo11` cluster (two workers needed for Step 6). Tear down Stage 6 first. Namespace for this stage's changes: `apollo-airlines-apps`. Step 3 needs [k6](https://grafana.com/docs/k6/latest/) installed.
 - Concepts behind this stage: [Measurement before optimization](./learn/scaling/measurement-baseline) · [Cache-aside](./learn/scaling/cache-aside) · [Horizontal Pod Autoscaling](./learn/scaling/hpa) · [VPA and capacity planning](./learn/scaling/vpa-and-capacity) · [Requests, limits and pressure](./learn/reliability/requests-limits-and-pressure) · [Scheduling and placement](./learn/reliability/scheduling)
 :::
@@ -63,6 +63,14 @@ Stage 7 fixes these in a fixed order: **measure first, then cache, then scale ou
 export KUBE_CONTEXT=kind-apollo11
 ```
 
+Keep the exercises in this order. Each later one changes state (replica counts, HPA settings, observability) that would spoil an earlier measurement:
+
+1. Install and verify dev (Step 1).
+2. The single-replica cache benchmark (Steps 3–4), before any HPA load.
+3. [Normal-policy capacity and cache correctness](#normal-policy-capacity-and-cache-correctness), including the Redis outage drill and the staging VPA exercise (Step 7).
+4. HPA and scheduling under load with `scaling-lab.sh` (Steps 5–6), on an installed stack with at least two `node-role=worker` nodes.
+5. The inherited observability exercises, then `teardown.sh --purge`.
+
 ### Step 1: Deploy, and see what's new in the cluster
 
 ```bash
@@ -72,13 +80,13 @@ kubectl top pods -n apollo-airlines-apps -l app=search        # works now
 kubectl get hpa search-hpa -n apollo-airlines-apps
 ```
 
-- **What happens:** [`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/scripts/apply.sh) installs the Stage 6 stack as before, plus metrics-server. In dev it skips the VPA bundle. The HPA starts reporting `TARGETS` like `3%/70%` within about 30 s.
+- **What happens:** [`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/scripts/apply.sh) installs the Stage 6 stack as before, plus metrics-server. In dev it skips the VPA bundle. The HPA starts reporting `TARGETS` like `3%/70%` within about 30 s.
 - **What metrics-server is:** a small cluster add-on that collects CPU and memory from each kubelet and serves them as the `metrics.k8s.io` API. `kubectl top` and the HPA both read it.
 - **Why not use Prometheus for this?** Prometheus (Stage 6) is for people and alerts. The HPA reads the standard resource-metrics API, which metrics-server provides. Two consumers, two purposes.
 
 ### Step 2: Read the cache-aside code
 
-[`search/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/code/search/main.go), trimmed:
+[`search/main.go`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/code/search/main.go), trimmed:
 
 ```go
 cacheKey := fmt.Sprintf("search:%s:%s:%s", origin, destination, date)   // same 3 inputs = same answer
@@ -96,7 +104,7 @@ if cacheClient != nil {
 }
 cacheMissesTotal.WithLabelValues("search").Inc()
 // ... call flight, build the result ...
-cacheClient.Set(setCtx, cacheKey, payloadBytes, time.Duration(cacheTTLSeconds)*time.Second)   // 300 s
+cacheClient.Set(setCtx, cacheKey, payloadBytes, time.Duration(cacheTTLSeconds)*time.Second)   // 300 s unless CACHE_TTL_SECONDS says otherwise
 c.Header("X-Cache", "MISS")
 ```
 
@@ -108,7 +116,7 @@ c.Header("X-Cache", "MISS")
 
 ### Step 3: Measure the baseline before turning the cache on
 
-A change is only "better" against a measured "before". The [k6 README](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/k6/README.md) holds the full procedure, with a trap that restores everything on exit. Its core:
+A change is only "better" against a measured "before". The [k6 README](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/k6/README.md) holds the full procedure, with a trap that restores everything on exit. Its core:
 
 ```bash
 NS=apollo-airlines-apps
@@ -123,7 +131,7 @@ BASE_URL=http://localhost:18083 EXPECT_CACHE=off \
   k6 run --summary-export baseline-summary.json stages/stage7/k6/search.js
 ```
 
-What [`search.js`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/k6/search.js) holds fixed:
+What [`search.js`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/k6/search.js) holds fixed:
 
 ```js
 const ROUTES = [['BOM','SIN'], ['SIN','BOM'], ['DEL','DXB'], ['DXB','DEL'], ['BOM','LHR'], ['DEL','JFK']];
@@ -177,7 +185,7 @@ What the cache costs, so you know it when you see it:
 
 ### Step 5: Read the HPA, and why it needs Stages 4 and 6
 
-An **HPA** (HorizontalPodAutoscaler) is a controller that changes a Deployment's replica count to keep a metric near a target. [`search-hpa.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/helm/apollo11/templates/autoscaling/search-hpa.yaml):
+An **HPA** (HorizontalPodAutoscaler) is a controller that changes a Deployment's replica count to keep a metric near a target. [`search-hpa.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/helm/apollo11/templates/autoscaling/search-hpa.yaml):
 
 ```yaml
 kind: HorizontalPodAutoscaler
@@ -210,7 +218,7 @@ kubectl get deploy search -n $NS -o jsonpath='{.spec.template.spec.containers[0]
 - **Why it needs Stage 4's probes too:** new replicas get traffic only once their readiness probe passes. Without that, scaling out would send requests to Pods still starting.
 - **Why it comes after Stage 6:** you can't tune a target you can't see. The Stage 6 dashboards show whether more replicas actually lowered latency, or whether the bottleneck is elsewhere (flight, the database).
 - **Why scale up fast and down slow:** a spike hurts passengers now; extra Pods for five minutes only cost a little. Removing Pods on every dip would cause churn.
-- **Compared with Stage 5:** `apps.search.replicas` in values is now just the starting point. The HPA owns the replica count at runtime. The chart still renders `replicas` on search's Deployment, so `helm upgrade` resets it, and Argo CD's self-heal in dev and staging would revert every HPA change (prod ignores `/spec/replicas`). See [who owns `spec.replicas`](./learn/scaling/hpa#who-owns-specreplicas).
+- **Compared with Stage 5:** `apps.search.replicas` in values is now just the starting point. The HPA owns the replica count at runtime. The chart still renders `replicas` on search's Deployment, so `helm upgrade` resets it until the HPA raises it again. The Argo CD Applications ignore search's `/spec/replicas` in dev and staging (with `RespectIgnoreDifferences=true`), and every Deployment's in prod, so self-heal leaves the HPA alone. See [who owns `spec.replicas`](./learn/scaling/hpa#who-owns-specreplicas).
 - **Why scale-up is a staircase:** search's limit equals its request, so throttling caps measured utilization at 100%. Against 70%, each HPA step can multiply replicas by at most about 1.43: 1 → 2 → 3 → 5.
 
 ### Step 6: Watch it scale under real load, and where the new Pods land
@@ -222,7 +230,7 @@ watch -n3 "kubectl get hpa search-hpa -n apollo-airlines-apps; kubectl get pods 
 bash stages/stage7/scripts/scaling-lab.sh run
 ```
 
-[`scaling-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/scripts/scaling-lab.sh) does, in order:
+[`scaling-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/scripts/scaling-lab.sh) does, in order:
 
 1. Labels one worker `apollo11.io/search-pool=dedicated` and taints it `workload=search:NoSchedule`, then recreates the search Pods.
 2. Lowers the HPA target to 10% and the scale-down window to 30 s, so a laptop can show it quickly. It records the originals first.
@@ -313,6 +321,8 @@ SSL_CERT_FILE=/tmp/apollo-capacity.crt BASE_URL=https://search.apollo.local \
   k6 run --summary-export capacity.json stages/stage7/k6/capacity.js
 ```
 
+`capacity.js` sends `Host: search.apollo.local` (override with `HOST_HEADER`), so the Gateway routes the request even when `BASE_URL` names an address rather than the hostname. With HTTPS, TLS still checks the name in `BASE_URL`.
+
 Watch `kubectl get hpa,pods -n apollo-airlines-apps -w` in another terminal.
 The 14-minute profile ramps 10→50→100→200 requests/s and returns to 10. Record
 p95, failures, dropped iterations, Pod CPU, desired/current replicas and Pending
@@ -326,10 +336,10 @@ soft-spread example remains unchanged.
 
 For Redis outage/recovery, stale seat counts, concurrent misses, and the required
 staging VPA recommendation exercise, follow the pinned
-[PERFORMANCE.md](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/PERFORMANCE.md).
+[PERFORMANCE.md](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/PERFORMANCE.md).
 Dev skips VPA. Tear dev down before installing staging; require nonempty lower,
 target and upper recommendations while update mode stays `Off`. These staging
-steps were not rerun in the October 22 verification pass.
+steps last ran live on 2026-08-25, before the October image upgrades (tracker G1e).
 
 The Search handler tests use simulated Redis and HTTP upstreams:
 
@@ -338,7 +348,7 @@ The Search handler tests use simulated Redis and HTTP upstreams:
 ```
 
 They cover MISS/HIT, expiry, stale values, concurrent cold misses, upstream and
-Redis errors, and recovery. Multiple cold requests may reach Flight: there is
+Redis errors, and recovery, plus an invalid date (400), a custom `CACHE_TTL_SECONDS`, and `request_id` in the JSON log line. Multiple cold requests may reach Flight: there is
 no distributed request coalescing guarantee.
 
 ## When something looks wrong
@@ -365,7 +375,7 @@ The [troubleshooting page](./troubleshooting) has more.
 | Only search autoscales, and only on CPU | Work driven by queues or events doesn't show up as CPU | [Stage 11](./stage-11) (planned): KEDA track |
 | Search results can be up to 5 minutes stale | A sold-out flight may still show seats in search | A deliberate trade-off; booking checks flight directly |
 | VPA advice must be applied by hand, and dev has none | Requests drift from reality unless someone reads it | — (by design in `Off` mode) |
-| The chart sets search's `replicas` while the HPA manages it | `helm upgrade` resets the count; Argo CD self-heal in dev and staging fights the HPA | Omit `replicas` when autoscaling is on, or ignore the field as prod does |
+| The chart sets search's `replicas` while the HPA manages it | `helm upgrade` resets the count until the HPA corrects it (Argo CD ignores the field) | Omit `replicas` when autoscaling is on |
 | Search's cache key uses raw query values, and its Redis also holds notification's queue, with persistence on | Keys grow with distinct inputs; no safe eviction policy can cap memory | A normalized key and a separate cache instance ([Cache-aside](./learn/scaling/cache-aside#keys-define-the-cache)) |
 | Secrets are base64 in Git, no RBAC, NetworkPolicies not enforced, Grafana open | This deployment is not hardened. Do not describe it as such | [Stage 8](./stage-8) (planned): Command Module (security) |
 | No view of what all these replicas cost | Scaling decisions are made without cost data | [Stage 11](./stage-11) (planned): Kubecost track |

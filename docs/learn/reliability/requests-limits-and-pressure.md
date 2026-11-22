@@ -103,7 +103,7 @@ Two objects can enforce good habits for a whole namespace. Apollo does not use t
 
 ## Apollo example
 
-Every Stage 4 container sets `requests == limits`, so all ten workloads are `Guaranteed`. From [booking's Deployment](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/k8s/apps/booking/booking-dep.yaml):
+Every Stage 4 container sets `requests == limits`, so all ten workloads are `Guaranteed`. From [booking's Deployment](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4/k8s/apps/booking/booking-dep.yaml):
 
 ```yaml
 resources:

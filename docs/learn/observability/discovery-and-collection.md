@@ -24,7 +24,7 @@ Prometheus can discover targets itself, but its configuration file is long and e
 | `PodMonitor` | The same, selecting Pods directly | None |
 | `Probe` | Black-box checks of a URL through a prober | Frontend health through the blackbox exporter |
 | `PrometheusRule` | Recording and alerting rules ([next chapter](./queries-alerts-and-objectives)) | `apollo-services` |
-| `Alertmanager` | Where alerts are sent | Configured in [`alerting.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/alerting.yaml) |
+| `Alertmanager` | Where alerts are sent | Configured in [`alerting.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/alerting.yaml) |
 
 The Operator watches these objects, generates Prometheus's real configuration from them, and stores it in a Secret that a sidecar in the Prometheus Pod reloads. You never edit `prometheus.yml`.
 

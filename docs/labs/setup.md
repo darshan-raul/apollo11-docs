@@ -41,9 +41,9 @@ From the directory where you keep projects, run:
 ```bash
 git clone https://github.com/darshan-raul/Apollo11.git
 cd Apollo11
-git checkout f6211e679f8ed66a5a19033ac49a3bfc3a506eab
+git checkout 23e6513d5b414fd1811a4b8c7f944ab469b711b2
 git status --short       # expect empty
-git rev-parse HEAD       # expect f6211e679f8ed66a5a19033ac49a3bfc3a506eab
+git rev-parse HEAD       # expect 23e6513d5b414fd1811a4b8c7f944ab469b711b2
 ```
 
 - A detached-HEAD message is expected.
@@ -53,8 +53,8 @@ git rev-parse HEAD       # expect f6211e679f8ed66a5a19033ac49a3bfc3a506eab
 ## Install the tools with the bootstrap script
 
 Continue from the pinned repository root; it contains
-[`prep.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/prep.sh)
-and [`mise.toml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/mise.toml):
+[`prep.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/prep.sh)
+and [`mise.toml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/mise.toml):
 
 ```bash
 ./prep.sh
@@ -79,7 +79,7 @@ git --version && docker --version && docker compose version && docker ps
 kind version && kubectl version --client && helm version && jq --version && k6 version
 ```
 
-Each should print a version; `docker ps` must succeed. Before Stage 2, read
+Each should print a version; `docker ps` must succeed. `helm version` must report **v4**: the committed Stage 5–7 renders are Helm 4 output, and the repository's `test/ci.sh` refuses Helm 3. Before Stage 2, read
 [Local Gateway and browser access](./local-access) for native Linux versus
 Docker Desktop routing and certificate trust.
 
@@ -152,5 +152,5 @@ More: [Troubleshooting](../troubleshooting).
 
 ## Revision and verification boundary
 
-- Documentation source revision: `f6211e679f8ed66a5a19033ac49a3bfc3a506eab`. Includes the application API fixes, mise toolchain, stage-specific CI image gate, alert delivery, edge probes and Stage 7 scheduling fixes. See [mission status](../status) for the exact live evidence and remaining verification gaps. No patches needed.
+- Documentation source revision: `23e6513d5b414fd1811a4b8c7f944ab469b711b2`. Includes the application API fixes, mise toolchain, stage-specific CI image gate, alert delivery, edge probes and Stage 7 scheduling fixes, plus the October–November fixes: non-root Stage 5–7 images, Helm 4 CI pin, identity graceful shutdown, Stage 5 release labs, and the Stage 1–7 script, manifest and code fixes of 2026-11-21/22. See [mission status](../status) for the exact live evidence (which predates the November fixes) and remaining verification gaps. No patches needed.
 - Before each stage: `git rev-parse HEAD` matches and `git status --short` is clean.

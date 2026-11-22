@@ -7,7 +7,7 @@ sidebar_label: "Core Capstone"
 # Capstone: the whole platform, one booking
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage7`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage7`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: everything from Launchpad to Stage 7. Security and cloud are still *planned* (Stages 8–9).
 - Read first: [A passenger's booking](./learn/capstone/a-booking-through-kubernetes), the chapter version of this page.
 :::
@@ -34,7 +34,7 @@ bash stages/stage7/scripts/verify.sh --mode helm --env dev
 
 ## Follow one booking
 
-The [trace verifier](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/scripts/trace-test.sh)
+The [trace verifier](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/scripts/trace-test.sh)
 creates the booking we follow here. It needs Bash 4+ (`mapfile`), Python 3 and
 OpenSSL in addition to the course toolchain. On macOS, use an installed Bash
 4+ on your PATH; the system Bash 3.2 cannot run this verifier.
@@ -140,7 +140,8 @@ kubectl get deploy booking -n apollo-airlines-apps -o yaml | grep -E 'runAsNonRo
 | Requests = limits (`Guaranteed` QoS) on the ten workloads | ✅ present | `qosClass` column | Stage 4 |
 | PodDisruptionBudgets | Prod values only, none in dev | `get pdb -A` | Stage 4 |
 | No API token in app Pods | ✅ present | `automountServiceAccountToken: false` | Stage 1 |
-| Container hardening (non-root, read-only root, seccomp) | ❌ absent | no fields on booking | [Stage 8](./stage-8) (planned) |
+| Non-root image user | ✅ present in the image only | `USER 10001:10001` in each service Dockerfile (frontend: NGINX UID 101); `kubectl exec deploy/booking -n apollo-airlines-apps -- id` | Stage 5 images |
+| Enforced container hardening (`runAsNonRoot`, read-only root, seccomp, dropped capabilities) | ❌ absent | no `securityContext` fields on booking; nothing stops a root image | [Stage 8](./stage-8) (planned) |
 | NetworkPolicy | ❌ absent | `No resources found` | Stage 8 (planned) |
 | Secrets from a secret manager | ❌ plain Kubernetes Secrets | chart Secret template | Stage 8 (planned) |
 | Admission policy | ❌ absent | — | Stage 8 (planned) |

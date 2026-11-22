@@ -79,7 +79,7 @@ The HPA is cautious with Pods it cannot judge yet. Pods that are not Ready, or h
 
 ## Behavior: how fast, in each direction
 
-From [`search-hpa.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/helm/apollo11/templates/autoscaling/search-hpa.yaml):
+From [`search-hpa.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/helm/apollo11/templates/autoscaling/search-hpa.yaml):
 
 ```yaml
 behavior:
@@ -107,10 +107,10 @@ Stage 7's chart renders search's Deployment with `replicas: {{ .replicas }}` (1 
 | Tool | What happens to search's replicas |
 |---|---|
 | `helm upgrade` | Helm compares the chart with the live object and sets `replicas` back to the chart's value; the HPA raises it again within seconds |
-| Argo CD dev and staging (`selfHeal: true`) | The HPA's change shows as drift; self-heal reverts it, the HPA re-applies it, repeatedly |
-| Argo CD prod | `ignoreDifferences` on `/spec/replicas` for Deployments: no fight |
+| Argo CD dev and staging (`selfHeal: true`) | `ignoreDifferences` on search's `/spec/replicas`, with the sync option `RespectIgnoreDifferences=true`: no fight. Without that option, a sync would still write the chart's value back |
+| Argo CD prod | `ignoreDifferences` on `/spec/replicas` for every Deployment (so people can also scale by hand during an incident): no fight |
 
-The fix is to leave the field to the HPA: omit `replicas` from the template when autoscaling is enabled (the Deployment keeps whatever value it has), or ignore the field in the GitOps tool as prod does. This conflict follows from the chart and Application specs; the course has not yet recorded it on a live Argo CD install (Stage 6/7 Argo paths were not rerun in the October pass).
+The remaining conflict is Helm's. The fix is to leave the field to the HPA: omit `replicas` from the template when autoscaling is enabled (the Deployment keeps whatever value it has). Apollo's Argo CD Applications already take the other route and ignore the field. This follows from the chart and Application specs; Stage 7's Argo CD path has not yet passed a live run ([status](../../status)), so treat it as configuration, not observed behavior.
 
 ## What an HPA cannot do
 

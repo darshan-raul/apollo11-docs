@@ -73,7 +73,7 @@ stateDiagram-v2
 
 `for` is a debounce: a five-second blip never reaches a person. The cost is delay; the error rate must hold for five minutes (plus the 5-minute averaging inside `rate`) before anyone hears about it.
 
-Apollo's rules, from [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/prometheus/rules.yaml):
+Apollo's rules, from [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/prometheus/rules.yaml):
 
 | Alert | Fires when | `for` |
 |---|---|---|

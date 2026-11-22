@@ -106,8 +106,8 @@ Stage 4 adds two budgets, both `minAvailable: 1` on two-replica Deployments:
 
 | PDB | Covers | Allows |
 |---|---|---|
-| [`booking-pdb`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/k8s/pdb/booking-pdb.yaml) | `app: booking` in `apollo-airlines-apps` | 1 eviction at a time |
-| [`frontend-pdb`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/k8s/pdb/frontend-pdb.yaml) | `app: frontend` in `apollo-airlines-ui` | 1 eviction at a time |
+| [`booking-pdb`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4/k8s/pdb/booking-pdb.yaml) | `app: booking` in `apollo-airlines-apps` | 1 eviction at a time |
+| [`frontend-pdb`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4/k8s/pdb/frontend-pdb.yaml) | `app: frontend` in `apollo-airlines-ui` | 1 eviction at a time |
 
 What the rest of the airline gets:
 

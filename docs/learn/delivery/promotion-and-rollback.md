@@ -192,6 +192,7 @@ kubectl get pods -n $NS -l app=booking \
   -o custom-columns='POD:.metadata.name,IMAGE:.spec.containers[0].image,READY:.status.containerStatuses[0].ready'
 kubectl get endpointslices -n $NS -l kubernetes.io/service-name=booking   # traffic goes to the old Pods
 helm history apollo11 -n $NS                                       # Helm path: a new "Rollback to N" revision
+helm test apollo11 -n $NS --logs                                   # Helm path: the chart's in-cluster smoke test
 ```
 
 Then test a real request, such as a booking through the frontend. Finally check the data the bad version left behind.
@@ -207,7 +208,10 @@ kubectl get pods -n $NS -l app=booking                 # new Pod in ImagePullBac
 helm history apollo11 -n $NS                           # note the last good revision number
 helm rollback apollo11 <good-revision> -n $NS
 helm history apollo11 -n $NS | tail -1                 # a new revision: "Rollback to <good-revision>"
+helm test apollo11 -n $NS --logs                       # identity ready, flights seeded, frontend serving
 ```
+
+`bash stages/stage5/scripts/release-lab.sh` runs the same lab with `--wait` (so the release is marked `failed`) and checks every step.
 
 - **Proves:** the bad image never replaced the working Pods, because a new Pod must become ready before old ones are removed. And a rollback adds history rather than erasing it.
 

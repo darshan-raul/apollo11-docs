@@ -126,10 +126,10 @@ A Service **with** a selector belongs to the controller: hand edits to its slice
 
 ## Apollo example
 
-Every Apollo Service in [`stages/stage2/k8s/apps/`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/apps) has a selector, so the controller manages all their slices. Two Stage 2 behaviours are visible only in them:
+Every Apollo Service in [`stages/stage2/k8s/apps/`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/apps) has a selector, so the controller manages all their slices. Two Stage 2 behaviours are visible only in them:
 
 - **Readiness chains.** search's readiness probe calls flight's `/readyz`. If flight has no ready Pods, search's Pods stay `Running` but flip to `ready: false` in search's slice. Nothing restarts; search simply stops receiving traffic.
-- **The broken-selector drill** in [Substage 1](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/01-internal-dns/README.md) patches identity's selector to `app: identity-broken`. The slice empties, kube-proxy installs a `REJECT` rule, and calls fail while the identity Pod is perfectly healthy. No event is emitted: an empty slice is a valid state.
+- **The broken-selector drill** in [Substage 1](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/01-internal-dns/README.md) patches identity's selector to `app: identity-broken`. The slice empties, kube-proxy installs a `REJECT` rule, and calls fail while the identity Pod is perfectly healthy. No event is emitted: an empty slice is a valid state.
 
 ## Try it
 

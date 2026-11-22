@@ -7,7 +7,7 @@ sidebar_label: "Launchpad (Docker Compose)"
 # Launchpad: Apollo on Docker Compose
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/launchpad`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/launchpad) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from `stages/launchpad` unless stated.
+- Repo folder: [`stages/launchpad`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/launchpad) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from `stages/launchpad` unless stated.
 - Builds on: nothing. This is the start. You need Docker with Compose, `curl` and `jq`.
 - Concepts behind this stage: [Process, image, container](./learn/containers/process-image-container) · [Images and configuration](./learn/containers/images-and-configuration) · [Networks and clients](./learn/containers/networks-and-clients) · [State and dependencies](./learn/containers/state-and-dependencies) · [Least privilege for containers](./learn/containers/least-privilege)
 :::
@@ -88,7 +88,7 @@ Browser :3000
           └── notification :8084 ─────► redis :6379
 ```
 
-Booking has the most dependencies, so follow it. First its image, [`code/booking/Dockerfile`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/launchpad/code/booking/Dockerfile):
+Booking has the most dependencies, so follow it. First its image, [`code/booking/Dockerfile`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/launchpad/code/booking/Dockerfile):
 
 ```dockerfile
 FROM golang:1.22-alpine AS builder      # stage 1: has the Go compiler
@@ -109,7 +109,7 @@ USER apollo                             # the process does not run as root
 CMD ["/app/booking-service"]
 ```
 
-Then how it runs, in [`docker-compose.yml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/launchpad/docker-compose.yml):
+Then how it runs, in [`docker-compose.yml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/launchpad/docker-compose.yml):
 
 ```yaml
 # docker-compose.yml → booking (trimmed)

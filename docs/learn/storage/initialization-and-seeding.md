@@ -96,14 +96,14 @@ Each database has two ConfigMaps and one Job:
 
 | File | Contains | How it runs |
 |---|---|---|
-| [`identity-db-init-script.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-init-script.yaml) | `init.sql`: `CREATE TABLE IF NOT EXISTS users (…)` | Mounted at `/docker-entrypoint-initdb.d` in the StatefulSet |
-| [`identity-db-seed.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/jobs/identity-db-seed.yaml) | `seed.sql`: two users, `ON CONFLICT (id) DO NOTHING` | Mounted at `/init` in the Job |
-| [`seed-identity-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/jobs/seed-identity-db.yaml) | The Job | Created by `apply.sh` after the StatefulSets are Ready |
+| [`identity-db-init-script.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/apps/identity-db/identity-db-init-script.yaml) | `init.sql`: `CREATE TABLE IF NOT EXISTS users (…)` | Mounted at `/docker-entrypoint-initdb.d` in the StatefulSet |
+| [`identity-db-seed.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/jobs/identity-db-seed.yaml) | `seed.sql`: two users, `ON CONFLICT (id) DO NOTHING` | Mounted at `/init` in the Job |
+| [`seed-identity-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/jobs/seed-identity-db.yaml) | The Job | Created by `apply.sh` after the StatefulSets are Ready |
 
 The Job connects through the ordinary Service, like any client:
 
 ```bash
-until pg_isready -h identity-db -U postgres; do sleep 2; done
+until pg_isready -h identity-db -U postgres; do sleep 2; done   # trimmed: gives up with exit 1 after 30 tries
 psql -h identity-db -U postgres -d identity -v ON_ERROR_STOP=1 -f /init/seed.sql
 ```
 

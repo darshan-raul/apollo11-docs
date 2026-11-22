@@ -14,7 +14,7 @@ corrections, use a dedicated clone alongside this repository:
 
 ```bash
 git clone https://github.com/darshan-raul/Apollo11.git ../Apollo11
-git -C ../Apollo11 checkout f6211e679f8ed66a5a19033ac49a3bfc3a506eab
+git -C ../Apollo11 checkout 23e6513d5b414fd1811a4b8c7f944ab469b711b2
 git -C ../Apollo11 rev-parse HEAD
 ```
 

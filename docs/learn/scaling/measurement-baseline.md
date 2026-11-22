@@ -60,7 +60,7 @@ So dropped iterations usually mean **the system got slow**, not that the load ge
 
 ## The cache benchmark, step by step
 
-From [`k6/README.md`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/k6/README.md):
+From [`k6/README.md`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/k6/README.md):
 
 1. **Fix the path.** Port-forward `svc/search` to `localhost:18083`. Both runs use it, so neither includes the Gateway or TLS. A port-forward to a Service connects to **one** Pod, which is another reason to run exactly one replica.
 2. **Fix the replicas.** Save the HPA, delete it, scale search to 1. An HPA changing replicas mid-run would be a second variable.

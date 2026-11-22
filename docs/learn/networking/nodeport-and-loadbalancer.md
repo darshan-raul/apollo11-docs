@@ -62,7 +62,7 @@ sequenceDiagram
 
 | Hop | System | Configured by | Broken when |
 |---|---|---|---|
-| `localhost:30082` → control-plane container `:30082` | Docker | `extraPortMappings` in [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/ignition/kind-config.yaml) | The port is not mapped: `Connection refused` on the laptop |
+| `localhost:30082` → control-plane container `:30082` | Docker | `extraPortMappings` in [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/ignition/kind-config.yaml) | The port is not mapped: `Connection refused` on the laptop |
 | node `:30082` → Pod `:8082` | kube-proxy | The NodePort Service | No ready endpoints, wrong `targetPort` |
 
 Port mappings are fixed when the cluster is created. Apollo maps `30080–30084` and `30443` to the control-plane node only, so a NodePort outside that list works *inside* the Docker network but not from the laptop, and adding one means recreating the cluster.
@@ -147,9 +147,9 @@ Stage 2 climbs the ladder in substages:
 
 | Substage | Object | Type | Reached at |
 |---|---|---|---|
-| 2 | [`nodeport-services.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/02-nodeport/nodeport-services.yaml): frontend, flight, booking, identity, search | NodePort `30080–30084` | `localhost:3008x` |
-| 3 | [`01b-traefik-service.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/03-traefik-ingress-tls/01b-traefik-service.yaml): one proxy for everything | NodePort `30080`, `30443` | `*.apollo.local:30443` |
-| 4 | [`traefik-loadbalancer-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/04-metallb/traefik-loadbalancer-svc.yaml) + [`01-ip-pool.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage2/k8s/substages/04-metallb/01-ip-pool.yaml) | LoadBalancer via MetalLB | `172.18.0.5x:80/443` |
+| 2 | [`nodeport-services.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/02-nodeport/nodeport-services.yaml): frontend, flight, booking, identity, search | NodePort `30080–30084` | `localhost:3008x` |
+| 3 | [`01b-traefik-service.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/03-traefik-ingress-tls/01b-traefik-service.yaml): one proxy for everything | NodePort `30080`, `30443` | `*.apollo.local:30443` |
+| 4 | [`traefik-loadbalancer-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/04-metallb/traefik-loadbalancer-svc.yaml) + [`01-ip-pool.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage2/k8s/substages/04-metallb/01-ip-pool.yaml) | LoadBalancer via MetalLB | `172.18.0.5x:80/443` |
 | 5 | Envoy Gateway's proxy Service, set by an `EnvoyProxy` with `envoyService.type: LoadBalancer` | LoadBalancer via MetalLB | the Gateway's IP ([Gateway API](./gateway-api)) |
 
 The pool and its advertisement:

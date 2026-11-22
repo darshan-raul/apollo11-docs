@@ -84,7 +84,7 @@ sequenceDiagram
 
 **Every hop must propagate.** If one service builds its outgoing request without the incoming context, the next service sees no `traceparent` and starts a **new trace**. In Tempo that looks like two unrelated traces: one that ends early, and one whose root is a server span in the middle of the chain.
 
-Booking still sends `X-Request-ID` as well, for compatibility with earlier stages, but nothing in Stage 6 logs it.
+Booking still sends `X-Request-ID` as well. It is not part of trace propagation, but each service logs it as `request_id`, so a caller-chosen marker can find the log lines of a request even when you do not know its trace ID.
 
 ## Sampling
 
@@ -130,7 +130,7 @@ The Collector forwards what it receives. It cannot reconnect a trace that a serv
 | Sampler | `AlwaysSample` (Go); parent-based default (identity) | same |
 | Endpoint | `otel-collector.apollo-observability.svc.cluster.local:4317` | app Deployment env |
 | Span names | `HTTP <METHOD> <full URL>` for client spans | `callService` |
-| Tempo | 2.3, local storage, `48h` retention | [`tempo/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/tempo/config.yaml) |
+| Tempo | 2.3, local storage, `48h` retention | [`tempo/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/tempo/config.yaml) |
 
 The client span name includes the full URL, booking and flight IDs included. OpenTelemetry's conventions recommend a low-cardinality name (method and route template) and putting the URL in an attribute. In a trace viewer it reads fine; in any tool that groups spans by name, every ID becomes its own group.
 

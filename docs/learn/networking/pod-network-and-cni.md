@@ -102,7 +102,7 @@ On NetworkPolicy: recent kind releases (v0.24 and later) build NetworkPolicy sup
 
 ## Apollo example
 
-The kind cluster is defined in [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/ignition/kind-config.yaml):
+The kind cluster is defined in [`kind-config.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/ignition/kind-config.yaml):
 
 ```yaml
 networking:

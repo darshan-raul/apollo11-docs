@@ -95,14 +95,14 @@ Following one request across every service is a search for its trace ID:
 
 | Log | Never log |
 |---|---|
-| `trace_id`; the operation; the error and its cause; safe business identifiers (flight number, booking reference); counts and durations | Passwords, JWTs and other credentials; card numbers; personal data such as names and email addresses |
+| `request_id` and `trace_id`; the operation; the error and its cause; safe business identifiers (flight number, booking reference); counts and durations | Passwords, JWTs and other credentials; card numbers; personal data such as names and email addresses |
 
 Logs are copied, retained and searched by more people than the database is. Anything sensitive written to them becomes a new place to protect.
 
 Apollo breaks this rule in one place. Identity logs the passenger's **email address** on every registration and login:
 
 ```python
-log_json("INFO", "identity-service", "User logged in", trace_id=trace_id, span_id=span_id, email=body.email)
+log_json("INFO", "identity-service", "User logged in", trace_id=trace_id, span_id=span_id, request_id=request_id, email=body.email)
 ```
 
 Those lines are kept for seven days in Loki, which runs with authentication off (`auth_enabled: false`): anything in the cluster that can reach the `loki` Service can query them, as can every Grafana user allowed to use Explore. A user ID or a hash of the address would serve debugging just as well. Stage 8's security work is the place to remove it.
@@ -112,15 +112,15 @@ Those lines are kept for seven days in Loki, which runs with authentication off 
 - A matching line proves that **this line was shipped**. Last week's lines still being searchable says nothing about collection today. To test the pipeline, make a request with a fresh marker and find *that* line.
 - Absence proves little: the line may not have been written, may not have been shipped yet, or may sit outside the query's time range.
 - A "graceful shutdown" line proves the handler ran, not that no request failed ([Termination and draining](../reliability/termination-and-draining#sigterm-has-to-reach-the-code)).
-- Since Stage 6, Apollo's logs no longer carry the `X-Request-ID` (tracker G34). Search by `trace_id`, or by a marker you put in the request.
+- Since Stage 6, every service writes `request_id` (from the `X-Request-ID` header, or a generated one), `trace_id` and `span_id` into its request log lines. They are parsed JSON fields, not stream labels: `{namespace="apollo-airlines-apps"} | json | request_id="<marker>"`. To test the pipeline, send your own `X-Request-ID` marker and find that line. A marker in the query string (`?probe=<marker>`) with a `|= "<marker>"` line filter works too.
 
 ## Apollo example
 
 | Setting | Value | Where |
 |---|---|---|
-| Collector | Alloy DaemonSet, `loki.source.kubernetes` | [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml) |
+| Collector | Alloy DaemonSet, `loki.source.kubernetes` | [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml) |
 | Namespaces kept | Apollo's app and UI namespaces (a regex on the namespace name) | relabel rule |
-| Loki | 2.9, single process, filesystem storage on a 1 Gi PVC, TSDB index, no auth | [`loki/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/loki/config.yaml) |
+| Loki | 2.9, single process, filesystem storage on a 1 Gi PVC, TSDB index, no auth | [`loki/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/loki/config.yaml) |
 | Retention | `168h` | `values.yaml` |
 
 ## Try it

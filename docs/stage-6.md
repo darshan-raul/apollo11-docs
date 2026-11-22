@@ -7,7 +7,7 @@ sidebar_label: "Stage 6: Mission Ops (Observability)"
 # Stage 6: Mission Operations
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage6`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage6`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the Stage 5 Helm chart and the `kind-apollo11` cluster. Tear down Stage 5 first. Namespaces: `apollo-airlines-apps`, `apollo-airlines-ui`, and new `apollo-observability`. Allow about 8 GB of free RAM.
 - Concepts behind this stage: [Signals and metrics](./learn/observability/signals-and-metrics) · [How signals leave a service](./learn/observability/instrumenting-services) · [Discovery and collection](./learn/observability/discovery-and-collection) · [Queries, alerts and objectives](./learn/observability/queries-alerts-and-objectives) · [Logs](./learn/observability/logs) · [Distributed traces](./learn/observability/traces) · [Correlating a booking](./learn/observability/correlating-a-booking)
 :::
@@ -27,7 +27,7 @@ sidebar_label: "Stage 6: Mission Ops (Observability)"
 - Today the only tools are:
   - **`kubectl get pods`**: tells you a Pod is Running and Ready. It says nothing about how many bookings fail.
   - **`kubectl logs`**: one Pod at a time, and only while that Pod exists. A replaced Pod takes its history with it.
-  - **`/metrics`**: in Stage 5 it returns placeholder JSON (`"http_requests_total": 0`). There is nothing to count.
+  - **`/metrics`**: in Stage 5 it returns Prometheus text with fixed placeholder values (`http_requests_total{service="booking"} 0`). It parses, but nothing in the code counts anything.
 - A booking crosses four services: booking → identity → flight → notification. When it is slow, there is no way to see which hop took the time.
 
 Stage 6 adds the three signals that answer these questions:
@@ -40,7 +40,7 @@ Stage 6 adds the three signals that answer these questions:
 
 | Concern | Stage 5 | Stage 6 | Why it's better |
 |---|---|---|---|
-| What the code emits | `/metrics` placeholder JSON; the log field `trace_id` actually holds the `X-Request-ID` | Real Prometheus counters and histograms; OpenTelemetry spans; `trace_id` in log lines | The apps now produce data worth collecting |
+| What the code emits | `/metrics` with fixed placeholder zeros; the log field `trace_id` actually holds the `X-Request-ID` | Real Prometheus counters and histograms; OpenTelemetry spans; `request_id`, `trace_id` and `span_id` in log lines | The apps now produce data worth collecting |
 | Collecting metrics | Nothing | **Prometheus**, run by the **Prometheus Operator**, finds apps through **ServiceMonitors** | Scrapes every backend every 30 s and keeps 30 days of history |
 | Looking at metrics | `curl` one Pod | **Grafana** with five provisioned dashboards | Shared views across all services, over time |
 | "Is booking OK?" | A judgement call | **Booking SLO** as recording rules plus a burn-rate alert | Health becomes a number: error ratio and remaining error budget |
@@ -85,7 +85,7 @@ kubectl exec -n apollo-airlines-apps deploy/search -- \
   wget -qO- http://127.0.0.1:8083/metrics | grep '^http_requests_total' | head -3
 ```
 
-The apps are instrumented already. Only the collectors are missing. The key part of [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/code/booking/main.go):
+The apps are instrumented already. Only the collectors are missing. The key part of [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/code/booking/main.go):
 
 ```go
 // booking/main.go (trimmed)
@@ -106,7 +106,7 @@ httpRequestsTotal.WithLabelValues(service, c.Request.Method, path, status).Inc()
 - **What happens:** every request adds 1 to a counter and drops its duration into a histogram bucket. `/metrics` shows the current totals in Prometheus text format.
 - **Why labels are route patterns:** each distinct label value creates a separate time series. A booking ID as a label would create one series per booking. IDs belong in logs and traces, not metrics.
 - **Why the Service changed too:** Stage 6 gives each app Service an `app: <name>` label and names its port `http`. The ServiceMonitor in Step 2 selects on exactly those two things.
-- **Compared with Stage 5:** `/metrics` returned `{"http_requests_total": 0, ...}` as JSON. Nothing could scrape it. The deployment layer didn't change, the code did.
+- **Compared with Stage 5:** `/metrics` printed the same metric names in Prometheus text format, but every value was a fixed `0`. A scrape would succeed and record nothing. The deployment layer didn't change, the code did.
 - **How each signal gets out:** metrics are pulled, traces pushed, logs written to stdout. See [How signals leave a service](./learn/observability/instrumenting-services).
 - **Still missing:** right now you can still only `kubectl logs` one Pod and `curl` one `/metrics`. Each step below adds one signal.
 
@@ -119,7 +119,7 @@ kubectl port-forward -n apollo-observability svc/prometheus 19090:9090 >/dev/nul
 curl -s localhost:19090/api/v1/targets | jq -r '.data.activeTargets[] | "\(.labels.job) \(.health)"' | sort
 ```
 
-[`signals-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/scripts/signals-lab.sh) installs the Operator bundle, then applies the observability objects for the chosen substage. Two objects do the work:
+[`signals-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/scripts/signals-lab.sh) installs the Operator bundle, then applies the observability objects for the chosen substage. Two objects do the work:
 
 ```yaml
 # servicemonitors/booking-sm.yaml
@@ -164,7 +164,7 @@ kubectl port-forward -n apollo-observability svc/grafana 13000:3000 >/dev/null 2
 curl -s localhost:13000/api/health
 ```
 
-Open `http://localhost:13000` (`admin` / `apollo-admin`, from `observability.grafana` in [`values.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/values.yaml)). Grafana is also routed through the Stage 2 Envoy Gateway at `grafana.apollo.local`.
+Open `http://localhost:13000` (`admin` / `apollo-admin`, from `observability.grafana` in [`values.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/values.yaml)). Grafana is also routed through the Stage 2 Envoy Gateway at `grafana.apollo.local`.
 
 | Dashboard (folder `Apollo11`) | Shows |
 |---|---|
@@ -190,7 +190,7 @@ First, two terms:
 - **SLO (service level objective):** a target for how often something should work. Here: **99.5% of eligible booking-creation requests succeed**.
 - **Error budget:** the 0.5% that may fail. Spending it faster than planned is the warning sign.
 
-The rules are in [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/prometheus/rules.yaml):
+The rules are in [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/prometheus/rules.yaml):
 
 ```yaml
 # group apollo.booking-slo (trimmed)
@@ -212,7 +212,7 @@ The rules are in [`prometheus/rules.yaml`](https://github.com/darshan-raul/Apoll
 - **Why two windows in the alert:** the 5-minute window reacts quickly. The 1-hour window confirms it isn't a blip. 14.4× is the burn speed that would use the whole budget far too early. The [objectives chapter](./learn/observability/queries-alerts-and-objectives) explains burn rates.
 - **The other rules:** `ApolloServiceDown` (`up == 0` for 2 m), `ApolloErrorRateHigh` (5xx above 5% per service), `ApolloBookingLatencyP95High` (p95 above 500 ms).
 
-Now see the number move. Read [`slo-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/scripts/slo-lab.sh) first: it saves flight's replica count, scales flight to 0, sends real booking attempts for 150 s (each gets a 502), restores flight, then makes and cancels one recovery booking. It restores flight on exit even if interrupted.
+Now see the number move. Read [`slo-lab.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/scripts/slo-lab.sh) first: it saves flight's replica count, scales flight to 0, sends real booking attempts for 150 s (each gets a 502), restores flight, then makes and cancels one recovery booking. It restores flight on exit even if interrupted.
 
 ```bash
 Q() { curl -sG localhost:19090/api/v1/query --data-urlencode "query=$1" | jq -c '.data.result'; }
@@ -239,7 +239,7 @@ curl -sG localhost:13100/loki/api/v1/query_range \
   --data-urlencode 'limit=5' | jq -r '.data.result[].values[][1]'
 ```
 
-Alloy is the per-node collector. Its config in [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml):
+Alloy is the per-node collector. Its config in [`loki/alloy.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/loki/alloy.yaml):
 
 ```alloy
 discovery.kubernetes "pods" {
@@ -257,9 +257,10 @@ loki.write "local" { endpoint { url = "http://loki.apollo-observability.svc.clus
 - **What happens:** each Alloy Pod streams the logs of the Pods on its own node through the Kubernetes API (`loki.source.kubernetes`, the same route `kubectl logs` uses; nothing is mounted from the node), attaches `namespace`, `service`, `pod` and `container` labels, and pushes them to Loki. Loki keeps them on a PVC (`retention: 168h` in values).
 - **Why a DaemonSet:** to divide the work. Each Alloy follows only its own node's Pods, so every Pod is followed exactly once and a new node gets its own Alloy. Lines from a deleted Pod survive only if Alloy shipped them before the kubelet removed its logs.
 - **Why Loki indexes only labels:** labels pick the streams; `|= "text"` then searches inside them. That keeps the index small. As with metrics, don't make IDs into labels.
-- **What's in a line:** the apps write JSON with `timestamp`, `level`, `service`, `trace_id`, `span_id`, `message`. In Stage 6, `trace_id` is filled from the request's span, so log lines can be joined to traces (Step 7).
+- **What's in a line:** the apps write JSON with `timestamp`, `level`, `service`, `request_id`, `trace_id`, `span_id`, `message`. In Stage 6, `trace_id` and `span_id` are filled from the request's span, so log lines can be joined to traces (Step 7), and `request_id` carries the `X-Request-ID` header (or a generated one) so you can find a request by a marker you chose.
 - **Compared with Stage 5:** `kubectl logs` read one Pod's current container. Here you query every service at once, and lines from deleted Pods are still there.
-- **Watch out:** finding *old* lines proves nothing about *current* collection. To test the pipeline, look for a request you just made.
+- **Watch out:** finding *old* lines proves nothing about *current* collection. To test the pipeline, look for a request you just made, for example with your own marker: `curl -H "X-Request-ID: marker-$(date +%s)" …` from a Pod, then `{namespace="apollo-airlines-apps"} | json | request_id="marker-…"`.
+- **Breaking and restoring a substage:** the SIGNALS guide's drills (delete the search ServiceMonitor, point the Collector's exporter at an unused port) restore by re-running `signals-lab.sh apply <substage> helm`, not by re-applying a saved `kubectl get -o yaml` dump. A dump carries server fields (`resourceVersion`, `uid`); re-applying it records them in the last-applied annotation, and the next `signals-lab.sh apply` fails with `metadata.resourceVersion: Invalid value: 0`.
 
 ### Step 6: Traces: follow one booking through four services
 
@@ -268,7 +269,7 @@ bash stages/stage6/scripts/signals-lab.sh apply 5 helm
 bash stages/stage6/scripts/trace-test.sh             # prints trace_id=... services=...
 ```
 
-A **span** is one timed operation (an incoming request, or one outgoing call). A **trace** is all spans that share one `trace_id`. The code that keeps one booking in one trace, from [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/code/booking/main.go):
+A **span** is one timed operation (an incoming request, or one outgoing call). A **trace** is all spans that share one `trace_id`. The code that keeps one booking in one trace, from [`booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/code/booking/main.go):
 
 ```go
 r.Use(otelgin.Middleware("booking"))      // reads an incoming traceparent header, starts a server span
@@ -282,7 +283,7 @@ func callService(parent context.Context, url, method, body, requestID string, ..
 }
 ```
 
-The Pods send spans to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector.apollo-observability.svc.cluster.local:4317`, set by the app templates). The Collector config, [`otel-collector/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/helm/apollo11/templates/observability/otel-collector/config.yaml):
+The Pods send spans to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector.apollo-observability.svc.cluster.local:4317`, set by the app templates). The Collector config, [`otel-collector/config.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/helm/apollo11/templates/observability/otel-collector/config.yaml):
 
 ```yaml
 receivers:  {otlp: {protocols: {grpc: {endpoint: 0.0.0.0:4317}, http: {endpoint: 0.0.0.0:4318}}}}
@@ -300,7 +301,7 @@ curl -s localhost:13200/api/traces/$TRACE_ID \
   | jq -r '[.batches[].resource.attributes[] | select(.key=="service.name").value.stringValue] | unique'
 ```
 
-- **What happens:** [`trace-test.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage6/scripts/trace-test.sh) logs in as the seeded passenger, books with a generated `traceparent`, waits until Tempo holds one trace containing booking, identity, flight and notification, then cancels the booking and checks the seat comes back.
+- **What happens:** [`trace-test.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage6/scripts/trace-test.sh) logs in as the seeded passenger, books with a generated `traceparent`, waits until Tempo holds one trace containing booking, identity, flight and notification, then cancels the booking and checks the seat comes back.
 - **Why every service must forward `traceparent`:** each hop only knows the trace it was handed. If one service builds its outbound request from a fresh context, the next service starts a new trace and the chain breaks. The README lists this as a lesson from building the stage.
 - **Why a Collector in between:** apps send to one address and don't need to know about Tempo. Batching, memory limits and the backend choice live in one config. The Collector is a DaemonSet, but apps reach it through a normal Service, so a span may go to any node's Collector. The Go SDK's OTLP metrics also reach it and are dropped by its `debug` exporter: Prometheus's scrape is the only metrics path.
 - **Tracing is out of band:** if the Collector can't reach Tempo, bookings keep working and traces are silently lost. That is good for passengers, and a reason to check traces as their own pipeline.
@@ -328,9 +329,9 @@ curl -sG localhost:13100/loki/api/v1/query_range \
 | Trace | *Where* in the call chain one request failed or waited | What the code was thinking |
 | Log | *Why*, in the service's own words (`Booking created`, `User check failed`) | Rates and trends |
 
-- **What joins them:** the `trace_id`. It is in every span, and booking writes it into its log lines. Time is the join between metrics and the other two.
+- **What joins them:** the `trace_id`. It is in every span, and all five services write it, with `span_id` and `request_id`, into their request log lines. Time is the join between metrics and the other two.
 - **The usual order:** a metric or alert tells you something is wrong → a trace from that window shows which hop → logs for that `trace_id` give the detail.
-- **Compared with Stage 5:** the log field `trace_id` used to hold the `X-Request-ID`. Now it holds the real OpenTelemetry trace ID. The request ID still travels between services as a header, but is no longer written into log lines, so search Loki by trace ID.
+- **Compared with Stage 5:** the log field `trace_id` used to hold the `X-Request-ID`. Now it holds the real OpenTelemetry trace ID, and the request ID has its own `request_id` field. Both are parsed JSON fields, not Loki labels: query them with `{namespace="apollo-airlines-apps"} | json | trace_id="<id>"` or `… | request_id="<id>"`. `trace-test.sh` checks that Loki returns lines carrying both IDs of its booking.
 - **Watch out:** not every failure logs. In the Step 4 drill, booking returns `502 Flight service unavailable` without writing a log line. The trace's failed `booking → flight` span is the evidence.
 - The [correlation chapter](./learn/observability/correlating-a-booking) walks through more cases, including a notification failure under a successful booking.
 

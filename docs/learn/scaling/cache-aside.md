@@ -37,7 +37,7 @@ Cache-aside is the simplest to add to an existing service: one read path changes
 
 ## Every branch of search's cache
 
-From [`code/search/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage7/code/search/main.go):
+From [`code/search/main.go`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage7/code/search/main.go):
 
 ```mermaid
 flowchart TD
@@ -60,7 +60,7 @@ flowchart TD
 | **Redis error or outage** | Logged, treated as a miss; search keeps answering from flight | Every request now reaches flight: see below |
 | **Cache disabled** (`CACHE_ENABLED=false`) | No Redis client; every request is a miss | Used as the baseline in [the benchmark](./measurement-baseline#the-cache-benchmark-step-by-step) |
 
-A failed `SET` never fails the request, and a lost Redis connection is retried on later requests, so the cache repopulates after Redis returns without restarting search. Readiness reflects the same choice: `/healthz/ready` always answers 200 and reports `"cache": "ok"`, `"unreachable"` or `"disabled"` in its body. Search without a cache is degraded, not unready.
+A failed `SET` never fails the request, and a lost Redis connection is retried on later requests, so the cache repopulates after Redis returns without restarting search. After a failed connection attempt, search waits 5 s before trying again: during an outage, requests skip Redis immediately instead of each paying a fresh connection timeout. The TTL is 300 s by default and can be changed with `CACHE_TTL_SECONDS` (`redis.cache.ttlSeconds` in values); an invalid or non-positive value logs a warning and falls back to 300. Readiness reflects the same choice: `/healthz/ready` always answers 200 and reports `"cache": "ok"`, `"unreachable"` or `"disabled"` in its body. Search without a cache is degraded, not unready.
 
 ## Choosing a TTL
 

@@ -7,7 +7,7 @@ sidebar_label: "Stage 1: Liftoff (Workloads)"
 # Stage 1: Liftoff
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage1`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage1`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: the `kind-apollo11` cluster from [Ignition](./ignition). Namespace: `apollo-airlines`.
 - Concepts behind this stage: [ReplicaSets](./learn/cluster/replicasets) · [Deployments](./learn/cluster/deployments) · [Services and readiness, briefly](./learn/workloads/services-and-readiness) · [Configuration and identity](./learn/workloads/configuration-and-identity) · [Jobs and initialization](./learn/workloads/jobs-and-initialization) · [Rollouts and rollback](./learn/workloads/rollouts-and-rollback) · [Ephemeral state](./learn/workloads/ephemeral-state)
 :::
@@ -55,7 +55,7 @@ Stage 1 closes both gaps, and moves the rest of what Compose did (config, secret
 
 ### Step 1: Read one service end to end before applying anything
 
-Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/apps/booking/booking-dep.yaml) and [`booking-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/apps/booking/booking-svc.yaml). The parts that matter:
+Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1/k8s/apps/booking/booking-dep.yaml) and [`booking-svc.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1/k8s/apps/booking/booking-svc.yaml). The parts that matter:
 
 ```yaml
 # booking-dep.yaml (trimmed)
@@ -73,6 +73,10 @@ spec:
         - image: apollo11/booking:latest
           ports: [{containerPort: 8082}]
           env:
+            - name: POSTGRES_PASSWORD     # from the Secret...
+              valueFrom: {secretKeyRef: {name: apollo-airlines-secrets, key: POSTGRES_PASSWORD}}
+            - name: DATABASE_URL          # ...expanded here, so the password is never written down
+              value: "postgresql://postgres:$(POSTGRES_PASSWORD)@booking-db:5432/booking?sslmode=disable"
             - name: FLIGHT_SERVICE_URL
               valueFrom: {configMapKeyRef: {name: apollo-airlines-config, key: FLIGHT_SERVICE_URL}}
             - name: JWT_SECRET
@@ -100,7 +104,7 @@ kubectl config current-context        # must be kind-apollo11
 bash stages/stage1/scripts/apply.sh   # add --skip-build to reuse loaded images
 ```
 
-[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/scripts/apply.sh) runs six phases:
+[`apply.sh`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1/scripts/apply.sh) runs six phases:
 
 1. Namespace, ConfigMap, Secret, ServiceAccounts.
 2. The three Postgres Deployments and Redis, with their Services.
@@ -153,7 +157,7 @@ kubectl auth can-i get pods --as=system:serviceaccount:apollo-airlines:booking -
 ```
 
 - **ConfigMap vs Secret:** both become environment variables in the container. The split is about *who may read them*: later stages can let people read the ConfigMap but not the Secret. A Secret is only base64-encoded, not encrypted. Stage 8 introduces an external secret store.
-- **One secret leaks past the Secret:** identity, flight and booking build `DATABASE_URL` as a literal `postgresql://postgres:postgres@…` value in their Deployments. The databases and Jobs read `POSTGRES_PASSWORD` from the Secret, the apps do not. Rotating the Secret would lock the apps out, and anyone who can read a Deployment can read the password. [Configuration and identity](./learn/workloads/configuration-and-identity#apollo-example) explains the fix Stage 5 uses.
+- **One value built from another:** identity, flight and booking read `POSTGRES_PASSWORD` from the Secret, then build `DATABASE_URL` as `postgresql://postgres:$(POSTGRES_PASSWORD)@…`. Kubernetes expands `$(NAME)` only for variables declared *earlier* in the same `env` list, so the order matters. The Secret stays the only copy of the password; the env listing above shows `POSTGRES_PASSWORD <- apollo-airlines-secrets` and an empty source for `DATABASE_URL`, because it is a plain value. [Configuration and identity](./learn/workloads/configuration-and-identity#building-one-value-from-another) explains the expansion rules.
 - **Env vars are read at start-up:** if you change the ConfigMap, running Pods keep the old values until they restart. This is why config changes in later stages go with a rollout.
 - **ServiceAccounts:** each workload runs as its own identity (`booking`, `booking-db`, `init-booking-db`, …). None of them need to talk to the Kubernetes API, so `automountServiceAccountToken: false` keeps a usable token out of the container. Stage 8 grants real permissions with RBAC where they are needed.
 - **Compared with Launchpad:** Compose mixed config and secrets into one `environment:` block, and every container ran with the same (no) identity.
@@ -166,7 +170,7 @@ kubectl logs job/init-booking-db -n apollo-airlines
 ```
 
 - **What a Job is:** a controller for work that should *finish*. A Deployment restarts a container that exits. A Job counts an exit code 0 as success and stops.
-- **How these Jobs work** ([`init-booking-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage1/k8s/jobs/init-booking-db.yaml)):
+- **How these Jobs work** ([`init-booking-db.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage1/k8s/jobs/init-booking-db.yaml)):
   - Wait for `pg_isready` on `booking-db`, up to 30 tries.
   - Run `psql -v ON_ERROR_STOP=1 -f /init/init.sql`. The SQL is mounted from a ConfigMap.
   - `backoffLimit: 3` with `restartPolicy: Never`: failed attempts leave Pods you can read logs from.
@@ -209,6 +213,7 @@ kubectl rollout status deploy/search -n apollo-airlines
 - **Self-healing:** the deleted name is gone for good. The ReplicaSet made a *new* Pod to get back to two. That is reconciliation, the idea from Ignition, now doing real work.
 - **The rollout:** changing the image changes the Pod template, so the Deployment creates a second ReplicaSet and scales it up while scaling the old one down. With the default `maxUnavailable` setting, an old Pod is not removed until a new one is Ready. Because the new Pods never become Ready, the old ones keep serving. A bad release stalls instead of causing an outage.
 - **`rollout undo`:** points the Deployment back at the previous ReplicaSet's template. Nothing is rebuilt, the old ReplicaSet was kept for exactly this.
+- **The warning `rollout undo` prints:** kubectl v1.37+ warns that undo does not update the `kubectl.kubernetes.io/last-applied-configuration` annotation. That is expected. The live spec has rolled back; the next `kubectl apply` of the manifest (or `apply.sh`) brings the annotation back into agreement.
 
 ## When something looks wrong
 
@@ -233,7 +238,6 @@ The [troubleshooting page](./troubleshooting) has more.
 | Probes are basic; Pods have no resource requests | The scheduler and kubelet are guessing | [Stage 4](./stage-4): probes, requests/limits, PDBs |
 | Thirty YAML files applied by a script | Repeating values; no environments; no release history | [Stage 5](./stage-5): Helm, Kustomize, Argo CD |
 | Secret is base64 in Git; no RBAC in use | Anyone with repo access has the password | Stage 8 (planned): Vault, RBAC |
-| App `DATABASE_URL`s repeat the database password as a literal | The Secret is not the only copy; rotating it breaks the apps | [Stage 5](./stage-5): `$(POSTGRES_PASSWORD)` expansion from the Secret |
 
 ## The journey so far
 
@@ -263,7 +267,7 @@ They only look; nothing in them changes Apollo. Come back here when you are done
 ## Clean up
 
 ```bash
-bash stages/stage1/scripts/verify.sh      # optional: the full automated check
+bash stages/stage1/scripts/verify.sh --context kind-apollo11   # optional: the full automated check
 bash stages/stage1/scripts/teardown.sh
 kubectl get ns apollo-airlines            # NotFound
 kubectl config set-context --current --namespace=default  # reset context namespace if altered during Flight Deck

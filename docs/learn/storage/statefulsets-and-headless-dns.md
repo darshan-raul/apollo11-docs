@@ -139,7 +139,7 @@ Pod   headless    namespace, then cluster domain
 
 ## Apollo example
 
-Each Apollo database has both kinds of Service, selecting the same Pod. From [`identity-db-sts.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) and [`identity-db-svc-headless.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage3/k8s/apps/identity-db/identity-db-svc-headless.yaml):
+Each Apollo database has both kinds of Service, selecting the same Pod. From [`identity-db-sts.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/apps/identity-db/identity-db-sts.yaml) and [`identity-db-svc-headless.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage3/k8s/apps/identity-db/identity-db-svc-headless.yaml):
 
 ```yaml
 # StatefulSet (trimmed)

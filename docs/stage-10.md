@@ -61,7 +61,7 @@ retained data and a matching logical restore, plus Falco detection and cluster
 teardown. Falco chart downloads timed out three times before the successful
 attempt; an install error is not detection evidence.
 
-Source: [recorded mission results](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/verification-runs/fix-2026-10-22/README.md#stage-10-missions).
+Source: [recorded mission results](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/verification-runs/fix-2026-10-22/README.md#stage-10-missions).
 
 ## You should now be able to explain
 

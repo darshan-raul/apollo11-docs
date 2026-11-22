@@ -7,7 +7,7 @@ sidebar_label: "Stage 4: Flight Control (Reliability)"
 # Stage 4: Flight Control
 
 :::info[Page type · stage walkthrough]
-- Repo folder: [`stages/stage4`](https://github.com/darshan-raul/Apollo11/tree/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
+- Repo folder: [`stages/stage4`](https://github.com/darshan-raul/Apollo11/tree/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4) at the [pinned commit](./labs/setup#prepare-the-verified-workspace). Run commands from the repo root.
 - Builds on: [Stage 3](./stage-3) (StatefulSets, PVCs, Envoy Gateway on MetalLB). Namespaces: `apollo-airlines-apps` and `apollo-airlines-ui`.
 - Concepts behind this stage: [Probes](./learn/reliability/probes) · [Termination and draining](./learn/reliability/termination-and-draining) · [Requests, limits and pressure](./learn/reliability/requests-limits-and-pressure) · [Scheduling and placement](./learn/reliability/scheduling) · [Priority and spreading](./learn/reliability/priority-and-spreading) · [Disruption budgets](./learn/reliability/disruption-budgets)
 :::
@@ -47,7 +47,7 @@ Stage 4 changes no features. It changes how every workload is described to Kuber
 | `code/<service>/` | Same apps, plus `/healthz/{startup,live,ready}` and SIGTERM handling | Replaces Stage 3 code; old `/healthz` and `/readyz` still answer |
 | `k8s/gateway/`, `k8s/metallb/`, `k8s/jobs/`, `k8s/config/` (rest) | Envoy Gateway, MetalLB, seed Jobs, namespaces, ConfigMap, Secret, 13 ServiceAccounts | Carried over from Stage 3 |
 | `scripts/apply.sh` | 8 phases: build, config + PriorityClasses, workloads + PDBs, waits, Jobs, MetalLB, Gateway | Replaces Stage 3's script |
-| `scripts/verify.sh`, `teardown.sh` | Full check (including an eviction test), and clean removal (also deletes the PriorityClasses) | — |
+| `scripts/verify.sh`, `teardown.sh` | Full check (including an eviction test and a reversible taint test), and clean removal (also deletes the PriorityClasses) | — |
 
 ## Walkthrough
 
@@ -64,7 +64,7 @@ bash stages/stage4/scripts/apply.sh   # add --skip-build to reuse loaded images
 
 ### Step 2: Read the three probes on booking
 
-Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/k8s/apps/booking/booking-dep.yaml):
+Open [`k8s/apps/booking/booking-dep.yaml`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4/k8s/apps/booking/booking-dep.yaml):
 
 ```yaml
 # booking-dep.yaml (container, trimmed)
@@ -83,7 +83,7 @@ readinessProbe:
   failureThreshold: 3          # 3 misses → removed from the Service, not restarted
 ```
 
-And the handler behind readiness, in [`code/booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/f6211e679f8ed66a5a19033ac49a3bfc3a506eab/stages/stage4/code/booking/main.go):
+And the handler behind readiness, in [`code/booking/main.go`](https://github.com/darshan-raul/Apollo11/blob/23e6513d5b414fd1811a4b8c7f944ab469b711b2/stages/stage4/code/booking/main.go):
 
 ```go
 r.GET("/healthz/ready", func(c *gin.Context) {
@@ -141,10 +141,10 @@ containers:
 // code/booking/main.go (trimmed): the app now handles SIGTERM
 signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 <-quit
-logJSON("INFO", "booking-service", "Received SIGTERM, shutting down gracefully", "", "", nil)
+logJSON("INFO", "booking-service", "Received SIGTERM, shutting down gracefully", "", "")
 shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 srv.Shutdown(shutdownCtx)          // stop accepting, finish in-flight requests
-db.Close()
+if db != nil { db.Close() }           // the DB may never have connected
 ```
 
 Watch it happen:
@@ -161,7 +161,7 @@ sleep 12; kill %1
 - **Why the 5 s sleep:** removing a Pod from the Service has to reach kube-proxy and Envoy on every node. That takes a moment. Without the sleep the app could stop listening while traffic is still being routed to it. The sleep gives routing a head start. It narrows the gap; it can't prove zero failures.
 - **Why the grace period:** if the app ignores SIGTERM, the kubelet waits the whole grace period and then kills it (exit code 137). Apps get 30 s, counted from deletion, so the 5 s `preStop` leaves about 25 s for the drain. Booking's own drain timeout is 30 s, so a request still running at about 25 s ends by SIGKILL rather than by the app; booking's requests take milliseconds, so this does not bite today. Postgres and Redis get 60 s to checkpoint and flush to disk. [Termination and draining](./learn/reliability/termination-and-draining#one-budget-shared) explains the arithmetic.
 - **Compared with Stage 3:** SIGTERM ended the process at once, and nothing delayed it. Each rolling update and each drain could drop a few requests.
-- **identity** is Python. At the pinned revision it logs the same SIGTERM message, but its custom signal handler replaced uvicorn's, so the server never starts draining: every identity Pod waits the full 30 s and is SIGKILLed. Apollo fixed this after the pin (tracker G21, commit [`90b5120`](https://github.com/darshan-raul/Apollo11/commit/90b5120005a44e6af31025309b59cdcbdbbb86ab)). Time an identity Pod's deletion to see it: a log line is not proof of a clean shutdown.
+- **identity** is Python. It logs the same SIGTERM message from a `uvicorn.Server` subclass that then calls uvicorn's own handler, so the server drains (up to `timeout_graceful_shutdown=30`) and exits well before SIGKILL. Earlier revisions replaced uvicorn's handler instead, logged the message and were killed at 30 s every time (tracker G21, fixed in commit [`90b5120`](https://github.com/darshan-raul/Apollo11/commit/90b5120005a44e6af31025309b59cdcbdbbb86ab)). Time an identity Pod's deletion to prove it: a log line alone is not proof of a clean shutdown.
 
 ### Step 5: See requests, limits and QoS
 
@@ -211,9 +211,27 @@ kubectl get pods -n apollo-airlines-apps -l app=booking \
   -o custom-columns=NAME:.metadata.name,PRIORITY:.spec.priority,CLASS:.spec.priorityClassName,NODE:.spec.nodeName
 ```
 
-- **Priority:** booking and search use `apollo-airlines-app-critical`; notification uses `apollo-airlines-app-low` (-100000). The others use the default (0). If a critical Pod can't fit anywhere, the scheduler may evict lower-priority Pods to make room. Losing a notification is better than losing booking.
-- **Spreading:** the two booking Pods normally sit on `apollo11-worker` and `apollo11-worker2`. If one node is lost, the other copy keeps serving.
+- **Priority:** booking and search use `apollo-airlines-app-critical`; notification uses `apollo-airlines-app-low` (-100000). The others use the default (0). If a critical Pod can't fit anywhere, the scheduler may *preempt* (gracefully evict) lower-priority Pods to make room. Losing a notification is better than losing booking. Priority is not the kubelet's main signal under node pressure: there it evicts Pods using more than they requested first, and all of Apollo's apps are `Guaranteed`.
+- **Spreading:** the two booking Pods normally sit on two different workers (`apollo11-worker` and `apollo11-worker2` on the course cluster; check the `NODE` column). If one node is lost, the other copy keeps serving.
 - **Why `ScheduleAnyway`:** with `DoNotSchedule`, a full node would leave the Pod `Pending`. Here a lopsided placement is better than a missing replica.
+
+Priority and spreading choose *among* nodes. A taint lets a node refuse Pods outright. Try a reversible one on a worker:
+
+```bash
+NS=apollo-airlines-apps
+NODE=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}')
+kubectl taint node "$NODE" apollo11.io/maintenance=true:NoSchedule
+kubectl run taint-probe -n $NS --image=busybox:1.36 --restart=Never \
+  --overrides="{\"spec\":{\"nodeSelector\":{\"kubernetes.io/hostname\":\"$NODE\"},\"priorityClassName\":\"apollo-airlines-app-low\"}}" \
+  -- sleep 5
+kubectl get pod taint-probe -n $NS                 # Pending
+kubectl describe pod taint-probe -n $NS | tail -n 5   # FailedScheduling: untolerated taint {apollo11.io/maintenance: true}
+kubectl delete pod taint-probe -n $NS
+kubectl taint node "$NODE" apollo11.io/maintenance=true:NoSchedule-   # the trailing "-" removes it
+```
+
+- **What it shows:** the probe is pinned to the tainted node, so it has nowhere else to go and stays `Pending` with an `untolerated taint` reason. Running Pods on that node are untouched: `NoSchedule` only affects new placements (`NoExecute` would evict).
+- **Always clean up:** remove the taint and the probe. `verify.sh` runs the same check and removes both, even if it fails part-way. More in [Scheduling](./learn/reliability/scheduling#pushing-taints-and-tolerations).
 - **Compared with Stage 3:** both booking Pods could end up on the same node, and nothing ranked one workload above another.
 - More in [Priority and spreading](./learn/reliability/priority-and-spreading).
 
